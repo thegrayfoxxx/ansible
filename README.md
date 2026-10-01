@@ -14,11 +14,12 @@
 ansible.cfg
 requirements.yml
 playbooks/
-  ping.yml    # проверка связи
-  update.yml  # apt update + upgrade, опционально reboot
-  base.yml    # timezone + base packages
+  ping.yml       # проверка связи
+  update.yml     # apt update + upgrade, опционально reboot
+  base.yml       # timezone + base packages
+  run_script.yml # запуск скриптов из scripts/
 scripts/
-  hello.sh    # пример shell-задачи
+  hello.sh       # пример shell-задачи
 ```
 
 ## Semaphore UI: подключение
@@ -52,6 +53,7 @@ all:
    - `ping`: playbook `playbooks/ping.yml`, inventory из п.3, key из п.2.
    - `update`: playbook `playbooks/update.yml`, extra vars при необходимости.
    - `base`: playbook `playbooks/base.yml`.
+   - `run_script`: playbook `playbooks/run_script.yml`, extra vars с `script_src`.
 
 ## Универсальный target
 
@@ -80,6 +82,12 @@ hosts: "{{ target | default('all') }}"
 - `base_timezone: Etc/UTC`
 - `base_packages: [python3, sudo, curl, htop]`
 
+`playbooks/run_script.yml`:
+- `script_src: scripts/hello.sh` (обязательно, путь от корня репо)
+- `script_args: ""` (опционально, строка аргументов)
+- `script_env: {}` (опционально)
+- `script_become: true` -> `false` чтобы запустить без sudo
+
 Передавать через Semaphore Environment / Extra vars JSON, например:
 
 ```json
@@ -89,11 +97,33 @@ hosts: "{{ target | default('all') }}"
 }
 ```
 
+Запуск скрипта через Semaphore Extra vars:
+
+```json
+{
+  "target": "stage",
+  "script_src": "scripts/hello.sh"
+}
+```
+
+С аргументами, env и без sudo:
+
+```json
+{
+  "target": "vps-prod-01",
+  "script_src": "scripts/hello.sh",
+  "script_args": "--foo bar",
+  "script_env": {"FOO": "1"},
+  "script_become": false
+}
+```
+
 ## Локальная проверка
 
 ```bash
 ansible-playbook --syntax-check playbooks/ping.yml
 ansible-playbook --syntax-check playbooks/update.yml
 ansible-playbook --syntax-check playbooks/base.yml
+ansible-playbook --syntax-check playbooks/run_script.yml
 ansible-galaxy collection install -r requirements.yml
 ```

@@ -1,0 +1,29 @@
+---
+- name: Run script from scripts/
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    script_src: ""
+    script_args: ""
+    script_env: {}
+    script_become: true
+  tasks:
+    - name: Validate script_src is set
+      ansible.builtin.fail:
+        msg: "Set script_src, e.g. scripts/hello.sh (via Extra vars)"
+      when: script_src | length == 0
+
+    - name: Run script
+      ansible.builtin.script: "{{ script_src }} {{ script_args }}"
+      environment: "{{ script_env }}"
+      become: "{{ script_become }}"
+      register: script_out
+      changed_when: true
+
+    - name: Show script output
+      ansible.builtin.debug:
+        msg:
+          - "rc: {{ script_out.rc }}"
+          - "stdout: {{ script_out.stdout }}"
+          - "stderr: {{ script_out.stderr }}"
