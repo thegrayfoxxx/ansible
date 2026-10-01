@@ -1,0 +1,8 @@
+*.retry
+*.vault-pass
+.vault-pass
+collections/
+roles/
+!roles/.gitkeep
+__pycache__/
+.mypy_cache/

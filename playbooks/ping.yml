@@ -1,0 +1,8 @@
+---
+- name: Check connectivity
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Ping hosts
+      ansible.builtin.ping:

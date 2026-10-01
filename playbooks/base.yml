@@ -1,0 +1,23 @@
+---
+- name: Base setup for Debian
+  hosts: "{{ target | default('all') }}"
+  gather_facts: true
+  become: true
+  vars:
+    base_timezone: Etc/UTC
+    base_packages:
+      - python3
+      - sudo
+      - curl
+      - htop
+  tasks:
+    - name: Set timezone
+      community.general.timezone:
+        name: "{{ base_timezone }}"
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name: "{{ base_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
