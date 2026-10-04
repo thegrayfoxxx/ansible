@@ -18,46 +18,26 @@
     - name: Run command via shell
       ansible.builtin.shell: "{{ cmd }}"
       args:
-        chdir: "{{ cmd_chdir }}"
+        chdir: "{{ cmd_chdir if cmd_chdir | length > 0 else omit }}"
       environment: "{{ cmd_env }}"
       become: "{{ cmd_become }}"
-      register: cmd_out
+      register: cmd_shell_out
       changed_when: true
-      when:
-        - use_shell | bool
-        - cmd_chdir | length > 0
-
-    - name: Run command via shell (no chdir)
-      ansible.builtin.shell: "{{ cmd }}"
-      environment: "{{ cmd_env }}"
-      become: "{{ cmd_become }}"
-      register: cmd_out
-      changed_when: true
-      when:
-        - use_shell | bool
-        - cmd_chdir | length == 0
+      when: use_shell | bool
 
     - name: Run command via command
       ansible.builtin.command: "{{ cmd }}"
       args:
-        chdir: "{{ cmd_chdir }}"
+        chdir: "{{ cmd_chdir if cmd_chdir | length > 0 else omit }}"
       environment: "{{ cmd_env }}"
       become: "{{ cmd_become }}"
-      register: cmd_out
+      register: cmd_raw_out
       changed_when: true
-      when:
-        - not (use_shell | bool)
-        - cmd_chdir | length > 0
+      when: not (use_shell | bool)
 
-    - name: Run command via command (no chdir)
-      ansible.builtin.command: "{{ cmd }}"
-      environment: "{{ cmd_env }}"
-      become: "{{ cmd_become }}"
-      register: cmd_out
-      changed_when: true
-      when:
-        - not (use_shell | bool)
-        - cmd_chdir | length == 0
+    - name: Pick executed result
+      ansible.builtin.set_fact:
+        cmd_out: "{{ cmd_shell_out if not cmd_shell_out.skipped | default(false) else cmd_raw_out }}"
 
     - name: Show command output
       ansible.builtin.debug:
