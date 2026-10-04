@@ -9,6 +9,8 @@
     cmd_chdir: ""
     cmd_env: {}
     cmd_become: true
+    cmd_tail: 0
+    allow_fail: false
   tasks:
     - name: Validate cmd is set
       ansible.builtin.fail:
@@ -23,6 +25,7 @@
       become: "{{ cmd_become }}"
       register: cmd_shell_out
       changed_when: true
+      failed_when: not (allow_fail | bool) and cmd_shell_out.rc != 0
       when: use_shell | bool
 
     - name: Run command via command
@@ -33,6 +36,7 @@
       become: "{{ cmd_become }}"
       register: cmd_raw_out
       changed_when: true
+      failed_when: not (allow_fail | bool) and cmd_raw_out.rc != 0
       when: not (use_shell | bool)
 
     - name: Pick executed result
@@ -41,8 +45,18 @@
 
     - name: Show command return code
       ansible.builtin.debug:
-        msg: "rc={{ cmd_out.rc }} stderr={{ cmd_out.stderr }}"
+        msg: "rc={{ cmd_out.rc }}"
 
     - name: Show command stdout
       ansible.builtin.debug:
-        var: cmd_out.stdout_lines
+        var: _cmd_stdout
+      vars:
+        _cmd_stdout: "{{ cmd_out.stdout_lines[-(cmd_tail | int):] if (cmd_tail | int) > 0 else cmd_out.stdout_lines }}"
+      when: cmd_out.stdout_lines | length > 0
+
+    - name: Show command stderr
+      ansible.builtin.debug:
+        var: _cmd_stderr
+      vars:
+        _cmd_stderr: "{{ cmd_out.stderr_lines[-(cmd_tail | int):] if (cmd_tail | int) > 0 else cmd_out.stderr_lines }}"
+      when: cmd_out.stderr_lines | length > 0

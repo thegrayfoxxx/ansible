@@ -128,6 +128,8 @@ hosts: "{{ target | default('all') }}"
 - `cmd_chdir: ""` (опционально, рабочая папка)
 - `cmd_env: {}` (опционально)
 - `cmd_become: true` -> `false` чтобы запустить без sudo
+- `cmd_tail: 0` (опционально, показать только последние N строк stdout/stderr)
+- `allow_fail: false` -> `true` чтобы не фейлить хост при rc != 0 (rc виден в выводе)
 
 Запуск команды через Semaphore Extra vars:
 
@@ -148,6 +150,27 @@ hosts: "{{ target | default('all') }}"
   "cmd_chdir": "/opt",
   "cmd_env": {"FOO": "1"},
   "cmd_become": false
+}
+```
+
+Обновление docker-контейнеров с коротким хвостом лога:
+
+```json
+{
+  "target": "prod",
+  "cmd": "cd /home/anatoliy/remna_node && docker compose pull && docker compose up -d",
+  "cmd_tail": 20
+}
+```
+
+По гетерогенным хостам без фейла всего таска (rc виден в выводе):
+
+```json
+{
+  "target": "all",
+  "cmd": "cd /home/anatoliy/remna_node && docker compose up -d",
+  "allow_fail": true,
+  "cmd_tail": 15
 }
 ```
 
