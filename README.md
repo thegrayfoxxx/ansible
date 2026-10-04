@@ -18,6 +18,7 @@ playbooks/
   update.yml     # apt update + upgrade, опционально reboot
   base.yml       # timezone + base packages
   run_script.yml # запуск скриптов из scripts/
+  run_cmd.yml    # произвольная команда
 scripts/
   hello.sh       # пример shell-задачи
 ```
@@ -54,6 +55,7 @@ all:
    - `update`: playbook `playbooks/update.yml`, extra vars при необходимости.
    - `base`: playbook `playbooks/base.yml`.
    - `run_script`: playbook `playbooks/run_script.yml`, extra vars с `script_src`.
+   - `run_cmd`: playbook `playbooks/run_cmd.yml`, extra vars с `cmd`.
 
 ## Универсальный target
 
@@ -118,6 +120,35 @@ hosts: "{{ target | default('all') }}"
 }
 ```
 
+`playbooks/run_cmd.yml`:
+- `cmd: "df -h"` (обязательно)
+- `use_shell: true` -> `false` для строгого `command` без shell
+- `cmd_chdir: ""` (опционально, рабочая папка)
+- `cmd_env: {}` (опционально)
+- `cmd_become: true` -> `false` чтобы запустить без sudo
+
+Запуск команды через Semaphore Extra vars:
+
+```json
+{
+  "target": "us_racknerd",
+  "cmd": "df -h"
+}
+```
+
+С shell-пайпом, chdir, env и без sudo:
+
+```json
+{
+  "target": "stage",
+  "cmd": "ls -la /opt | grep app",
+  "use_shell": true,
+  "cmd_chdir": "/opt",
+  "cmd_env": {"FOO": "1"},
+  "cmd_become": false
+}
+```
+
 ## Локальная проверка
 
 ```bash
@@ -125,5 +156,6 @@ ansible-playbook --syntax-check playbooks/ping.yml
 ansible-playbook --syntax-check playbooks/update.yml
 ansible-playbook --syntax-check playbooks/base.yml
 ansible-playbook --syntax-check playbooks/run_script.yml
+ansible-playbook --syntax-check playbooks/run_cmd.yml
 ansible-galaxy collection install -r requirements.yml
 ```

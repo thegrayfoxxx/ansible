@@ -1,0 +1,67 @@
+---
+- name: Run arbitrary command
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    cmd: ""
+    use_shell: true
+    cmd_chdir: ""
+    cmd_env: {}
+    cmd_become: true
+  tasks:
+    - name: Validate cmd is set
+      ansible.builtin.fail:
+        msg: "Set cmd, e.g. df -h (via Extra vars)"
+      when: cmd | length == 0
+
+    - name: Run command via shell
+      ansible.builtin.shell: "{{ cmd }}"
+      args:
+        chdir: "{{ cmd_chdir }}"
+      environment: "{{ cmd_env }}"
+      become: "{{ cmd_become }}"
+      register: cmd_out
+      changed_when: true
+      when:
+        - use_shell | bool
+        - cmd_chdir | length > 0
+
+    - name: Run command via shell (no chdir)
+      ansible.builtin.shell: "{{ cmd }}"
+      environment: "{{ cmd_env }}"
+      become: "{{ cmd_become }}"
+      register: cmd_out
+      changed_when: true
+      when:
+        - use_shell | bool
+        - cmd_chdir | length == 0
+
+    - name: Run command via command
+      ansible.builtin.command: "{{ cmd }}"
+      args:
+        chdir: "{{ cmd_chdir }}"
+      environment: "{{ cmd_env }}"
+      become: "{{ cmd_become }}"
+      register: cmd_out
+      changed_when: true
+      when:
+        - not (use_shell | bool)
+        - cmd_chdir | length > 0
+
+    - name: Run command via command (no chdir)
+      ansible.builtin.command: "{{ cmd }}"
+      environment: "{{ cmd_env }}"
+      become: "{{ cmd_become }}"
+      register: cmd_out
+      changed_when: true
+      when:
+        - not (use_shell | bool)
+        - cmd_chdir | length == 0
+
+    - name: Show command output
+      ansible.builtin.debug:
+        msg:
+          - "rc: {{ cmd_out.rc }}"
+          - "stdout: {{ cmd_out.stdout }}"
+          - "stderr: {{ cmd_out.stderr }}"
