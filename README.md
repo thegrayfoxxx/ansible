@@ -76,7 +76,25 @@ hosts: "{{ target | default('all') }}"
 
 `Limit` и `target` можно комбинировать, приоритет у `Limit` (стандартный ansible `--limit`).
 
-## Переменные
+## Переменные и типы survey-полей в Semaphore UI
+
+Переменные задаются через Survey variables шаблона (типы String, Integer, Text, Enum, Secret) и уезжают
+в Ansible как `--extra-vars`. Важно: списки и словари приезжают **строками**, плейбуки сами приводят их
+к нужному типу — оба способа ввода работают:
+
+- **Способ 1 (рекомендуемый): Text-поле, по одному элементу на строку.**
+  ```
+  ssh-ed25519 AAAA... first
+  ssh-ed25519 BBBB... second
+  ```
+- **Способ 2: String-поле, через запятую.**
+  ```
+  ssh-ed25519 AAAA... first, ssh-ed25519 BBBB... second
+  ```
+
+Словари (`*_env`) — Text-поле с JSON-объектом: `{"FOO": "1"}`.
+Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значениями `true`/`false` или String.
+Числа (`reboot_timeout`, `cmd_tail`) — Integer.
 
 `playbooks/update.yml`:
 - `apt_upgrade: dist` (или `safe`)
@@ -85,16 +103,17 @@ hosts: "{{ target | default('all') }}"
 - `reboot_if_required: false` -> `true` для авторебута
 
 `playbooks/base.yml`:
-- `base_timezone: Etc/UTC`
-- `base_packages: [python3, sudo, curl, htop]`
+- `base_timezone: Etc/UTC` (String)
+- `base_packages` (Text: один пакет на строку или через запятую; дефолт `python3, sudo, curl, htop`)
 
 `playbooks/run_script.yml`:
-- `script_src: scripts/hello.sh` (обязательно, путь от корня репо, резолвится через `playbook_dir`)
-- `script_args: ""` (опционально, строка аргументов)
-- `script_env: {}` (опционально)
-- `script_become: true` -> `false` чтобы запустить без sudo
+- `script_src: scripts/hello.sh` (String; обязательно, путь от корня репо, резолвится через `playbook_dir`)
+- `script_args: ""` (String, опционально)
+- `script_env` (Text с JSON-объектом, опционально; например `{"FOO": "1"}`)
+- `script_become: true` -> `false` чтобы запустить без sudo (Enum)
 
-Передавать через Semaphore Environment / Extra vars JSON, например:
+Передавать через survey-поля шаблона (ниже те же значения показаны JSON'ом для краткости —
+в UI каждое поле заполняется отдельно; raw JSON работает через API/schedules):
 
 ```json
 {
@@ -125,13 +144,13 @@ hosts: "{{ target | default('all') }}"
 ```
 
 `playbooks/run_cmd.yml`:
-- `cmd: "df -h"` (обязательно)
-- `use_shell: true` -> `false` для строгого `command` без shell
-- `cmd_chdir: ""` (опционально, рабочая папка)
-- `cmd_env: {}` (опционально)
-- `cmd_become: true` -> `false` чтобы запустить без sudo
-- `cmd_tail: 0` (опционально, показать только последние N строк stdout/stderr)
-- `allow_fail: false` -> `true` чтобы не фейлить хост при rc != 0 (rc виден в выводе)
+- `cmd: "df -h"` (String, обязательно)
+- `use_shell: true` -> `false` для строгого `command` без shell (Enum)
+- `cmd_chdir: ""` (String, опционально, рабочая папка)
+- `cmd_env` (Text с JSON-объектом, опционально; например `{"FOO": "1"}`)
+- `cmd_become: true` -> `false` чтобы запустить без sudo (Enum)
+- `cmd_tail: 0` (Integer, опционально, показать только последние N строк stdout/stderr)
+- `allow_fail: false` -> `true` чтобы не фейлить хост при rc != 0 (rc виден в выводе; Enum)
 
 Запуск команды через Semaphore Extra vars:
 
@@ -200,30 +219,20 @@ hosts: "{{ target | default('all') }}"
 ```
 
 `playbooks/init.yml` (инит новой ноды — первый прогон строго с `Limit` на одну тестовую ноду):
-- `ssh_user: root` (юзер должен существовать)
-- `ssh_keys: [...]` (обязательно, список публичников; чужие ключи не трогаются)
-- `sshd_permit_root_login: prohibit-password`
-- `sshd_pubkey_auth: "yes"`, `sshd_password_auth: "no"`, `sshd_permit_empty: "no"`
-- `skip_sshd: false` -> `true` чтобы добавить только ключи без правок sshd (для bootstrap по паролю)
+- `ssh_user: root` (String; юзер должен существовать)
+- `ssh_keys` (Text, обязательно; один публичник на строку или через запятую; чужие ключи не трогаются)
+- `sshd_permit_root_login: prohibit-password` (String)
+- `sshd_pubkey_auth: "yes"`, `sshd_password_auth: "no"`, `sshd_permit_empty: "no"` (String)
+- `skip_sshd: false` -> `true` чтобы добавить только ключи без правок sshd (для bootstrap по паролю; Enum)
 
-Инит новой ноды через Semaphore Extra vars:
-
-```json
-{
-  "target": "new-node-01",
-  "ssh_user": "root",
-  "ssh_keys": ["ssh-ed25519 AAAA... semaphore-ansible"]
-}
+Инит новой ноды: survey-поля `target=new-node-01`, `ssh_user=root`, `ssh_keys` (Text):
+```
+ssh-ed25519 AAAA... semaphore-ansible
 ```
 
-Несколько ключей другому юзеру:
-
-```json
-{
-  "target": "new-node-01",
-  "ssh_user": "debian",
-  "ssh_keys": ["ssh-ed25519 AAAA... first", "ssh-ed25519 BBBB... second"]
-}
+Несколько ключей другому юзеру (`ssh_user=debian`, `ssh_keys` через запятую):
+```
+ssh-ed25519 AAAA... first, ssh-ed25519 BBBB... second
 ```
 
 Bootstrap ноды где есть только пароль (Key Store типа Login With Password):

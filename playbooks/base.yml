@@ -11,13 +11,17 @@
       - curl
       - htop
   tasks:
+    - name: Normalize base_packages to list
+      ansible.builtin.set_fact:
+        base_packages_list: "{{ base_packages.replace(',', '\n').splitlines() | map('trim') | select | list if base_packages is string else base_packages }}"
+
     - name: Set timezone
       community.general.timezone:
         name: "{{ base_timezone }}"
 
     - name: Install base packages
       ansible.builtin.apt:
-        name: "{{ base_packages }}"
+        name: "{{ base_packages_list }}"
         state: present
         update_cache: true
         cache_valid_time: 3600

@@ -12,10 +12,15 @@
     sshd_password_auth: "no"
     sshd_permit_empty: "no"
   tasks:
+    - name: Normalize ssh_keys to list
+      ansible.builtin.set_fact:
+        ssh_keys_list: "{{ ssh_keys.replace(',', '\n').splitlines() | map('trim') | select | list if ssh_keys is string else ssh_keys }}"
+      tags: [keys, sshd]
+
     - name: Validate ssh_keys is not empty
       ansible.builtin.fail:
-        msg: "Set ssh_keys list via Extra vars"
-      when: ssh_keys | length == 0
+        msg: "Set ssh_keys via survey/Text, one key per line or comma-separated"
+      when: ssh_keys_list | length == 0
       tags: [keys, sshd]
 
     - name: Add public keys
@@ -24,7 +29,7 @@
         key: "{{ item }}"
         state: present
         exclusive: false
-      loop: "{{ ssh_keys }}"
+      loop: "{{ ssh_keys_list }}"
       tags: [keys]
 
     - name: Harden sshd_config

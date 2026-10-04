@@ -17,11 +17,15 @@
         msg: "Set cmd, e.g. df -h (via Extra vars)"
       when: cmd | length == 0
 
+    - name: Normalize cmd_env to dict
+      ansible.builtin.set_fact:
+        cmd_env_dict: "{{ (cmd_env | from_json) if (cmd_env is string and cmd_env | length > 0) else (cmd_env if cmd_env is mapping else {}) }}"
+
     - name: Run command via shell
       ansible.builtin.shell: "{{ cmd }}"
       args:
         chdir: "{{ cmd_chdir if cmd_chdir | length > 0 else omit }}"
-      environment: "{{ cmd_env }}"
+      environment: "{{ cmd_env_dict }}"
       become: "{{ cmd_become }}"
       register: cmd_shell_out
       changed_when: true
@@ -32,7 +36,7 @@
       ansible.builtin.command: "{{ cmd }}"
       args:
         chdir: "{{ cmd_chdir if cmd_chdir | length > 0 else omit }}"
-      environment: "{{ cmd_env }}"
+      environment: "{{ cmd_env_dict }}"
       become: "{{ cmd_become }}"
       register: cmd_raw_out
       changed_when: true

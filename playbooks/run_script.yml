@@ -14,17 +14,27 @@
         msg: "Set script_src as repo-root path, e.g. scripts/hello.sh (via Extra vars)"
       when: script_src | length == 0
 
+    - name: Normalize script_env to dict
+      ansible.builtin.set_fact:
+        script_env_dict: "{{ (script_env | from_json) if (script_env is string and script_env | length > 0) else (script_env if script_env is mapping else {}) }}"
+
     - name: Run script
       ansible.builtin.script: "{{ playbook_dir }}/../{{ script_src }} {{ script_args }}"
-      environment: "{{ script_env }}"
+      environment: "{{ script_env_dict }}"
       become: "{{ script_become }}"
       register: script_out
       changed_when: true
 
     - name: Show script return code
       ansible.builtin.debug:
-        msg: "rc={{ script_out.rc }} stderr={{ script_out.stderr }}"
+        msg: "rc={{ script_out.rc }}"
 
     - name: Show script stdout
       ansible.builtin.debug:
         var: script_out.stdout_lines
+      when: script_out.stdout_lines | length > 0
+
+    - name: Show script stderr
+      ansible.builtin.debug:
+        var: script_out.stderr_lines
+      when: script_out.stderr_lines | length > 0
