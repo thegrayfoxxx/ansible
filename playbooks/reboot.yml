@@ -12,7 +12,7 @@
   tasks:
     - name: Show uptime before reboot
       ansible.builtin.debug:
-        msg: "uptime={{ ansible_uptime_seconds }}s ({{ inventory_hostname }})"
+        msg: "uptime={{ ansible_facts.uptime_seconds }}s ({{ inventory_hostname }})"
 
     - name: Reboot
       ansible.builtin.reboot:
@@ -22,6 +22,10 @@
         reboot_timeout: "{{ reboot_timeout }}"
         connect_timeout: "{{ reboot_connect_timeout }}"
 
+    - name: Refresh facts after reboot
+      ansible.builtin.setup:
+        filter: ansible_uptime_seconds
+
     - name: Show uptime after reboot
       ansible.builtin.debug:
-        msg: "back online, uptime={{ ansible_uptime_seconds }}s ({{ inventory_hostname }})"
+        msg: "back online, uptime={{ ansible_facts.uptime_seconds }}s ({{ inventory_hostname }})"
