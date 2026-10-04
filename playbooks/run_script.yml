@@ -11,11 +11,11 @@
   tasks:
     - name: Validate script_src is set
       ansible.builtin.fail:
-        msg: "Set script_src, e.g. scripts/hello.sh (via Extra vars)"
+        msg: "Set script_src as repo-root path, e.g. scripts/hello.sh (via Extra vars)"
       when: script_src | length == 0
 
     - name: Run script
-      ansible.builtin.script: "{{ script_src }} {{ script_args }}"
+      ansible.builtin.script: "{{ playbook_dir }}/../{{ script_src }} {{ script_args }}"
       environment: "{{ script_env }}"
       become: "{{ script_become }}"
       register: script_out

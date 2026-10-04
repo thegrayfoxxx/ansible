@@ -83,7 +83,7 @@ hosts: "{{ target | default('all') }}"
 - `base_packages: [python3, sudo, curl, htop]`
 
 `playbooks/run_script.yml`:
-- `script_src: scripts/hello.sh` (обязательно, путь от корня репо)
+- `script_src: scripts/hello.sh` (обязательно, путь от корня репо, резолвится через `playbook_dir`)
 - `script_args: ""` (опционально, строка аргументов)
 - `script_env: {}` (опционально)
 - `script_become: true` -> `false` чтобы запустить без sudo
