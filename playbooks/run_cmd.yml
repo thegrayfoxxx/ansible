@@ -39,9 +39,10 @@
       ansible.builtin.set_fact:
         cmd_out: "{{ cmd_shell_out if not cmd_shell_out.skipped | default(false) else cmd_raw_out }}"
 
-    - name: Show command output
+    - name: Show command return code
       ansible.builtin.debug:
-        msg:
-          - "rc: {{ cmd_out.rc }}"
-          - "stdout: {{ cmd_out.stdout }}"
-          - "stderr: {{ cmd_out.stderr }}"
+        msg: "rc={{ cmd_out.rc }} stderr={{ cmd_out.stderr }}"
+
+    - name: Show command stdout
+      ansible.builtin.debug:
+        var: cmd_out.stdout_lines
