@@ -6,6 +6,7 @@
   vars:
     ssh_user: root
     ssh_keys: []
+    skip_sshd: false
     sshd_permit_root_login: prohibit-password
     sshd_pubkey_auth: "yes"
     sshd_password_auth: "no"
@@ -39,19 +40,22 @@
         - {key: PasswordAuthentication, value: "{{ sshd_password_auth }}"}
         - {key: PermitEmptyPasswords, value: "{{ sshd_permit_empty }}"}
       notify: Restart ssh
+      when: not (skip_sshd | bool)
       tags: [sshd]
 
     - name: Apply sshd restart now
       ansible.builtin.meta: flush_handlers
+      when: not (skip_sshd | bool)
       tags: [sshd]
 
     - name: Confirm SSH still reachable
       ansible.builtin.wait_for_connection:
         timeout: 60
+      when: not (skip_sshd | bool)
       tags: [sshd]
 
   handlers:
     - name: Restart ssh
       ansible.builtin.service:
         name: ssh
-        state: restarted
+        state: reloaded

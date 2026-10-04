@@ -204,6 +204,7 @@ hosts: "{{ target | default('all') }}"
 - `ssh_keys: [...]` (обязательно, список публичников; чужие ключи не трогаются)
 - `sshd_permit_root_login: prohibit-password`
 - `sshd_pubkey_auth: "yes"`, `sshd_password_auth: "no"`, `sshd_permit_empty: "no"`
+- `skip_sshd: false` -> `true` чтобы добавить только ключи без правок sshd (для bootstrap по паролю)
 
 Инит новой ноды через Semaphore Extra vars:
 
@@ -224,6 +225,13 @@ hosts: "{{ target | default('all') }}"
   "ssh_keys": ["ssh-ed25519 AAAA... first", "ssh-ed25519 BBBB... second"]
 }
 ```
+
+Bootstrap ноды где есть только пароль (Key Store типа Login With Password):
+1. Добавить хост в inventory (`ansible_user: root`), Task Template `init` с парольным Key.
+2. Этап 1 — только ключи: `{"target": "new-node-01", "ssh_user": "root", "ssh_keys": [...], "skip_sshd": true}`.
+3. Вручную проверить новый ключ: `ssh -i ~/.ssh/semaphore-ansible root@IP`.
+4. Этап 2 — сменить Key темплейта на SSH-ключ, прогнать без `skip_sshd` (hardening + reload + проверка связи уже по ключу).
+5. Парольный Key для этой ноды больше не нужен — удалить/ротировать пароль.
 
 ## Локальная проверка
 
