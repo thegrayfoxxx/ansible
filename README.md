@@ -20,6 +20,7 @@ playbooks/
   run_script.yml # запуск скриптов из scripts/
   run_cmd.yml    # произвольная команда
   reboot.yml     # перезагрузка хостов
+  init.yml       # инит новой ноды: ключи + sshd
 scripts/
   hello.sh       # пример shell-задачи
 ```
@@ -58,6 +59,7 @@ all:
    - `run_script`: playbook `playbooks/run_script.yml`, extra vars с `script_src`.
    - `run_cmd`: playbook `playbooks/run_cmd.yml`, extra vars с `cmd`.
    - `reboot`: playbook `playbooks/reboot.yml`, extra vars с `target`.
+   - `init`: playbook `playbooks/init.yml`, extra vars с `ssh_keys`.
 
 ## Универсальный target
 
@@ -197,6 +199,32 @@ hosts: "{{ target | default('all') }}"
 }
 ```
 
+`playbooks/init.yml` (инит новой ноды — первый прогон строго с `Limit` на одну тестовую ноду):
+- `ssh_user: root` (юзер должен существовать)
+- `ssh_keys: [...]` (обязательно, список публичников; чужие ключи не трогаются)
+- `sshd_permit_root_login: prohibit-password`
+- `sshd_pubkey_auth: "yes"`, `sshd_password_auth: "no"`, `sshd_permit_empty: "no"`
+
+Инит новой ноды через Semaphore Extra vars:
+
+```json
+{
+  "target": "new-node-01",
+  "ssh_user": "root",
+  "ssh_keys": ["ssh-ed25519 AAAA... semaphore-ansible"]
+}
+```
+
+Несколько ключей другому юзеру:
+
+```json
+{
+  "target": "new-node-01",
+  "ssh_user": "debian",
+  "ssh_keys": ["ssh-ed25519 AAAA... first", "ssh-ed25519 BBBB... second"]
+}
+```
+
 ## Локальная проверка
 
 ```bash
@@ -206,5 +234,6 @@ ansible-playbook --syntax-check playbooks/base.yml
 ansible-playbook --syntax-check playbooks/run_script.yml
 ansible-playbook --syntax-check playbooks/run_cmd.yml
 ansible-playbook --syntax-check playbooks/reboot.yml
+ansible-playbook --syntax-check playbooks/init.yml
 ansible-galaxy collection install -r requirements.yml
 ```

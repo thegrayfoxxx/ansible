@@ -1,0 +1,57 @@
+---
+- name: Init new node - SSH keys + sshd hardening
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    ssh_user: root
+    ssh_keys: []
+    sshd_permit_root_login: prohibit-password
+    sshd_pubkey_auth: "yes"
+    sshd_password_auth: "no"
+    sshd_permit_empty: "no"
+  tasks:
+    - name: Validate ssh_keys is not empty
+      ansible.builtin.fail:
+        msg: "Set ssh_keys list via Extra vars"
+      when: ssh_keys | length == 0
+      tags: [keys, sshd]
+
+    - name: Add public keys
+      ansible.posix.authorized_key:
+        user: "{{ ssh_user }}"
+        key: "{{ item }}"
+        state: present
+        exclusive: false
+      loop: "{{ ssh_keys }}"
+      tags: [keys]
+
+    - name: Harden sshd_config
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?{{ item.key }}\\b.*"
+        line: "{{ item.key }} {{ item.value }}"
+        backup: true
+        validate: sshd -t -f %s
+      loop:
+        - {key: PermitRootLogin, value: "{{ sshd_permit_root_login }}"}
+        - {key: PubkeyAuthentication, value: "{{ sshd_pubkey_auth }}"}
+        - {key: PasswordAuthentication, value: "{{ sshd_password_auth }}"}
+        - {key: PermitEmptyPasswords, value: "{{ sshd_permit_empty }}"}
+      notify: Restart ssh
+      tags: [sshd]
+
+    - name: Apply sshd restart now
+      ansible.builtin.meta: flush_handlers
+      tags: [sshd]
+
+    - name: Confirm SSH still reachable
+      ansible.builtin.wait_for_connection:
+        timeout: 60
+      tags: [sshd]
+
+  handlers:
+    - name: Restart ssh
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
