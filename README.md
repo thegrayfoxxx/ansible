@@ -19,6 +19,7 @@ playbooks/
   base.yml       # timezone + base packages
   run_script.yml # запуск скриптов из scripts/
   run_cmd.yml    # произвольная команда
+  reboot.yml     # перезагрузка хостов
 scripts/
   hello.sh       # пример shell-задачи
 ```
@@ -56,6 +57,7 @@ all:
    - `base`: playbook `playbooks/base.yml`.
    - `run_script`: playbook `playbooks/run_script.yml`, extra vars с `script_src`.
    - `run_cmd`: playbook `playbooks/run_cmd.yml`, extra vars с `cmd`.
+   - `reboot`: playbook `playbooks/reboot.yml`, extra vars с `target`.
 
 ## Универсальный target
 
@@ -149,6 +151,29 @@ hosts: "{{ target | default('all') }}"
 }
 ```
 
+`playbooks/reboot.yml` (без подтверждения — аккуратнее с `target=all`):
+- `reboot_msg: "Reboot via Semaphore"`
+- `reboot_timeout: 600` (секунд ждать возвращения хоста)
+- `reboot_connect_timeout: 30`
+- `reboot_pre_delay: 5`, `reboot_post_delay: 15`
+
+Перезагрузка через Semaphore Extra vars:
+
+```json
+{
+  "target": "us_racknerd"
+}
+```
+
+Группа с увеличенным таймаутом:
+
+```json
+{
+  "target": "prod",
+  "reboot_timeout": 900
+}
+```
+
 ## Локальная проверка
 
 ```bash
@@ -157,5 +182,6 @@ ansible-playbook --syntax-check playbooks/update.yml
 ansible-playbook --syntax-check playbooks/base.yml
 ansible-playbook --syntax-check playbooks/run_script.yml
 ansible-playbook --syntax-check playbooks/run_cmd.yml
+ansible-playbook --syntax-check playbooks/reboot.yml
 ansible-galaxy collection install -r requirements.yml
 ```

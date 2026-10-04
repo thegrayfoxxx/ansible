@@ -1,0 +1,27 @@
+---
+- name: Reboot hosts
+  hosts: "{{ target | default('all') }}"
+  gather_facts: true
+  become: true
+  vars:
+    reboot_msg: "Reboot via Semaphore"
+    reboot_timeout: 600
+    reboot_connect_timeout: 30
+    reboot_pre_delay: 5
+    reboot_post_delay: 15
+  tasks:
+    - name: Show uptime before reboot
+      ansible.builtin.debug:
+        msg: "uptime={{ ansible_uptime_seconds }}s ({{ inventory_hostname }})"
+
+    - name: Reboot
+      ansible.builtin.reboot:
+        msg: "{{ reboot_msg }}"
+        pre_reboot_delay: "{{ reboot_pre_delay }}"
+        post_reboot_delay: "{{ reboot_post_delay }}"
+        reboot_timeout: "{{ reboot_timeout }}"
+        connect_timeout: "{{ reboot_connect_timeout }}"
+
+    - name: Show uptime after reboot
+      ansible.builtin.debug:
+        msg: "back online, uptime={{ ansible_uptime_seconds }}s ({{ inventory_hostname }})"
