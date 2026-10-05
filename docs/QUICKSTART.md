@@ -49,7 +49,6 @@ docker compose up -d
 Проверка: `curl -s http://localhost:3000/api/ping` должен вернуть `pong`,
 а в браузере открыться страница логина `http://localhost:3000`.
 
-[▶ Смотреть видео](videos/A-login-project.mp4)
 ![логин и создание проекта](gifs/A-login-project.gif)
 
 ## Шаг 1. Логин и проект
@@ -79,7 +78,6 @@ docker compose up -d
 Нажмите `Create`. Репозиторий появится в списке — клонирование произойдёт
 при первом запуске задачи, сейчас проверять нечего.
 
-[▶ Смотреть видео](videos/B-repository.mp4)
 ![создание репозитория](gifs/B-repository.gif)
 
 ## Шаг 4. Inventory
@@ -98,7 +96,6 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 
 Нажмите `Create`. Должна появиться строка `main / static-yaml`.
 
-[▶ Смотреть видео](videos/C-inventory-env.mp4)
 ![inventory и variable group](gifs/C-inventory-env.gif)
 
 ## Шаг 5. Variable Groups
@@ -114,7 +111,6 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 **Токен показывается один раз — скопируйте его сразу**, он нужен на шаге 8.
 Если потеряли — удалите и выпустите новый, это штатно.
 
-[▶ Смотреть видео](videos/D-token.mp4)
 ![выпуск API-токена](gifs/D-token.gif)
 
 ## Шаг 7. Включите приложение Python
@@ -127,7 +123,6 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 Найдите строку `Python Script` и включите тумблер. Вернитесь в
 `Task Templates -> New template` — пункт `Python Script` появится.
 
-[▶ Смотреть видео](videos/E-bootstrap-create.mp4)
 ![включение Python и создание 00-bootstrap](gifs/E-bootstrap-create.gif)
 
 ## Шаг 8. Шаблон 00-bootstrap
@@ -158,7 +153,6 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 done: created=7 updated=0 unchanged=0 dry_run=False
 ```
 
-[▶ Смотреть видео](videos/F-bootstrap-run.mp4)
 ![запуск 00-bootstrap](gifs/F-bootstrap-run.gif)
 
 (при первом запуске — `created=7`, при повторных — `updated=7`).
@@ -184,7 +178,6 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 `ping -> Run`, в поле `Target` введите группу или хост из своего inventory
 (например `stage`), `Run`. Успех — `ok=1 unreachable=0 failed=0` в выводе.
 
-[▶ Смотреть видео](videos/G-ping-run.mp4)
 ![запуск ping](gifs/G-ping-run.gif)
 
 Готово — стенд рабочий. Дальше смотрите `README.md`: описание переменных
