@@ -8,11 +8,29 @@
 - Плейбуки универсальные: хост/группа подставляется через `target` или `Limit`.
 - `roles/` пока не заводим, только плоские `playbooks/`.
 
+## Quickstart
+
+Репо публичное: плейбуки + шаблоны в одном месте. Шаблоны лежат как файл
+`semaphore/templates.json` и заливаются в UI скриптом (идемпотентно, по имени):
+
+```bash
+git clone <this-repo> && cd ansible
+cp .env.example .env && nano .env  # свои пароли + ключ шифрования
+docker compose up -d               # http://localhost:3000
+```
+
+Полный гайд на 10 минут — [docs/QUICKSTART.md](docs/QUICKSTART.md):
+проект, ключ, репозиторий, inventory `main`, группа `empty`, токен,
+шаблон `00-bootstrap` → `Run` → 7 шаблонов + тестовый `ping`.
+Там же: обновление шаблонов, troubleshooting и FAQ.
+
 ## Структура
 
 ```text
 ansible.cfg
 requirements.yml
+compose.yml          # semaphore:latest + sqlite для чужого
+.env.example         # свои креды -> .env (в git не коммитить)
 playbooks/
   ping.yml       # проверка связи
   update.yml     # apt update + upgrade, опционально reboot
@@ -22,7 +40,12 @@ playbooks/
   reboot.yml     # перезагрузка хостов
   init.yml       # инит новой ноды: ключи + sshd
 scripts/
-  hello.sh       # пример shell-задачи
+  hello.sh               # пример shell-задачи
+  semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
+semaphore/
+  templates.json # источник правды: 7 шаблонов + survey_vars
+docs/
+  QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
 ```
 
 ## Semaphore UI: подключение
@@ -52,14 +75,9 @@ all:
 4. Environment -> New Environment:
    - `ANSIBLE_HOST_KEY_CHECKING=False` уже задан в `ansible.cfg`, дополнительно не нужен.
    - Секреты (пароли, токены) добавлять как JSON / Environment Variables.
-5. Task Templates:
-   - `ping`: playbook `playbooks/ping.yml`, inventory из п.3, key из п.2.
-   - `update`: playbook `playbooks/update.yml`, extra vars при необходимости.
-   - `base`: playbook `playbooks/base.yml`.
-   - `run_script`: playbook `playbooks/run_script.yml`, extra vars с `script_src`.
-   - `run_cmd`: playbook `playbooks/run_cmd.yml`, extra vars с `cmd`.
-   - `reboot`: playbook `playbooks/reboot.yml`, extra vars с `target`.
-   - `init`: playbook `playbooks/init.yml`, extra vars с `ssh_keys`.
+5. Task Templates: не создавать вручную — они заливаются скриптом,
+   см. [docs/QUICKSTART.md](docs/QUICKSTART.md) (шаг 8–9: `00-bootstrap` → `Run`).
+   Соответствие шаблонов плейбукам лежит в `semaphore/templates.json`.
 
 ## Универсальный target
 

@@ -1,0 +1,95 @@
+{
+  "defaults": {
+    "inventory": "main",
+    "repository": "ansible",
+    "environment": "empty",
+    "app": "ansible"
+  },
+  "templates": [
+    {
+      "name": "ping",
+      "description": "Проверка связи (playbooks/ping.yml)",
+      "playbook": "playbooks/ping.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "type": "", "required": false}
+      ]
+    },
+    {
+      "name": "update",
+      "description": "apt update + upgrade, опционально reboot (playbooks/update.yml)",
+      "playbook": "playbooks/update.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "type": "", "required": false},
+        {"name": "apt_upgrade", "title": "apt_upgrade", "description": "dist или safe", "type": "enum", "required": false, "values": [{"name": "dist", "value": "dist"}, {"name": "safe", "value": "safe"}]},
+        {"name": "apt_autoremove", "title": "apt_autoremove", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "apt_autoclean", "title": "apt_autoclean", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "reboot_if_required", "title": "reboot_if_required", "description": "true для авторебута", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
+      "name": "base",
+      "description": "timezone + base packages (playbooks/base.yml)",
+      "playbook": "playbooks/base.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "type": "", "required": false},
+        {"name": "base_timezone", "title": "base_timezone", "description": "Например Etc/UTC или Europe/Berlin", "type": "", "required": false},
+        {"name": "base_packages", "title": "base_packages", "description": "Text: один пакет на строку или через запятую", "type": "text", "required": false}
+      ]
+    },
+    {
+      "name": "run_script",
+      "description": "Запуск скриптов из scripts/ (playbooks/run_script.yml)",
+      "playbook": "playbooks/run_script.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "type": "", "required": false},
+        {"name": "script_src", "title": "script_src", "description": "Обязательно, путь от корня репо, например scripts/hello.sh", "type": "", "required": true},
+        {"name": "script_args", "title": "script_args", "type": "", "required": false},
+        {"name": "script_env", "title": "script_env", "description": "Text с JSON-объектом, например {\"FOO\": \"1\"}", "type": "text", "required": false},
+        {"name": "script_become", "title": "script_become", "description": "false чтобы запустить без sudo", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
+      "name": "run_cmd",
+      "description": "Произвольная команда (playbooks/run_cmd.yml)",
+      "playbook": "playbooks/run_cmd.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "type": "", "required": false},
+        {"name": "cmd", "title": "cmd", "description": "Обязательно, например df -h", "type": "", "required": true},
+        {"name": "use_shell", "title": "use_shell", "description": "false для строгого command без shell", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "cmd_chdir", "title": "cmd_chdir", "description": "Рабочая папка, опционально", "type": "", "required": false},
+        {"name": "cmd_env", "title": "cmd_env", "description": "Text с JSON-объектом, например {\"FOO\": \"1\"}", "type": "text", "required": false},
+        {"name": "cmd_become", "title": "cmd_become", "description": "false чтобы запустить без sudo", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "cmd_tail", "title": "cmd_tail", "description": "Показать только последние N строк", "type": "int", "required": false},
+        {"name": "allow_fail", "title": "allow_fail", "description": "true чтобы не фейлить хост при rc != 0", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
+      "name": "reboot",
+      "description": "Перезагрузка хостов, без подтверждения (playbooks/reboot.yml)",
+      "playbook": "playbooks/reboot.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Аккуратнее с all", "type": "", "required": false},
+        {"name": "reboot_msg", "title": "reboot_msg", "type": "", "required": false},
+        {"name": "reboot_timeout", "title": "reboot_timeout", "description": "Секунд ждать возвращения хоста", "type": "int", "required": false},
+        {"name": "reboot_connect_timeout", "title": "reboot_connect_timeout", "type": "int", "required": false},
+        {"name": "reboot_pre_delay", "title": "reboot_pre_delay", "type": "int", "required": false},
+        {"name": "reboot_post_delay", "title": "reboot_post_delay", "type": "int", "required": false}
+      ]
+    },
+    {
+      "name": "init",
+      "description": "Инит новой ноды: ключи + sshd. Первый прогон строго с Limit на одну тестовую ноду (playbooks/init.yml)",
+      "playbook": "playbooks/init.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Имя новой ноды, например new-node-01. Не запускать на all", "type": "", "required": false},
+        {"name": "ssh_user", "title": "ssh_user", "description": "Юзер должен существовать, обычно root", "type": "", "required": false},
+        {"name": "ssh_keys", "title": "ssh_keys", "description": "Обязательно. Text: один публичник на строку или через запятую", "type": "text", "required": true},
+        {"name": "skip_sshd", "title": "skip_sshd", "description": "true чтобы добавить только ключи без правок sshd (bootstrap по паролю)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "sshd_permit_root_login", "title": "sshd_permit_root_login", "type": "", "required": false},
+        {"name": "sshd_pubkey_auth", "title": "sshd_pubkey_auth", "type": "", "required": false},
+        {"name": "sshd_password_auth", "title": "sshd_password_auth", "type": "", "required": false},
+        {"name": "sshd_permit_empty", "title": "sshd_permit_empty", "type": "", "required": false}
+      ]
+    }
+  ]
+}
