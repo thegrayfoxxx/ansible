@@ -49,7 +49,7 @@ docker compose up -d
 Проверка: `curl -s http://localhost:3000/api/ping` должен вернуть `pong`,
 а в браузере открыться страница логина `http://localhost:3000`.
 
-![логин и создание проекта](gifs/A-login-project.gif)
+![логин](gifs/01-login.gif)
 
 ## Шаг 1. Логин и проект
 
@@ -60,11 +60,15 @@ docker compose up -d
 (`http://localhost:3000/project/1/...`) и есть ID. У первого проекта это `1`,
 он понадобится на шаге 8.
 
+![создание проекта](gifs/02-new-project.gif)
+
 ## Шаг 2. Key Store
 
 Откройте `Key Store`. Встроенный ключ `None` уже на месте — его достаточно
 для публичного репозитория. Свой SSH-ключ для доступа на VPS добавьте здесь же
 через `New Key` (понадобится на шаге 4 как `User Credentials` и для приватных реп).
+
+![key store](gifs/03-keystore.gif)
 
 ## Шаг 3. Repository
 
@@ -78,7 +82,7 @@ docker compose up -d
 Нажмите `Create`. Репозиторий появится в списке — клонирование произойдёт
 при первом запуске задачи, сейчас проверять нечего.
 
-![создание репозитория](gifs/B-repository.gif)
+![создание репозитория](gifs/04-new-repository.gif)
 
 ## Шаг 4. Inventory
 
@@ -94,15 +98,17 @@ docker compose up -d
 vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 ```
 
-Нажмите `Create`. Должна появиться строка `main / static-yaml`.
+Нажмите `Create`. Должна появиться строка `main / static`.
 
-![inventory и variable group](gifs/C-inventory-env.gif)
+![создание inventory](gifs/05-new-inventory.gif)
 
 ## Шаг 5. Variable Groups
 
 `Variable Groups -> New Group`: имя `empty`, остальное не трогайте,
 нажмите `Save`. Секреты и переменные окружения добавляются сюда же позже,
 шаблонам пустой группы достаточно.
+
+![создание variable group](gifs/06-new-env-group.gif)
 
 ## Шаг 6. API-токен
 
@@ -111,7 +117,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 **Токен показывается один раз — скопируйте его сразу**, он нужен на шаге 8.
 Если потеряли — удалите и выпустите новый, это штатно.
 
-![выпуск API-токена](gifs/D-token.gif)
+![выпуск API-токена](gifs/07-api-token.gif)
 
 ## Шаг 7. Включите приложение Python
 
@@ -123,7 +129,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 Найдите строку `Python Script` и включите тумблер. Вернитесь в
 `Task Templates -> New template` — пункт `Python Script` появится.
 
-![включение Python и создание 00-bootstrap](gifs/E-bootstrap-create.gif)
+![включение Python](gifs/08-enable-python.gif)
 
 ## Шаг 8. Шаблон 00-bootstrap
 
@@ -138,7 +144,9 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
     галочка `Required`.
 
 Нажмите `Create`. Это единственный шаблон, который создаётся руками, —
-остальные создаст он сам. Создание показано во второй половине видео из шага 7.
+остальные создаст он сам.
+
+![создание 00-bootstrap](gifs/09-create-bootstrap.gif)
 
 ## Шаг 9. Run — сидинг шаблонов
 
@@ -153,7 +161,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 done: created=7 updated=0 unchanged=0 dry_run=False
 ```
 
-![запуск 00-bootstrap](gifs/F-bootstrap-run.gif)
+![запуск 00-bootstrap](gifs/10-run-bootstrap.gif)
 
 (при первом запуске — `created=7`, при повторных — `updated=7`).
 В `Task Templates` теперь 7 шаблонов: `ping`, `update`, `base`,
@@ -178,7 +186,7 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 `ping -> Run`, в поле `Target` введите группу или хост из своего inventory
 (например `stage`), `Run`. Успех — `ok=1 unreachable=0 failed=0` в выводе.
 
-![запуск ping](gifs/G-ping-run.gif)
+![запуск ping](gifs/11-run-ping.gif)
 
 Готово — стенд рабочий. Дальше смотрите `README.md`: описание переменных
 и survey-полей каждого плейбука.
