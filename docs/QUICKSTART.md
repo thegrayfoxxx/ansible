@@ -50,7 +50,7 @@ docker compose up -d
 а в браузере открыться страница логина `http://localhost:3000`.
 
 [▶ Смотреть видео](videos/A-login-project.mp4)
-<video src="videos/A-login-project.mp4" width="960" controls><a href="videos/A-login-project.mp4">смотреть видео</a></video>
+![логин и создание проекта](gifs/A-login-project.gif)
 
 ## Шаг 1. Логин и проект
 
@@ -80,7 +80,7 @@ docker compose up -d
 при первом запуске задачи, сейчас проверять нечего.
 
 [▶ Смотреть видео](videos/B-repository.mp4)
-<video src="videos/B-repository.mp4" width="960" controls><a href="videos/B-repository.mp4">смотреть видео</a></video>
+![создание репозитория](gifs/B-repository.gif)
 
 ## Шаг 4. Inventory
 
@@ -104,7 +104,7 @@ all:
 Нажмите `Create`. Должна появиться строка `main / static-yaml`.
 
 [▶ Смотреть видео](videos/C-inventory-env.mp4)
-<video src="videos/C-inventory-env.mp4" width="960" controls><a href="videos/C-inventory-env.mp4">смотреть видео</a></video>
+![inventory и variable group](gifs/C-inventory-env.gif)
 
 ## Шаг 5. Variable Groups
 
@@ -120,7 +120,7 @@ all:
 Если потеряли — удалите и выпустите новый, это штатно.
 
 [▶ Смотреть видео](videos/D-token.mp4)
-<video src="videos/D-token.mp4" width="960" controls><a href="videos/D-token.mp4">смотреть видео</a></video>
+![выпуск API-токена](gifs/D-token.gif)
 
 ## Шаг 7. Включите приложение Python
 
@@ -133,7 +133,7 @@ all:
 `Task Templates -> New template` — пункт `Python Script` появится.
 
 [▶ Смотреть видео](videos/E-bootstrap-create.mp4)
-<video src="videos/E-bootstrap-create.mp4" width="960" controls><a href="videos/E-bootstrap-create.mp4">смотреть видео</a></video>
+![включение Python и создание 00-bootstrap](gifs/E-bootstrap-create.gif)
 
 ## Шаг 8. Шаблон 00-bootstrap
 
@@ -164,7 +164,7 @@ done: created=7 updated=0 unchanged=0 dry_run=False
 ```
 
 [▶ Смотреть видео](videos/F-bootstrap-run.mp4)
-<video src="videos/F-bootstrap-run.mp4" width="960" controls><a href="videos/F-bootstrap-run.mp4">смотреть видео</a></video>
+![запуск 00-bootstrap](gifs/F-bootstrap-run.gif)
 
 (при первом запуске — `created=7`, при повторных — `updated=7`).
 В `Task Templates` теперь 7 шаблонов: `ping`, `update`, `base`,
@@ -190,7 +190,7 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 (например `stage`), `Run`. Успех — `ok=1 unreachable=0 failed=0` в выводе.
 
 [▶ Смотреть видео](videos/G-ping-run.mp4)
-<video src="videos/G-ping-run.mp4" width="960" controls><a href="videos/G-ping-run.mp4">смотреть видео</a></video>
+![запуск ping](gifs/G-ping-run.gif)
 
 Готово — стенд рабочий. Дальше смотрите `README.md`: описание переменных
 и survey-полей каждого плейбука.
