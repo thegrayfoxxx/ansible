@@ -1,10 +1,12 @@
 # Ansible for Semaphore UI
 
-Скелет репо для управления несколькими VPS (Debian) через Semaphore UI.
+Публичный template-репозиторий для управления несколькими VPS (Debian)
+через Semaphore UI: плоские плейбуки + compose для Semaphore
++ сидинг task templates одной командой (`00-bootstrap` → `Run`).
 
 Принципы:
 - Inventory ведётся в UI Semaphore, в репо его нет.
-- Секреты ведётся в UI Semaphore (Key Store / Environment), в репо их нет.
+- Секреты ведутся в UI Semaphore (Key Store / Environment), в репо их нет.
 - Плейбуки универсальные: хост/группа подставляется через `target` или `Limit`.
 - `roles/` пока не заводим, только плоские `playbooks/`.
 
@@ -46,6 +48,7 @@ semaphore/
   templates.json # источник правды: 7 шаблонов + survey_vars
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
+  gifs/          # 11 GIF 1920x1080 по шагам гайда (~46 МБ)
 ```
 
 ## Semaphore UI: подключение
@@ -166,7 +169,7 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 
 ```json
 {
-  "target": "us_racknerd",
+  "target": "vps-prod-01",
   "cmd": "df -h"
 }
 ```
@@ -189,7 +192,7 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 ```json
 {
   "target": "prod",
-  "cmd": "cd /home/anatoliy/remna_node && docker compose pull && docker compose up -d",
+  "cmd": "cd /opt/app && docker compose pull && docker compose up -d",
   "cmd_tail": 20
 }
 ```
@@ -199,7 +202,7 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 ```json
 {
   "target": "all",
-  "cmd": "cd /home/anatoliy/remna_node && docker compose up -d",
+  "cmd": "cd /opt/app && docker compose up -d",
   "allow_fail": true,
   "cmd_tail": 15
 }
@@ -215,7 +218,7 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 
 ```json
 {
-  "target": "us_racknerd"
+  "target": "vps-prod-01"
 }
 ```
 
@@ -253,6 +256,8 @@ Bootstrap ноды где есть только пароль (Key Store типа
 5. Парольный Key для этой ноды больше не нужен — удалить/ротировать пароль.
 
 ## Локальная проверка
+
+Требуется установленный `ansible` (например `pip install ansible-core`):
 
 ```bash
 ansible-playbook --syntax-check playbooks/ping.yml
