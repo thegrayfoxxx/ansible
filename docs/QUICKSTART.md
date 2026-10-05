@@ -87,18 +87,13 @@ docker compose up -d
 `Inventory -> New Inventory -> Ansible Inventory`:
 
 - `Name`: `main` — имя важно, его ищет `semaphore/templates.json`;
-- `Type`: `Static YAML`;
+- `Type`: `Static`;
 - `User Credentials`: ваш SSH-ключ (для первой проверки сойдёт `None`);
-- в редактор вставьте свои хосты, например:
+- в редактор вставьте свои хосты в INI-формате, например:
 
-```yaml
-all:
-  children:
-    stage:
-      hosts:
-        vps-stage-01:
-          ansible_host: 203.0.113.20
-          ansible_user: debian
+```ini
+[stage]
+vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 ```
 
 Нажмите `Create`. Должна появиться строка `main / static-yaml`.

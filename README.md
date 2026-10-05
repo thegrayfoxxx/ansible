@@ -53,23 +53,15 @@ docs/
 1. Project -> Repositories: подключить этот репозиторий.
 2. Key Store: добавить SSH-ключ (`ansible_user`, обычно `debian`/`admin`/`root`).
 3. Inventory -> New Inventory:
-   - тип static YAML / static ini, вести в UI.
+   - тип static (простой INI), вести в UI.
    - Пример:
 
-```yaml
-all:
-  children:
-    prod:
-      hosts:
-        vps-prod-01:
-          ansible_host: 203.0.113.10
-          ansible_user: debian
-          ansible_port: 22
-    stage:
-      hosts:
-        vps-stage-01:
-          ansible_host: 203.0.113.20
-          ansible_user: debian
+```ini
+[prod]
+vps-prod-01 ansible_host=203.0.113.10 ansible_user=debian ansible_port=22
+
+[stage]
+vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 ```
 
 4. Environment -> New Environment:
