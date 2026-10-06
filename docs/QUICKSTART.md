@@ -111,12 +111,24 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 
 ![создание variable group](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/06-new-env-group.gif)
 
-## Шаг 6. API-токен
+## Шаг 6. API-токен и группа service-secrets
 
 Меню пользователя справа сверху -> `API Tokens -> New Token`:
 имя например `bootstrap`, `Expires: Never`, `Create`.
-**Токен показывается один раз — скопируйте его сразу**, он нужен на шаге 8.
+**Токен показывается один раз — скопируйте его сразу.**
 Если потеряли — удалите и выпустите новый, это штатно.
+
+> Безопасность: токены Semaphore — пользовательские, без скоупа на проект.
+> Чей токен лежит в секретах — теми правами обладают задачи. Не кладите сюда
+> токен админа «на всякий случай»: достаточно пользователя с ролью не выше
+> `manager` на этот проект. В логах задач токен не светится (скрипт его
+> не печатает), но в рантайме он доступен окружению задачи.
+
+Теперь положите токен в секрет, чтобы не вводить его при каждом `Run`:
+`Variable Groups -> New Group` с именем `service-secrets`, вкладка `Secrets`
+-> добавить секрет типа `env`: имя `SEMAPHORE_TOKEN`, значение — ваш токен,
+`Save`. Группа прицепится к `00-bootstrap` автоматически при сидинге
+(она так и записана в `semaphore/templates.json`).
 
 ![выпуск API-токена](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/07-api-token.gif)
 
@@ -140,7 +152,9 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 - `Repository`: `ansible`;
 - `Script Filename`: `scripts/semaphore_bootstrap.py`;
 - `Survey Variables` (кнопка `+ Add variable`, каждого по одному):
-  - `Name: token`, `Title: API Token`, `Type: Secret`, галочка `Required`;
+  - `Name: token`, `Title: API Token`, `Type: Secret`, **без** галочки `Required`
+    (пустое поле — токен берётся из секрета `SEMAPHORE_TOKEN`;
+    заполненное вручную — разовый override);
   - `Name: project_id`, `Title: Project ID`, `Type: String` (по умолчанию),
     галочка `Required`.
 
@@ -151,8 +165,10 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 
 ## Шаг 9. Run — сидинг шаблонов
 
-Откройте `00-bootstrap -> Run`, введите `token` с шага 6 и `project_id`
-с шага 1 (например `1`), нажмите `Run`.
+Откройте `00-bootstrap -> Run`, введите `project_id`
+с шага 1 (например `1`); поле `token` оставьте пустым — возьмётся из секрета.
+Нажмите `Run`. (На видео ниже показан вариант с ручным вводом токена —
+это разовый override, он тоже работает.)
 
 Успешный лог заканчивается строкой вида:
 
@@ -217,7 +233,8 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 | `Repository "ansible" not found` | То же самое для репозитория |
 | Задача `00-bootstrap` падает на клонировании репозитория | Проверьте URL репозитория и Access Key: приватный репозиторий требует SSH-ключ, а не `None` |
 | В `New template` нет `Python Script` | Включите приложение на странице `Applications` (шаг 7) |
-| Потеряли API-токен | Токены не показываются повторно: удалите старый, выпустите новый |
+| `Environment "service-secrets" not found in project. Known: ...` | Не создана группа из шага 6. Создайте `service-secrets` с секретом `SEMAPHORE_TOKEN` и перезапустите задачу (уже созданное не сломается — скрипт докатит остаток) |
+| Потеряли API-токен | Токены не показываются повторно: удалите старый, выпустите новый **и обновите секрет `SEMAPHORE_TOKEN` в группе `service-secrets`** |
 | `PUT .../templates/N -> HTTP 400` на старой версии скрипта | Обновите `scripts/semaphore_bootstrap.py` (`git pull`): свежий скрипт передаёт `id` в теле `PUT`, этого требует API |
 
 ## FAQ

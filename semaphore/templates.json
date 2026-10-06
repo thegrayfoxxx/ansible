@@ -103,10 +103,11 @@
       "name": "00-bootstrap",
       "view": "Service",
       "app": "python",
+      "environment": "service-secrets",
       "description": "Сидинг шаблонов из semaphore/templates.json (этот репо)",
       "playbook": "scripts/semaphore_bootstrap.py",
       "survey_vars": [
-        {"name": "token", "title": "API Token", "type": "secret", "required": true},
+        {"name": "token", "title": "API Token", "description": "Пусто — берётся из секрета SEMAPHORE_TOKEN группы service-secrets. Заполнить только для разового override", "type": "secret", "required": false},
         {"name": "project_id", "title": "Project ID", "type": "", "required": true}
       ]
     }
