@@ -31,7 +31,7 @@ docker compose up -d               # http://localhost:3000
 ```text
 ansible.cfg
 requirements.yml
-compose.yml          # semaphore:latest + sqlite для чужого
+compose.yml          # semaphore:v2.19.12 + sqlite для чужого
 .env.example         # свои креды -> .env (в git не коммитить)
 playbooks/
   ping.yml       # проверка связи

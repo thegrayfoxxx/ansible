@@ -5,7 +5,7 @@
 (`ping`, `update`, `base`, `run_script`, `run_cmd`, `reboot`, `init`)
 и успешный тестовый прогон `ping`.
 
-Проверено на `semaphoreui/semaphore:latest` (v2.19.x).
+Проверено на `semaphoreui/semaphore:v2.19.12`.
 
 ## Что понадобится
 

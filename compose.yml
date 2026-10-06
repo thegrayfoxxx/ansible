@@ -1,21 +1,22 @@
 services:
   semaphore:
-    image: semaphoreui/semaphore:latest
+    image: semaphoreui/semaphore:v2.19.12
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       SEMAPHORE_DB_DIALECT: sqlite
-      SEMAPHORE_DB: /etc/semaphore/semaphore.sqlite
-      SEMAPHORE_PLAYBOOK_PATH: /tmp/semaphore/
-      SEMAPHORE_ADMIN_PASSWORD: ${SEMAPHORE_ADMIN_PASSWORD:-changeme}
-      SEMAPHORE_ADMIN_NAME: ${SEMAPHORE_ADMIN_NAME:-admin}
-      SEMAPHORE_ADMIN_EMAIL: ${SEMAPHORE_ADMIN_EMAIL:-admin@localhost}
       SEMAPHORE_ADMIN: ${SEMAPHORE_ADMIN:-admin}
+      SEMAPHORE_ADMIN_PASSWORD: ${SEMAPHORE_ADMIN_PASSWORD:-changeme}
+      SEMAPHORE_ADMIN_NAME: ${SEMAPHORE_ADMIN_NAME:-Admin}
+      SEMAPHORE_ADMIN_EMAIL: ${SEMAPHORE_ADMIN_EMAIL:-admin@localhost}
       SEMAPHORE_ACCESS_KEY_ENCRYPTION: ${SEMAPHORE_ACCESS_KEY_ENCRYPTION:-}
-      TZ: UTC
     volumes:
-      - semaphore-data:/etc/semaphore
+      - semaphore_data:/var/lib/semaphore
+      - semaphore_config:/etc/semaphore
+      - semaphore_tmp:/tmp/semaphore
 
 volumes:
-  semaphore-data:
+  semaphore_data:
+  semaphore_config:
+  semaphore_tmp:
