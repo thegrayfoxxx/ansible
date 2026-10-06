@@ -1,23 +1,37 @@
 # Quickstart
 
 Поднимите свой Semaphore и за 10 минут получите все task templates из этого репо.
-В конце у вас будет: работающий Semaphore в Docker + 8 готовых шаблонов
-(7 рабочих: `ping`, `update`, `base`, `run_script`, `run_cmd`, `reboot`, `init`
-плюс служебный `00-bootstrap`)
+В конце у вас будет: работающий Semaphore в Docker + готовые шаблоны
+(например `ping` и `run_cmd` — полный список живёт в `semaphore/templates.json`
+и пополняется)
 и успешный тестовый прогон `ping`.
 
 Проверено на `semaphoreui/semaphore:v2.19.12`.
 
 ## Что понадобится
 
-- `git`, `docker compose`, `python3` (только для запасного пути без UI).
-- 10 минут и доступ в интернет (Docker Hub + ваш git-хостинг).
+- `docker compose` и доступ в интернет (Docker Hub + ваш git-хостинг).
+- `git` и `python3` — только для полного варианта установки и запасного пути без UI.
 - Ваши хосты и SSH-ключ — понадобятся на шагах 2–4.
 
 ## Короткая версия
 
+**Вариант A — минимальный, без git** (плейбуки и шаблоны Semaphore
+подтянет сам из GitHub, локальная копия репо не нужна):
+
 ```bash
-git clone <this-repo> && cd ansible
+mkdir ansible-semaphore && cd ansible-semaphore
+curl -O https://raw.githubusercontent.com/thegrayfoxxx/ansible/main/compose.yml
+curl -O https://raw.githubusercontent.com/thegrayfoxxx/ansible/main/.env.example
+cp .env.example .env && nano .env   # свои пароли + ключ шифрования
+docker compose up -d                # http://localhost:3000
+```
+
+**Вариант B — полный, с git** (код под рукой: локальные прогоны,
+правки, контрибьюшн):
+
+```bash
+git clone https://github.com/thegrayfoxxx/ansible.git && cd ansible
 cp .env.example .env && nano .env   # свои пароли + ключ шифрования
 docker compose up -d                # http://localhost:3000
 ```
@@ -77,7 +91,8 @@ docker compose up -d
 `Repositories -> New Repository`:
 
 - `Name`: `ansible` — имя важно, его ищет `semaphore/templates.json`;
-- `URL or path`: https-URL **этого** репозитория (свой форк);
+- `URL or path`: `https://github.com/thegrayfoxxx/ansible.git`
+  (или URL своего форка);
 - `Branch / Tag`: `main`;
 - `Access Key`: `None` для публичного репозитория, свой SSH-ключ для приватного.
 
@@ -181,9 +196,9 @@ done: created=7 updated=0 unchanged=0 dry_run=False
 
 ![запуск 00-bootstrap](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/10-run-bootstrap.gif)
 
-(при первом запуске — `created=8`, при повторных — `updated=8`).
-В `Task Templates` теперь 8 шаблонов: `ping`, `update`, `base`,
-`run_script`, `run_cmd`, `reboot`, `init` плюс сам `00-bootstrap` —
+(при первом запуске — все `created`, при повторных — все `updated`).
+В `Task Templates` теперь все шаблоны из `semaphore/templates.json`
+(например `ping` и `run_cmd`, плюс служебный `00-bootstrap`) —
 у всех inventory `main`, репозиторий `ansible`, группа `prod`.
 
 Повторный `Run` — это и есть обновление: скрипт сверяет записи по имени,
@@ -196,7 +211,8 @@ done: created=7 updated=0 unchanged=0 dry_run=False
 Недостающие вкладки скрипт создаёт сам. Новую вкладку завести так:
 добавить `"view": "Новое имя"` нужным шаблонам в JSON и нажать `Run`.
 
-Запасной путь без UI (тот же скрипт локально, нужен только `python3`):
+Запасной путь без UI (тот же скрипт локально, нужен только `python3`
+и клон репозитория — вариант установки B):
 
 ```bash
 SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID=1 \
@@ -207,8 +223,9 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 
 ## Шаг 10. Проверка: тестовый ping
 
-`ping -> Run`, в поле `Target` введите группу или хост из своего inventory
-(например `stage`), `Run`. Успех — `ok=1 unreachable=0 failed=0` в выводе.
+`ping -> Run`: поле `Target` уже предзаполнено дефолтом (`all`) —
+можно оставить как есть или ввести группу/хост из своего inventory
+(например `stage`). `Run`. Успех — `ok=1 unreachable=0 failed=0` в выводе.
 
 ![запуск ping](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/11-run-ping.gif)
 
@@ -219,9 +236,11 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 > на одну тестовую ноду (подробности в `README.md`), а `reboot` не спрашивает
 > подтверждения — не запускайте его на `all` без нужды.
 
-## Обновление шаблонов (день второй)
+## Обновление шаблонов
 
-1. `git pull` — забираете свежие `playbooks/` и `semaphore/templates.json`;
+1. Заберите свежие `playbooks/` и `semaphore/templates.json`: вариант B —
+   `git pull`, вариант A — Semaphore сам подтянет свежий код репозитория
+   при запуске (репозиторий-то внешний);
 2. `Run` на `00-bootstrap` — шаблоны обновляются;
 3. ничего лишнего скрипт не удаляет: переименованный шаблон оставит старый
    дубль — удалите его в UI руками.

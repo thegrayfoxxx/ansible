@@ -13,17 +13,33 @@
 ## Quickstart
 
 Репо публичное: плейбуки + шаблоны в одном месте. Шаблоны лежат как файл
-`semaphore/templates.json` и заливаются в UI скриптом (идемпотентно, по имени):
+`semaphore/templates.json` и заливаются в UI скриптом (идемпотентно, по имени).
+
+Что получается в итоге:
+
+![overview](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/00-overview.gif)
+
+Два варианта установки:
 
 ```bash
-git clone <this-repo> && cd ansible
-cp .env.example .env && nano .env  # свои пароли + ключ шифрования
-docker compose up -d               # http://localhost:3000
+# A — минимальный, без git (плейбуки Semaphore подтянет сам):
+mkdir ansible-semaphore && cd ansible-semaphore
+curl -O https://raw.githubusercontent.com/thegrayfoxxx/ansible/main/compose.yml
+curl -O https://raw.githubusercontent.com/thegrayfoxxx/ansible/main/.env.example
+cp .env.example .env && nano .env   # свои пароли + ключ шифрования
+docker compose up -d                # http://localhost:3000
+```
+
+```bash
+# B — полный, с git (код под рукой):
+git clone https://github.com/thegrayfoxxx/ansible.git && cd ansible
+cp .env.example .env && nano .env   # свои пароли + ключ шифрования
+docker compose up -d                # http://localhost:3000
 ```
 
 Полный гайд на 10 минут — [docs/QUICKSTART.md](docs/QUICKSTART.md):
 проект, ключ, репозиторий, inventory `main`, группа `prod`, токен,
-шаблон `00-bootstrap` → `Run` → 8 шаблонов + тестовый `ping`.
+шаблон `00-bootstrap` → `Run` → все шаблоны + тестовый `ping`.
 Там же: обновление шаблонов, troubleshooting и FAQ.
 
 ## Структура
