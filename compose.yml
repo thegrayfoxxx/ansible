@@ -3,7 +3,7 @@ services:
     image: semaphoreui/semaphore:v2.19.12
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${SEMAPHORE_PORT:-3000}:3000"
     environment:
       SEMAPHORE_DB_DIALECT: sqlite
       SEMAPHORE_ADMIN: ${SEMAPHORE_ADMIN:-admin}
