@@ -2,7 +2,7 @@
 
 Публичный template-репозиторий для управления несколькими VPS (Debian)
 через Semaphore UI: плоские плейбуки + compose для Semaphore
-+ сидинг task templates одной командой (`00-bootstrap` → `Run`).
++ сидинг task templates одной командой (`update-templates` → `Run`).
 
 Принципы:
 - Inventory ведётся в UI Semaphore, в репо его нет.
@@ -39,7 +39,7 @@ docker compose up -d                # http://localhost:3000
 
 Полный гайд на 10 минут — [docs/QUICKSTART.md](docs/QUICKSTART.md):
 проект, ключ, репозиторий, inventory `main`, группа `prod`, токен,
-шаблон `00-bootstrap` → `Run` → все шаблоны + тестовый `ping`.
+шаблон `update-templates` → `Run` → все шаблоны + тестовый `ping`.
 Там же: обновление шаблонов, troubleshooting и FAQ.
 
 ## Структура
@@ -87,7 +87,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
    - `ANSIBLE_HOST_KEY_CHECKING=False` уже задан в `ansible.cfg`, дополнительно не нужен.
    - Секреты (пароли, токены) добавлять как JSON / Environment Variables.
 5. Task Templates: не создавать вручную — они заливаются скриптом,
-   см. [docs/QUICKSTART.md](docs/QUICKSTART.md) (шаг 8–9: `00-bootstrap` → `Run`).
+   см. [docs/QUICKSTART.md](docs/QUICKSTART.md) (шаг 8–9: `update-templates` → `Run`).
    Соответствие шаблонов плейбукам лежит в `semaphore/templates.json`.
 
 ## Универсальный target

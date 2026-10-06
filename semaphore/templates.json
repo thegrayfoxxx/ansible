@@ -100,7 +100,7 @@
       ]
     },
     {
-      "name": "00-bootstrap",
+      "name": "update-templates",
       "view": "Service",
       "app": "python",
       "environment": "service-secrets",

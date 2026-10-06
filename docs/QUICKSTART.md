@@ -37,7 +37,7 @@ docker compose up -d                # http://localhost:3000
 ```
 
 Дальше всё в браузере: проект → ключ → репозиторий → inventory →
-variable group → API-токен → шаблон `00-bootstrap` → `Run`.
+variable group → API-токен → шаблон `update-templates` → `Run`.
 Подробности — ниже по шагам.
 
 ## Шаг 0. Секреты
@@ -142,7 +142,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 Теперь положите токен в секрет, чтобы не вводить его при каждом `Run`:
 `Variable Groups -> New Group` с именем `service-secrets`, вкладка `Secrets`
 -> добавить секрет типа `env`: имя `SEMAPHORE_TOKEN`, значение — ваш токен,
-`Save`. Группа прицепится к `00-bootstrap` автоматически при сидинге
+`Save`. Группа прицепится к `update-templates` автоматически при сидинге
 (она так и записана в `semaphore/templates.json`).
 
 ![выпуск API-токена](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/07-api-token.gif)
@@ -159,11 +159,11 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 
 ![включение Python](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/08-enable-python.gif)
 
-## Шаг 8. Шаблон 00-bootstrap
+## Шаг 8. Шаблон update-templates
 
 `Task Templates -> New template -> Python Script`, заполните:
 
-- `Name`: `00-bootstrap`;
+- `Name`: `update-templates`;
 - `Repository`: `ansible`;
 - `Script Filename`: `scripts/semaphore_bootstrap.py`;
 - `Variable Groups`: `service-secrets` — **обязательно**, иначе скрипту неоткуда взять токен;
@@ -177,11 +177,16 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 Нажмите `Create`. Это единственный шаблон, который создаётся руками, —
 остальные создаст он сам.
 
-![создание 00-bootstrap](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/09-create-bootstrap.gif)
+> Уже есть `00-bootstrap` из старой версии гайда? Не создавайте новый —
+> переименуйте его в UI в `update-templates` и нажмите `Run`: скрипт сматчится
+> по новому имени и обновит запись in place, история задач сохранится.
+> Если создать второй рядом — будет дубль, старый удалите руками.
+
+![создание update-templates](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/09-create-bootstrap.gif)
 
 ## Шаг 9. Run — сидинг шаблонов
 
-Откройте `00-bootstrap -> Run`, введите `project_id`
+Откройте `update-templates -> Run`, введите `project_id`
 с шага 1 (например `1`); поле `token` оставьте пустым — возьмётся из секрета.
 Нажмите `Run`. (На видео ниже показан вариант с ручным вводом токена —
 это разовый override, он тоже работает.)
@@ -194,11 +199,11 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 done: created=7 updated=0 unchanged=0 dry_run=False
 ```
 
-![запуск 00-bootstrap](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/10-run-bootstrap.gif)
+![запуск update-templates](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/10-run-bootstrap.gif)
 
 (при первом запуске — все `created`, при повторных — все `updated`).
 В `Task Templates` теперь все шаблоны из `semaphore/templates.json`
-(например `ping` и `run_cmd`, плюс служебный `00-bootstrap`) —
+(например `ping` и `run_cmd`, плюс служебный `update-templates`) —
 у всех inventory `main`, репозиторий `ansible`, группа `prod`.
 
 Повторный `Run` — это и есть обновление: скрипт сверяет записи по имени,
@@ -241,7 +246,7 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 1. Заберите свежие `playbooks/` и `semaphore/templates.json`: вариант B —
    `git pull`, вариант A — Semaphore сам подтянет свежий код репозитория
    при запуске (репозиторий-то внешний);
-2. `Run` на `00-bootstrap` — шаблоны обновляются;
+2. `Run` на `update-templates` — шаблоны обновляются;
 3. ничего лишнего скрипт не удаляет: переименованный шаблон оставит старый
    дубль — удалите его в UI руками.
 
@@ -251,7 +256,7 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 |---|---|
 | `Inventory "main" not found in project. Known: ...` | В проекте нет inventory с таким именем. Создайте с именем из `semaphore/templates.json` (раздел `defaults`) или поправьте JSON под свои имена и перезапустите задачу |
 | `Repository "ansible" not found` | То же самое для репозитория |
-| Задача `00-bootstrap` падает на клонировании репозитория | Проверьте URL репозитория и Access Key: приватный репозиторий требует SSH-ключ, а не `None` |
+| Задача `update-templates` падает на клонировании репозитория | Проверьте URL репозитория и Access Key: приватный репозиторий требует SSH-ключ, а не `None` |
 | В `New template` нет `Python Script` | Включите приложение на странице `Applications` (шаг 7) |
 | `Environment "service-secrets" not found in project. Known: ...` | Не создана группа из шага 6. Создайте `service-secrets` с секретом `SEMAPHORE_TOKEN` и перезапустите задачу (уже созданное не сломается — скрипт докатит остаток) |
 | Потеряли API-токен | Токены не показываются повторно: удалите старый, выпустите новый **и обновите секрет `SEMAPHORE_TOKEN` в группе `service-secrets`** |
