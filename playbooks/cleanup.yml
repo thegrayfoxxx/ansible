@@ -1,0 +1,83 @@
+---
+- name: Free disk space
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    journal_max_age: 14d
+    journal_max_size: 500M
+    docker_prune: true
+    docker_prune_volumes: false
+    apt_clean: true
+  tasks:
+    - name: Disk usage before cleanup
+      ansible.builtin.command: df -h /
+      register: df_before
+      changed_when: false
+
+    - name: Show disk usage before cleanup
+      ansible.builtin.debug:
+        var: df_before.stdout_lines
+
+    - name: Apt autoremove and autoclean
+      ansible.builtin.apt:
+        autoremove: true
+        autoclean: "{{ apt_clean | bool }}"
+      when: apt_clean | bool
+
+    - name: Vacuum systemd journal by time
+      ansible.builtin.command: "journalctl --vacuum-time={{ journal_max_age }}"
+      register: journal_time
+      changed_when: "'Vacuuming done' in journal_time.stderr"
+      failed_when: false
+
+    - name: Vacuum systemd journal by size
+      ansible.builtin.command: "journalctl --vacuum-size={{ journal_max_size }}"
+      register: journal_size
+      changed_when: "'Vacuuming done' in journal_size.stderr"
+      failed_when: false
+
+    - name: Check if Docker exists
+      ansible.builtin.command: command -v docker
+      register: docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Prune Docker objects
+      ansible.builtin.command: docker system prune -af
+      register: docker_prune_out
+      changed_when: true
+      when:
+        - docker_prune | bool
+        - docker_bin.rc == 0
+
+    - name: Show Docker prune result
+      ansible.builtin.debug:
+        var: docker_prune_out.stdout_lines
+      when:
+        - docker_prune | bool
+        - docker_bin.rc == 0
+
+    - name: Prune Docker volumes
+      ansible.builtin.command: docker volume prune -f
+      register: docker_volumes_out
+      changed_when: true
+      when:
+        - docker_prune_volumes | bool
+        - docker_bin.rc == 0
+
+    - name: Show Docker volumes prune result
+      ansible.builtin.debug:
+        var: docker_volumes_out.stdout_lines
+      when:
+        - docker_prune_volumes | bool
+        - docker_bin.rc == 0
+
+    - name: Disk usage after cleanup
+      ansible.builtin.command: df -h /
+      register: df_after
+      changed_when: false
+
+    - name: Show disk usage after cleanup
+      ansible.builtin.debug:
+        var: df_after.stdout_lines

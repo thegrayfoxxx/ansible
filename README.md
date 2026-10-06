@@ -57,6 +57,10 @@ playbooks/
   run_cmd.yml    # произвольная команда
   reboot.yml     # перезагрузка хостов
   init.yml       # инит новой ноды: ключи + sshd
+  firewall.yml   # ufw: правила + опциональное включение
+  docker.yml     # установка Docker Engine + compose plugin
+  cleanup.yml    # чистка диска: apt, journal, docker prune
+  rsyslog.yml    # rsyslog + опциональный форвардинг
 scripts/
   hello.sh               # пример shell-задачи
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
@@ -271,6 +275,76 @@ Bootstrap ноды где есть только пароль (Key Store типа
 4. Этап 2 — сменить Key темплейта на SSH-ключ, прогнать без `skip_sshd` (hardening + reload + проверка связи уже по ключу).
 5. Парольный Key для этой ноды больше не нужен — удалить/ротировать пароль.
 
+`playbooks/firewall.yml` (первый прогон строго с `Limit` на одну тестовую ноду):
+- `fw_allow` (Text, одно правило на строку: `22/tcp`, `80/tcp`)
+- `fw_enable: false` -> `true` чтобы ВКЛЮЧИТЬ ufw (guard не даст включить без `22/tcp` в списке)
+
+Только правила, без включения:
+
+```json
+{
+  "target": "vps-stage-01",
+  "fw_allow": "22/tcp\n80/tcp\n443/tcp"
+}
+```
+
+Включение (после проверки правил выше):
+
+```json
+{
+  "target": "vps-stage-01",
+  "fw_allow": "22/tcp\n80/tcp\n443/tcp",
+  "fw_enable": true
+}
+```
+
+`playbooks/docker.yml` (только Debian):
+- `docker_users` (Text: юзеры в группу docker, один на строку или через запятую)
+- `docker_verify: true` -> `false` чтобы пропустить `hello-world`
+
+```json
+{
+  "target": "stage",
+  "docker_users": "debian"
+}
+```
+
+`playbooks/cleanup.yml`:
+- `journal_max_age: 14d` (String), `journal_max_size: 500M` (String)
+- `docker_prune: true` (скипается если докера нет; Enum)
+- `docker_prune_volumes: false` -> `true` чтобы чистить и volumes (опасно; Enum)
+- `apt_clean: true` (Enum)
+
+```json
+{
+  "target": "stage"
+}
+```
+
+Только journal без докера:
+
+```json
+{
+  "target": "vps-prod-01",
+  "docker_prune": false,
+  "journal_max_size": "200M"
+}
+```
+
+`playbooks/rsyslog.yml`:
+- `rsyslog_remote: ""` (String, пусто — только локальные логи; например `192.0.2.10:514`)
+- `rsyslog_proto: tcp` (или `udp`; Enum)
+
+С форвардингом на центральный сервер:
+
+```json
+{
+  "target": "prod",
+  "rsyslog_remote": "192.0.2.10:514",
+  "rsyslog_proto": "tcp"
+}
+```
+
 ## Локальная проверка
 
 Требуется установленный `ansible` (например `pip install ansible-core`):
@@ -283,5 +357,9 @@ ansible-playbook --syntax-check playbooks/run_script.yml
 ansible-playbook --syntax-check playbooks/run_cmd.yml
 ansible-playbook --syntax-check playbooks/reboot.yml
 ansible-playbook --syntax-check playbooks/init.yml
+ansible-playbook --syntax-check playbooks/firewall.yml
+ansible-playbook --syntax-check playbooks/docker.yml
+ansible-playbook --syntax-check playbooks/cleanup.yml
+ansible-playbook --syntax-check playbooks/rsyslog.yml
 ansible-galaxy collection install -r requirements.yml
 ```

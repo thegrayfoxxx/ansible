@@ -1,0 +1,51 @@
+---
+- name: Setup rsyslog
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    rsyslog_remote: ""
+    rsyslog_proto: tcp
+  tasks:
+    - name: Validate rsyslog_proto value
+      ansible.builtin.fail:
+        msg: "rsyslog_proto must be tcp or udp, got {{ rsyslog_proto }}"
+      when: (rsyslog_proto | lower) not in ['tcp', 'udp']
+
+    - name: Ensure rsyslog is installed
+      ansible.builtin.apt:
+        name: rsyslog
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Configure remote forwarding
+      ansible.builtin.copy:
+        content: "*.* {{ '@@' if (rsyslog_proto | lower) == 'tcp' else '@' }}{{ rsyslog_remote }}\n"
+        dest: /etc/rsyslog.d/49-remote.conf
+        mode: "0644"
+      when: rsyslog_remote | length > 0
+      notify: Validate and restart rsyslog
+
+    - name: Remove remote forwarding config
+      ansible.builtin.file:
+        path: /etc/rsyslog.d/49-remote.conf
+        state: absent
+      when: rsyslog_remote | length == 0
+      notify: Validate and restart rsyslog
+
+    - name: Flush handlers now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Ensure rsyslog service is started and enabled
+      ansible.builtin.service:
+        name: rsyslog
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Validate and restart rsyslog
+      ansible.builtin.shell: rsyslogd -N1 && systemctl restart rsyslog
+      args:
+        executable: /bin/bash
+      changed_when: true

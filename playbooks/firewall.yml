@@ -1,0 +1,58 @@
+---
+- name: Manage UFW firewall
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    fw_allow: []
+    fw_enable: false
+    fw_default_incoming: deny
+    fw_default_outgoing: allow
+  tasks:
+    - name: Normalize fw_allow to list (one rule per line, e.g. 22/tcp)
+      ansible.builtin.set_fact:
+        fw_allow_list: "{{ fw_allow.splitlines() | map('trim') | select | list if fw_allow is string else fw_allow }}"
+
+    - name: Ensure UFW is installed
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Guard against SSH lockout
+      ansible.builtin.fail:
+        msg: "Refusing to enable UFW without SSH access: add 22/tcp to fw_allow (via Extra vars)"
+      when:
+        - fw_enable | bool
+        - "'22' not in (fw_allow_list | map('regex_replace', '/.*$', ''))"
+
+    - name: Set default policies
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - {direction: incoming, policy: "{{ fw_default_incoming }}"}
+        - {direction: outgoing, policy: "{{ fw_default_outgoing }}"}
+      when: fw_allow_list | length > 0 or fw_enable | bool
+
+    - name: Allow rules
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.split('/')[0] }}"
+        proto: "{{ item.split('/')[1] | default('tcp') }}"
+      loop: "{{ fw_allow_list }}"
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+      when: fw_enable | bool
+
+    - name: Show UFW status
+      ansible.builtin.command: ufw status numbered
+      register: fw_status
+      changed_when: false
+
+    - name: Display UFW status
+      ansible.builtin.debug:
+        var: fw_status.stdout_lines

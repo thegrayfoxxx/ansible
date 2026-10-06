@@ -100,6 +100,53 @@
       ]
     },
     {
+      "name": "firewall",
+      "view": "Base",
+      "description": "UFW: правила + опциональное включение. Первый прогон с Limit на тестовую ноду (playbooks/firewall.yml)",
+      "playbook": "playbooks/firewall.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "fw_allow", "title": "fw_allow", "description": "Text: одно правило на строку, например 22/tcp", "type": "text", "required": false},
+        {"name": "fw_enable", "title": "fw_enable", "description": "true — ВКЛЮЧИТЬ ufw (guard требует 22/tcp в списке)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "false"}
+      ]
+    },
+    {
+      "name": "docker",
+      "view": "Base",
+      "description": "Установка Docker Engine + compose plugin (playbooks/docker.yml)",
+      "playbook": "playbooks/docker.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "docker_users", "title": "docker_users", "description": "Text: юзеры в группу docker, один на строку или через запятую", "type": "text", "required": false},
+        {"name": "docker_verify", "title": "docker_verify", "description": "true — проверить запуском hello-world", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"}
+      ]
+    },
+    {
+      "name": "cleanup",
+      "view": "Base",
+      "description": "Чистка диска: apt, journal, docker prune (playbooks/cleanup.yml)",
+      "playbook": "playbooks/cleanup.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "journal_max_age", "title": "journal_max_age", "description": "Хранить журнал, например 14d", "default_value": "14d", "type": "", "required": false},
+        {"name": "journal_max_size", "title": "journal_max_size", "description": "Лимит размера журнала, например 500M", "default_value": "500M", "type": "", "required": false},
+        {"name": "docker_prune", "title": "docker_prune", "description": "true — docker system prune (скипается если докера нет)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"},
+        {"name": "docker_prune_volumes", "title": "docker_prune_volumes", "description": "true — чистить и docker volumes (опасно)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "false"},
+        {"name": "apt_clean", "title": "apt_clean", "description": "true — autoremove + autoclean", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"}
+      ]
+    },
+    {
+      "name": "rsyslog",
+      "view": "Base",
+      "description": "Установка rsyslog + опциональный форвардинг (playbooks/rsyslog.yml)",
+      "playbook": "playbooks/rsyslog.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "rsyslog_remote", "title": "rsyslog_remote", "description": "Центральный сервер, например 192.0.2.10:514. Пусто — только локальные логи", "type": "", "required": false},
+        {"name": "rsyslog_proto", "title": "rsyslog_proto", "description": "tcp (@@) или udp (@)", "type": "enum", "required": false, "values": [{"name": "tcp", "value": "tcp"}, {"name": "udp", "value": "udp"}], "default_value": "tcp"}
+      ]
+    },
+    {
       "name": "update-templates",
       "view": "Service",
       "app": "python",
