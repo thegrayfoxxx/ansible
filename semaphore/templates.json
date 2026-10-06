@@ -37,7 +37,7 @@
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
         {"name": "base_timezone", "title": "base_timezone", "description": "Например Etc/UTC или Europe/Berlin", "default_value": "Etc/UTC", "type": "", "required": false},
-        {"name": "base_packages", "title": "base_packages", "description": "Text: один пакет на строку или через запятую. Например: curl, htop", "default_value": "python3, sudo, curl, htop", "type": "text", "required": false}
+        {"name": "base_packages", "title": "base_packages", "description": "Text: один пакет на строку или через запятую. Например: curl, btop", "default_value": "python3, curl, btop, ufw", "type": "text", "required": false}
       ]
     },
     {

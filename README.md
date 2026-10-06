@@ -133,7 +133,7 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 
 `playbooks/base.yml`:
 - `base_timezone: Etc/UTC` (String)
-- `base_packages` (Text: один пакет на строку или через запятую; дефолт `python3, sudo, curl, htop`)
+- `base_packages` (Text: один пакет на строку или через запятую; дефолт `python3, curl, btop, ufw`)
 
 `playbooks/run_script.yml`:
 - `script_src: scripts/hello.sh` (String; обязательно, путь от корня репо, резолвится через `playbook_dir`)

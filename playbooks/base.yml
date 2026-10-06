@@ -7,9 +7,9 @@
     base_timezone: Etc/UTC
     base_packages:
       - python3
-      - sudo
       - curl
-      - htop
+      - btop
+      - ufw
   tasks:
     - name: Normalize base_packages to list
       ansible.builtin.set_fact:
