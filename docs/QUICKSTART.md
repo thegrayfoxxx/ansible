@@ -150,6 +150,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 - `Name`: `00-bootstrap`;
 - `Repository`: `ansible`;
 - `Script Filename`: `scripts/semaphore_bootstrap.py`;
+- `Variable Groups`: `service-secrets` — **обязательно**, иначе скрипту неоткуда взять токен;
 - `Survey Variables` (кнопка `+ Add variable`, каждого по одному):
   - `Name: token`, `Title: API Token`, `Type: Secret`, **без** галочки `Required`
     (пустое поле — токен берётся из секрета `SEMAPHORE_TOKEN`;
