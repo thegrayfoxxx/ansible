@@ -64,7 +64,7 @@ semaphore/
   templates.json # источник правды: 8 шаблонов + survey_vars + views
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
-  gifs/          # 11 GIF 1920x1080 по шагам гайда (~46 МБ)
+  # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
 ```
 
 ## Semaphore UI: подключение

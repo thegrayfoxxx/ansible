@@ -23,6 +23,11 @@ API verified against semaphore develop api-docs.yml (v2.16.x):
 
 Views (tabs) are declared per template via `view` name in templates.json
 and auto-created when missing. Templates without `view` stay in "All".
+
+Environments (variable groups) are resolved by name and auto-created empty
+when missing — except names in STRICT_ENVIRONMENTS (currently
+`service-secrets`), which must be created manually since they hold secrets
+only a human knows. Default group comes from templates.json `defaults`.
 """
 
 import argparse

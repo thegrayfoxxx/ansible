@@ -74,7 +74,7 @@ docker compose up -d
 
 Как узнать ID проекта: откройте проект — цифра в адресе
 (`http://localhost:3000/project/1/...`) и есть ID. У первого проекта это `1`,
-он понадобится на шаге 8.
+он понадобится на шаге 9.
 
 ![создание проекта](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/02-new-project.gif)
 
@@ -125,6 +125,10 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 создаёт сам пустыми при первом `Run`. Секреты докладываете туда позже через UI
 по мере нужды — шаблоны уже привязаны. Вручную создаётся только
 `service-secrets` (следующий шаг) — ей нужен токен, который знаете только вы.
+
+Так выглядит страница групп после сидинга (`prod` создана скриптом):
+
+![группы после сидинга](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/06-new-env-group.gif)
 
 ## Шаг 6. API-токен и группа service-secrets
 
