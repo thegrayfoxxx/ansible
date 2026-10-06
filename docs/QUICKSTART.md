@@ -1,8 +1,9 @@
 # Quickstart
 
 Поднимите свой Semaphore и за 10 минут получите все task templates из этого репо.
-В конце у вас будет: работающий Semaphore в Docker + 7 готовых шаблонов
-(`ping`, `update`, `base`, `run_script`, `run_cmd`, `reboot`, `init`)
+В конце у вас будет: работающий Semaphore в Docker + 8 готовых шаблонов
+(7 рабочих: `ping`, `update`, `base`, `run_script`, `run_cmd`, `reboot`, `init`
+плюс служебный `00-bootstrap`)
 и успешный тестовый прогон `ping`.
 
 Проверено на `semaphoreui/semaphore:v2.19.12`.
@@ -163,14 +164,20 @@ done: created=7 updated=0 unchanged=0 dry_run=False
 
 ![запуск 00-bootstrap](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/10-run-bootstrap.gif)
 
-(при первом запуске — `created=7`, при повторных — `updated=7`).
-В `Task Templates` теперь 7 шаблонов: `ping`, `update`, `base`,
-`run_script`, `run_cmd`, `reboot`, `init` — у всех inventory `main`,
-репозиторий `ansible`, группа `empty`.
+(при первом запуске — `created=8`, при повторных — `updated=8`).
+В `Task Templates` теперь 8 шаблонов: `ping`, `update`, `base`,
+`run_script`, `run_cmd`, `reboot`, `init` плюс сам `00-bootstrap` —
+у всех inventory `main`, репозиторий `ansible`, группа `empty`.
 
 Повторный `Run` — это и есть обновление: скрипт сверяет записи по имени,
-создаёт недостающие (`POST`) и обновляет изменившиеся (`PUT`).
-После `git pull` с новыми шаблонами просто нажмите `Run` ещё раз.
+создаёт недостающие (`POST`) и обновляет изменившиеся (`PUT`),
+включая самого себя. После `git pull` с новыми шаблонами
+просто нажмите `Run` ещё раз.
+
+Вкладки (Views): шаблоны раскладываются по вкладкам согласно полю `view`
+в `semaphore/templates.json` (`Base`, `Ad-hoc`, `Onboarding`, `Service`).
+Недостающие вкладки скрипт создаёт сам. Новую вкладку завести так:
+добавить `"view": "Новое имя"` нужным шаблонам в JSON и нажать `Run`.
 
 Запасной путь без UI (тот же скрипт локально, нужен только `python3`):
 

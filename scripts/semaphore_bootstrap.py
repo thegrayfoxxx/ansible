@@ -16,8 +16,13 @@ API verified against semaphore develop api-docs.yml (v2.16.x):
   GET  /api/project/{id}/environment?sort=name&order=asc    (singular!)
   GET  /api/project/{id}/repositories?sort=name&order=asc   (plural)
   GET  /api/project/{id}/templates?sort=name&order=asc      (plural)
+  GET  /api/project/{id}/views                             (no sort params)
   POST /api/project/{id}/templates            -> 201 Template
   PUT  /api/project/{id}/templates/{tid}       -> 204 empty
+  POST /api/project/{id}/views                 -> 201 View
+
+Views (tabs) are declared per template via `view` name in templates.json
+and auto-created when missing. Templates without `view` stay in "All".
 """
 
 import argparse
@@ -73,6 +78,37 @@ def api_get_list(base, project_id, token, resource):
     return data if isinstance(data, list) else []
 
 
+def api_get_views(base, project_id, token):
+    url = f"{base}/project/{project_id}/views"
+    _, data = api_request("GET", url, token)
+    return data if isinstance(data, list) else []
+
+
+def ensure_view(base, project_id, token, views, title, dry_run):
+    """Return view id by title, creating the view when missing."""
+    for view in views:
+        if view.get("title") == title:
+            return view["id"]
+    known = ", ".join(sorted(str(v.get("title")) for v in views)) or "(empty)"
+    if dry_run:
+        if title not in _dry_announced:
+            print(f'[dry-run] would create view "{title}" (known: {known})')
+            _dry_announced.add(title)
+        return None
+    positions = [v.get("position", 0) for v in views if isinstance(v.get("position"), int)]
+    position = (max(positions) + 1) if positions else 0
+    print(f'[create view] "{title}"')
+    _, created = api_request("POST", f"{base}/project/{project_id}/views", token,
+                             {"project_id": project_id, "title": title, "position": position})
+    if not isinstance(created, dict) or "id" not in created:
+        raise RuntimeError(f'POST view "{title}" returned no id')
+    views.append(created)
+    return created["id"]
+
+
+_dry_announced = set()
+
+
 def name_to_id(items, name, kind):
     for item in items:
         if item.get("name") == name:
@@ -82,7 +118,7 @@ def name_to_id(items, name, kind):
 
 
 def build_payload(project_id, tpl, ids):
-    return {
+    payload = {
         "project_id": project_id,
         "inventory_id": ids["inventory"],
         "repository_id": ids["repository"],
@@ -94,6 +130,9 @@ def build_payload(project_id, tpl, ids):
         "arguments": "[]",
         "survey_vars": tpl.get("survey_vars", []),
     }
+    if ids.get("view") is not None:
+        payload["view_id"] = ids["view"]
+    return payload
 
 
 def main():
@@ -141,6 +180,7 @@ def main():
         inventories = api_get_list(base, project_id, token, "inventory")
         repositories = api_get_list(base, project_id, token, "repositories")
         environments = api_get_list(base, project_id, token, "environment")
+        views = api_get_views(base, project_id, token)
         existing = api_get_list(base, project_id, token, "templates")
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -151,10 +191,14 @@ def main():
     for tpl in wanted:
         name = tpl["name"]
         try:
+            view_name = tpl.get("view", defaults.get("view"))
+            view_id = (ensure_view(base, project_id, token, views, view_name, args.dry_run)
+                       if view_name else None)
             ids = {
                 "inventory": name_to_id(inventories, tpl.get("inventory", default_inventory), "Inventory"),
                 "repository": name_to_id(repositories, tpl.get("repository", default_repository), "Repository"),
                 "environment": name_to_id(environments, tpl.get("environment", default_environment), "Environment"),
+                "view": view_id,
             }
         except RuntimeError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)

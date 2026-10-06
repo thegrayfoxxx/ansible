@@ -3,11 +3,13 @@
     "inventory": "main",
     "repository": "ansible",
     "environment": "empty",
-    "app": "ansible"
+    "app": "ansible",
+    "view": null
   },
   "templates": [
     {
       "name": "ping",
+      "view": "Base",
       "description": "Проверка связи (playbooks/ping.yml)",
       "playbook": "playbooks/ping.yml",
       "survey_vars": [
@@ -16,6 +18,7 @@
     },
     {
       "name": "update",
+      "view": "Base",
       "description": "apt update + upgrade, опционально reboot (playbooks/update.yml)",
       "playbook": "playbooks/update.yml",
       "survey_vars": [
@@ -28,6 +31,7 @@
     },
     {
       "name": "base",
+      "view": "Base",
       "description": "timezone + base packages (playbooks/base.yml)",
       "playbook": "playbooks/base.yml",
       "survey_vars": [
@@ -38,6 +42,7 @@
     },
     {
       "name": "run_script",
+      "view": "Ad-hoc",
       "description": "Запуск скриптов из scripts/ (playbooks/run_script.yml)",
       "playbook": "playbooks/run_script.yml",
       "survey_vars": [
@@ -50,6 +55,7 @@
     },
     {
       "name": "run_cmd",
+      "view": "Ad-hoc",
       "description": "Произвольная команда (playbooks/run_cmd.yml)",
       "playbook": "playbooks/run_cmd.yml",
       "survey_vars": [
@@ -65,6 +71,7 @@
     },
     {
       "name": "reboot",
+      "view": "Base",
       "description": "Перезагрузка хостов, без подтверждения (playbooks/reboot.yml)",
       "playbook": "playbooks/reboot.yml",
       "survey_vars": [
@@ -78,6 +85,7 @@
     },
     {
       "name": "init",
+      "view": "Onboarding",
       "description": "Инит новой ноды: ключи + sshd. Первый прогон строго с Limit на одну тестовую ноду (playbooks/init.yml)",
       "playbook": "playbooks/init.yml",
       "survey_vars": [
@@ -89,6 +97,17 @@
         {"name": "sshd_pubkey_auth", "title": "sshd_pubkey_auth", "description": "yes — разрешить вход по ключам", "default_value": "yes", "type": "", "required": false},
         {"name": "sshd_password_auth", "title": "sshd_password_auth", "description": "no — запретить вход по паролю", "default_value": "no", "type": "", "required": false},
         {"name": "sshd_permit_empty", "title": "sshd_permit_empty", "description": "no — запретить пустые пароли", "default_value": "no", "type": "", "required": false}
+      ]
+    },
+    {
+      "name": "00-bootstrap",
+      "view": "Service",
+      "app": "python",
+      "description": "Сидинг шаблонов из semaphore/templates.json (этот репо)",
+      "playbook": "scripts/semaphore_bootstrap.py",
+      "survey_vars": [
+        {"name": "token", "title": "API Token", "type": "secret", "required": true},
+        {"name": "project_id", "title": "Project ID", "type": "", "required": true}
       ]
     }
   ]

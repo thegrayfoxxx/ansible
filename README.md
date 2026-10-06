@@ -23,7 +23,7 @@ docker compose up -d               # http://localhost:3000
 
 Полный гайд на 10 минут — [docs/QUICKSTART.md](docs/QUICKSTART.md):
 проект, ключ, репозиторий, inventory `main`, группа `empty`, токен,
-шаблон `00-bootstrap` → `Run` → 7 шаблонов + тестовый `ping`.
+шаблон `00-bootstrap` → `Run` → 8 шаблонов + тестовый `ping`.
 Там же: обновление шаблонов, troubleshooting и FAQ.
 
 ## Структура
@@ -45,7 +45,7 @@ scripts/
   hello.sh               # пример shell-задачи
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
 semaphore/
-  templates.json # источник правды: 7 шаблонов + survey_vars
+  templates.json # источник правды: 8 шаблонов + survey_vars + views
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   gifs/          # 11 GIF 1920x1080 по шагам гайда (~46 МБ)
