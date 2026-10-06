@@ -49,7 +49,7 @@ docker compose up -d
 Проверка: `curl -s http://localhost:3000/api/ping` должен вернуть `pong`,
 а в браузере открыться страница логина `http://localhost:3000`.
 
-![логин](gifs/01-login.gif)
+![логин](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/01-login.gif)
 
 ## Шаг 1. Логин и проект
 
@@ -60,7 +60,7 @@ docker compose up -d
 (`http://localhost:3000/project/1/...`) и есть ID. У первого проекта это `1`,
 он понадобится на шаге 8.
 
-![создание проекта](gifs/02-new-project.gif)
+![создание проекта](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/02-new-project.gif)
 
 ## Шаг 2. Key Store
 
@@ -68,7 +68,7 @@ docker compose up -d
 для публичного репозитория. Свой SSH-ключ для доступа на VPS добавьте здесь же
 через `New Key` (понадобится на шаге 4 как `User Credentials` и для приватных реп).
 
-![key store](gifs/03-keystore.gif)
+![key store](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/03-keystore.gif)
 
 ## Шаг 3. Repository
 
@@ -82,7 +82,7 @@ docker compose up -d
 Нажмите `Create`. Репозиторий появится в списке — клонирование произойдёт
 при первом запуске задачи, сейчас проверять нечего.
 
-![создание репозитория](gifs/04-new-repository.gif)
+![создание репозитория](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/04-new-repository.gif)
 
 ## Шаг 4. Inventory
 
@@ -100,7 +100,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 
 Нажмите `Create`. Должна появиться строка `main / static`.
 
-![создание inventory](gifs/05-new-inventory.gif)
+![создание inventory](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/05-new-inventory.gif)
 
 ## Шаг 5. Variable Groups
 
@@ -108,7 +108,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 нажмите `Save`. Секреты и переменные окружения добавляются сюда же позже,
 шаблонам пустой группы достаточно.
 
-![создание variable group](gifs/06-new-env-group.gif)
+![создание variable group](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/06-new-env-group.gif)
 
 ## Шаг 6. API-токен
 
@@ -117,7 +117,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 **Токен показывается один раз — скопируйте его сразу**, он нужен на шаге 8.
 Если потеряли — удалите и выпустите новый, это штатно.
 
-![выпуск API-токена](gifs/07-api-token.gif)
+![выпуск API-токена](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/07-api-token.gif)
 
 ## Шаг 7. Включите приложение Python
 
@@ -129,7 +129,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 Найдите строку `Python Script` и включите тумблер. Вернитесь в
 `Task Templates -> New template` — пункт `Python Script` появится.
 
-![включение Python](gifs/08-enable-python.gif)
+![включение Python](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/08-enable-python.gif)
 
 ## Шаг 8. Шаблон 00-bootstrap
 
@@ -146,7 +146,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 Нажмите `Create`. Это единственный шаблон, который создаётся руками, —
 остальные создаст он сам.
 
-![создание 00-bootstrap](gifs/09-create-bootstrap.gif)
+![создание 00-bootstrap](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/09-create-bootstrap.gif)
 
 ## Шаг 9. Run — сидинг шаблонов
 
@@ -161,7 +161,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 done: created=7 updated=0 unchanged=0 dry_run=False
 ```
 
-![запуск 00-bootstrap](gifs/10-run-bootstrap.gif)
+![запуск 00-bootstrap](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/10-run-bootstrap.gif)
 
 (при первом запуске — `created=7`, при повторных — `updated=7`).
 В `Task Templates` теперь 7 шаблонов: `ping`, `update`, `base`,
@@ -186,7 +186,7 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 `ping -> Run`, в поле `Target` введите группу или хост из своего inventory
 (например `stage`), `Run`. Успех — `ok=1 unreachable=0 failed=0` в выводе.
 
-![запуск ping](gifs/11-run-ping.gif)
+![запуск ping](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/11-run-ping.gif)
 
 Готово — стенд рабочий. Дальше смотрите `README.md`: описание переменных
 и survey-полей каждого плейбука.
