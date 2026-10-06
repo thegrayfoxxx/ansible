@@ -107,6 +107,38 @@ def ensure_view(base, project_id, token, views, title, dry_run):
 
 
 _dry_announced = set()
+_dry_announced_env = set()
+
+# Environments in this set are never auto-created: they carry secrets
+# only a human knows. Everything else is created empty on demand.
+STRICT_ENVIRONMENTS = {"service-secrets"}
+
+
+def ensure_environment(base, project_id, token, environments, name, dry_run):
+    """Return environment id by name, auto-creating missing groups.
+
+    Groups hold no content at creation time, so creating them is safe.
+    STRICT_ENVIRONMENTS must exist beforehand (they hold secrets).
+    """
+    for env in environments:
+        if env.get("name") == name:
+            return env["id"]
+    if name in STRICT_ENVIRONMENTS:
+        known = ", ".join(sorted(str(i.get("name")) for i in environments)) or "(empty)"
+        raise RuntimeError(f'Environment "{name}" not found in project. Known: {known}')
+    known = ", ".join(sorted(str(i.get("name")) for i in environments)) or "(empty)"
+    if dry_run:
+        if name not in _dry_announced_env:
+            print(f'[dry-run] would create environment "{name}" (known: {known})')
+            _dry_announced_env.add(name)
+        return None
+    print(f'[create environment] "{name}"')
+    _, created = api_request("POST", f"{base}/project/{project_id}/environment", token,
+                             {"project_id": project_id, "name": name})
+    if not isinstance(created, dict) or "id" not in created:
+        raise RuntimeError(f'POST environment "{name}" returned no id')
+    environments.append(created)
+    return created["id"]
 
 
 def name_to_id(items, name, kind):
@@ -174,7 +206,7 @@ def main():
 
     default_inventory = args.inventory or defaults.get("inventory", "main")
     default_repository = args.repository or defaults.get("repository", "ansible")
-    default_environment = args.environment or defaults.get("environment", "empty")
+    default_environment = args.environment or defaults.get("environment", "prod")
 
     try:
         inventories = api_get_list(base, project_id, token, "inventory")
@@ -197,7 +229,8 @@ def main():
             ids = {
                 "inventory": name_to_id(inventories, tpl.get("inventory", default_inventory), "Inventory"),
                 "repository": name_to_id(repositories, tpl.get("repository", default_repository), "Repository"),
-                "environment": name_to_id(environments, tpl.get("environment", default_environment), "Environment"),
+                "environment": ensure_environment(base, project_id, token, environments,
+                                                  tpl.get("environment", default_environment), args.dry_run),
                 "view": view_id,
             }
         except RuntimeError as exc:

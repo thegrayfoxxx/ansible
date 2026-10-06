@@ -103,13 +103,12 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 
 ![создание inventory](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/05-new-inventory.gif)
 
-## Шаг 5. Variable Groups
+## Шаг 5. Variable Groups — ничего делать не надо
 
-`Variable Groups -> New Group`: имя `empty`, остальное не трогайте,
-нажмите `Save`. Секреты и переменные окружения добавляются сюда же позже,
-шаблонам пустой группы достаточно.
-
-![создание variable group](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/06-new-env-group.gif)
+Группу `prod` (и любые другие из `semaphore/templates.json`) скрипт сидинга
+создаёт сам пустыми при первом `Run`. Секреты докладываете туда позже через UI
+по мере нужды — шаблоны уже привязаны. Вручную создаётся только
+`service-secrets` (следующий шаг) — ей нужен токен, который знаете только вы.
 
 ## Шаг 6. API-токен и группа service-secrets
 
@@ -183,7 +182,7 @@ done: created=7 updated=0 unchanged=0 dry_run=False
 (при первом запуске — `created=8`, при повторных — `updated=8`).
 В `Task Templates` теперь 8 шаблонов: `ping`, `update`, `base`,
 `run_script`, `run_cmd`, `reboot`, `init` плюс сам `00-bootstrap` —
-у всех inventory `main`, репозиторий `ansible`, группа `empty`.
+у всех inventory `main`, репозиторий `ansible`, группа `prod`.
 
 Повторный `Run` — это и есть обновление: скрипт сверяет записи по имени,
 создаёт недостающие (`POST`) и обновляет изменившиеся (`PUT`),

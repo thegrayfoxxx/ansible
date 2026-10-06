@@ -22,7 +22,7 @@ docker compose up -d               # http://localhost:3000
 ```
 
 Полный гайд на 10 минут — [docs/QUICKSTART.md](docs/QUICKSTART.md):
-проект, ключ, репозиторий, inventory `main`, группа `empty`, токен,
+проект, ключ, репозиторий, inventory `main`, группа `prod`, токен,
 шаблон `00-bootstrap` → `Run` → 8 шаблонов + тестовый `ping`.
 Там же: обновление шаблонов, troubleshooting и FAQ.
 

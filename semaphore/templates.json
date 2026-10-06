@@ -2,7 +2,7 @@
   "defaults": {
     "inventory": "main",
     "repository": "ansible",
-    "environment": "empty",
+    "environment": "prod",
     "app": "ansible",
     "view": null
   },
