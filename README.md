@@ -65,7 +65,7 @@ scripts/
   hello.sh               # пример shell-задачи
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
 semaphore/
-  templates.json # источник правды: 8 шаблонов + survey_vars + views
+  templates.json # источник правды: 12 шаблонов + survey_vars + views (Run, System, Security, Observability, Service)
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git

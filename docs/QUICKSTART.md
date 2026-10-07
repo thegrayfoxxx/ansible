@@ -213,9 +213,12 @@ done: created=7 updated=0 unchanged=0 dry_run=False
 просто нажмите `Run` ещё раз.
 
 Вкладки (Views): шаблоны раскладываются по вкладкам согласно полю `view`
-в `semaphore/templates.json` (`Base`, `Ad-hoc`, `Onboarding`, `Service`).
+в `semaphore/templates.json` (`Run`, `System`, `Security`, `Observability`, `Service`).
 Недостающие вкладки скрипт создаёт сам. Новую вкладку завести так:
 добавить `"view": "Новое имя"` нужным шаблонам в JSON и нажать `Run`.
+Правило: вкладка — это слой / failure-domain, а не отдельный сервис
+(будущие `nginx`/`haproxy` лягут в общую `Web`, а не в `nginx`-таб и `haproxy`-таб).
+Старые пустые вкладки скрипт не удаляет — уберите их в UI руками.
 
 Запасной путь без UI (тот же скрипт локально, нужен только `python3`
 и клон репозитория — вариант установки B):

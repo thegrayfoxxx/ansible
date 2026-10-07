@@ -9,7 +9,7 @@
   "templates": [
     {
       "name": "ping",
-      "view": "Base",
+      "view": "Run",
       "description": "Проверка связи (playbooks/ping.yml)",
       "playbook": "playbooks/ping.yml",
       "survey_vars": [
@@ -17,45 +17,8 @@
       ]
     },
     {
-      "name": "update",
-      "view": "Base",
-      "description": "apt update + upgrade, опционально reboot (playbooks/update.yml)",
-      "playbook": "playbooks/update.yml",
-      "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
-        {"name": "apt_upgrade", "title": "apt_upgrade", "description": "dist или safe", "default_value": "dist", "type": "enum", "required": false, "values": [{"name": "dist", "value": "dist"}, {"name": "safe", "value": "safe"}]},
-        {"name": "apt_autoremove", "title": "apt_autoremove", "description": "true — удалять осиротевшие пакеты", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "apt_autoclean", "title": "apt_autoclean", "description": "true — чистить кеш apt", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "reboot_if_required", "title": "reboot_if_required", "description": "true для авторебута", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
-      ]
-    },
-    {
-      "name": "base",
-      "view": "Base",
-      "description": "timezone + base packages (playbooks/base.yml)",
-      "playbook": "playbooks/base.yml",
-      "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
-        {"name": "base_timezone", "title": "base_timezone", "description": "Например Etc/UTC или Europe/Berlin", "default_value": "Etc/UTC", "type": "", "required": false},
-        {"name": "base_packages", "title": "base_packages", "description": "Text: один пакет на строку или через запятую. Например: curl, btop", "default_value": "python3, curl, btop, ufw", "type": "text", "required": false}
-      ]
-    },
-    {
-      "name": "run_script",
-      "view": "Ad-hoc",
-      "description": "Запуск скриптов из scripts/ (playbooks/run_script.yml)",
-      "playbook": "playbooks/run_script.yml",
-      "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
-        {"name": "script_src", "title": "script_src", "description": "Обязательно, путь от корня репо, например scripts/hello.sh", "type": "", "required": true},
-        {"name": "script_args", "title": "script_args", "description": "Аргументы скрипта, например --foo bar", "type": "", "required": false},
-        {"name": "script_env", "title": "script_env", "description": "Text с JSON-объектом, например {\"FOO\": \"1\"}", "type": "text", "required": false},
-        {"name": "script_become", "title": "script_become", "description": "false чтобы запустить без sudo", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
-      ]
-    },
-    {
       "name": "run_cmd",
-      "view": "Ad-hoc",
+      "view": "Run",
       "description": "Произвольная команда (playbooks/run_cmd.yml)",
       "playbook": "playbooks/run_cmd.yml",
       "survey_vars": [
@@ -70,8 +33,70 @@
       ]
     },
     {
+      "name": "run_script",
+      "view": "Run",
+      "description": "Запуск скриптов из scripts/ (playbooks/run_script.yml)",
+      "playbook": "playbooks/run_script.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "script_src", "title": "script_src", "description": "Обязательно, путь от корня репо, например scripts/hello.sh", "type": "", "required": true},
+        {"name": "script_args", "title": "script_args", "description": "Аргументы скрипта, например --foo bar", "type": "", "required": false},
+        {"name": "script_env", "title": "script_env", "description": "Text с JSON-объектом, например {\"FOO\": \"1\"}", "type": "text", "required": false},
+        {"name": "script_become", "title": "script_become", "description": "false чтобы запустить без sudo", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
+      "name": "base",
+      "view": "System",
+      "description": "timezone + base packages (playbooks/base.yml)",
+      "playbook": "playbooks/base.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "base_timezone", "title": "base_timezone", "description": "Например Etc/UTC или Europe/Berlin", "default_value": "Etc/UTC", "type": "", "required": false},
+        {"name": "base_packages", "title": "base_packages", "description": "Text: один пакет на строку или через запятую. Например: curl, btop", "default_value": "python3, curl, btop, ufw", "type": "text", "required": false}
+      ]
+    },
+    {
+      "name": "docker",
+      "view": "System",
+      "description": "Установка Docker Engine + compose plugin (playbooks/docker.yml)",
+      "playbook": "playbooks/docker.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "docker_users", "title": "docker_users", "description": "Text: юзеры в группу docker, один на строку или через запятую", "type": "text", "required": false},
+        {"name": "docker_verify", "title": "docker_verify", "description": "true — проверить запуском hello-world", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"}
+      ]
+    },
+    {
+      "name": "update",
+      "view": "System",
+      "description": "apt update + upgrade, опционально reboot (playbooks/update.yml)",
+      "playbook": "playbooks/update.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "apt_upgrade", "title": "apt_upgrade", "description": "dist или safe", "default_value": "dist", "type": "enum", "required": false, "values": [{"name": "dist", "value": "dist"}, {"name": "safe", "value": "safe"}]},
+        {"name": "apt_autoremove", "title": "apt_autoremove", "description": "true — удалять осиротевшие пакеты", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "apt_autoclean", "title": "apt_autoclean", "description": "true — чистить кеш apt", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "reboot_if_required", "title": "reboot_if_required", "description": "true для авторебута", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
+      "name": "cleanup",
+      "view": "System",
+      "description": "Чистка диска: apt, journal, docker prune (playbooks/cleanup.yml)",
+      "playbook": "playbooks/cleanup.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "journal_max_age", "title": "journal_max_age", "description": "Хранить журнал, например 14d", "default_value": "14d", "type": "", "required": false},
+        {"name": "journal_max_size", "title": "journal_max_size", "description": "Лимит размера журнала, например 500M", "default_value": "500M", "type": "", "required": false},
+        {"name": "docker_prune", "title": "docker_prune", "description": "true — docker system prune (скипается если докера нет)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"},
+        {"name": "docker_prune_volumes", "title": "docker_prune_volumes", "description": "true — чистить и docker volumes (опасно)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "false"},
+        {"name": "apt_clean", "title": "apt_clean", "description": "true — autoremove + autoclean", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"}
+      ]
+    },
+    {
       "name": "reboot",
-      "view": "Base",
+      "view": "System",
       "description": "Перезагрузка хостов, без подтверждения (playbooks/reboot.yml)",
       "playbook": "playbooks/reboot.yml",
       "survey_vars": [
@@ -85,7 +110,7 @@
     },
     {
       "name": "init_node",
-      "view": "Onboarding",
+      "view": "Security",
       "description": "Инит новой ноды: ключи + sshd. Первый прогон строго с Limit на одну тестовую ноду (playbooks/init_node.yml)",
       "playbook": "playbooks/init_node.yml",
       "survey_vars": [
@@ -101,7 +126,7 @@
     },
     {
       "name": "firewall",
-      "view": "Base",
+      "view": "Security",
       "description": "UFW: правила + опциональное включение. Первый прогон с Limit на тестовую ноду (playbooks/firewall.yml)",
       "playbook": "playbooks/firewall.yml",
       "survey_vars": [
@@ -111,33 +136,8 @@
       ]
     },
     {
-      "name": "docker",
-      "view": "Base",
-      "description": "Установка Docker Engine + compose plugin (playbooks/docker.yml)",
-      "playbook": "playbooks/docker.yml",
-      "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
-        {"name": "docker_users", "title": "docker_users", "description": "Text: юзеры в группу docker, один на строку или через запятую", "type": "text", "required": false},
-        {"name": "docker_verify", "title": "docker_verify", "description": "true — проверить запуском hello-world", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"}
-      ]
-    },
-    {
-      "name": "cleanup",
-      "view": "Base",
-      "description": "Чистка диска: apt, journal, docker prune (playbooks/cleanup.yml)",
-      "playbook": "playbooks/cleanup.yml",
-      "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
-        {"name": "journal_max_age", "title": "journal_max_age", "description": "Хранить журнал, например 14d", "default_value": "14d", "type": "", "required": false},
-        {"name": "journal_max_size", "title": "journal_max_size", "description": "Лимит размера журнала, например 500M", "default_value": "500M", "type": "", "required": false},
-        {"name": "docker_prune", "title": "docker_prune", "description": "true — docker system prune (скипается если докера нет)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"},
-        {"name": "docker_prune_volumes", "title": "docker_prune_volumes", "description": "true — чистить и docker volumes (опасно)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "false"},
-        {"name": "apt_clean", "title": "apt_clean", "description": "true — autoremove + autoclean", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"}
-      ]
-    },
-    {
       "name": "rsyslog",
-      "view": "Base",
+      "view": "Observability",
       "description": "Установка rsyslog + опциональный форвардинг (playbooks/rsyslog.yml)",
       "playbook": "playbooks/rsyslog.yml",
       "survey_vars": [
