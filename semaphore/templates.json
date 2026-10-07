@@ -17,6 +17,23 @@
       ]
     },
     {
+      "name": "logs",
+      "view": "Run",
+      "description": "Просмотр логов: journal или файл, read-only (playbooks/logs.yml)",
+      "playbook": "playbooks/logs.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "log_source", "title": "log_source", "description": "journal — systemd журнал, file — хвост файла", "default_value": "journal", "type": "enum", "required": false, "values": [{"name": "journal", "value": "journal"}, {"name": "file", "value": "file"}]},
+        {"name": "log_file", "title": "log_file", "description": "Только для source=file, например /var/log/auth.log", "default_value": "/var/log/syslog", "type": "", "required": false},
+        {"name": "log_unit", "title": "log_unit", "description": "Только journal: юнит, например ssh (пусто — все)", "type": "", "required": false},
+        {"name": "log_priority", "title": "log_priority", "description": "Только journal: уровень и срочнее", "default_value": "info", "type": "enum", "required": false, "values": [{"name": "debug", "value": "debug"}, {"name": "info", "value": "info"}, {"name": "notice", "value": "notice"}, {"name": "warning", "value": "warning"}, {"name": "err", "value": "err"}, {"name": "crit", "value": "crit"}, {"name": "alert", "value": "alert"}, {"name": "emerg", "value": "emerg"}]},
+        {"name": "log_since", "title": "log_since", "description": "Только journal: например -1h, today, 2026-10-01", "default_value": "-1h", "type": "", "required": false},
+        {"name": "log_lines", "title": "log_lines", "description": "Строк вывода, 1..2000", "default_value": "200", "type": "int", "required": false},
+        {"name": "log_grep", "title": "log_grep", "description": "Regex-фильтр, например error|fail (пусто — всё)", "type": "", "required": false},
+        {"name": "log_kernel", "title": "log_kernel", "description": "Только journal: true — ring buffer ядра (-k)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
       "name": "run_cmd",
       "view": "Run",
       "description": "Произвольная команда (playbooks/run_cmd.yml)",

@@ -1,0 +1,66 @@
+---
+- name: View logs - journal or file, read-only
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    log_source: journal
+    log_file: /var/log/syslog
+    log_unit: ""
+    log_priority: info
+    log_since: -1h
+    log_lines: 200
+    log_grep: ""
+    log_kernel: false
+  tasks:
+    - name: Validate log_source value
+      ansible.builtin.fail:
+        msg: "log_source must be journal or file, got {{ log_source }}"
+      when: log_source not in ['journal', 'file']
+
+    - name: Validate log_lines range
+      ansible.builtin.fail:
+        msg: "log_lines must be within 1..2000, got {{ log_lines }}"
+      when: (log_lines | int) < 1 or (log_lines | int) > 2000
+
+    - name: Read journal
+      ansible.builtin.command:
+        argv: "{{ ['journalctl', '--no-pager', '-n', (log_lines | string), '-p', log_priority, '--since', log_since] + (['-u', log_unit] if log_unit | length > 0 else []) + (['-k'] if log_kernel | bool else []) }}"
+      register: log_journal_out
+      changed_when: false
+      when: log_source == 'journal'
+
+    - name: Check log file exists
+      ansible.builtin.stat:
+        path: "{{ log_file }}"
+      register: log_file_stat
+      when: log_source == 'file'
+
+    - name: Fail when log file is missing
+      ansible.builtin.fail:
+        msg: "Log file {{ log_file }} not found. List candidates with: ls /var/log/"
+      when: log_source == 'file' and not log_file_stat.stat.exists
+
+    - name: Read log file tail
+      ansible.builtin.command:
+        argv: ["tail", "-n", "{{ log_lines }}", "--", "{{ log_file }}"]
+      register: log_file_out
+      changed_when: false
+      when: log_source == 'file' and log_file_stat.stat.exists
+
+    - name: Pick log lines
+      ansible.builtin.set_fact:
+        log_raw_lines: "{{ log_journal_out.stdout_lines | default([]) if log_source == 'journal' else log_file_out.stdout_lines | default([]) }}"
+
+    - name: Filter log lines
+      ansible.builtin.set_fact:
+        log_lines_out: "{{ log_raw_lines | select('search', log_grep) | list if log_grep | length > 0 else log_raw_lines }}"
+
+    - name: Show log line count
+      ansible.builtin.debug:
+        msg: "lines={{ log_lines_out | length }} (source={{ log_source }})"
+
+    - name: Show log lines
+      ansible.builtin.debug:
+        var: log_lines_out
+      when: log_lines_out | length > 0

@@ -55,6 +55,7 @@ playbooks/
   base.yml       # timezone + base packages
   run_script.yml # запуск скриптов из scripts/
   run_cmd.yml    # произвольная команда
+  logs.yml       # просмотр логов: journal или файл, read-only
   reboot.yml     # перезагрузка хостов
   init_node.yml  # инит новой ноды: ключи + sshd
   firewall.yml   # ufw: правила + опциональное включение
@@ -67,7 +68,7 @@ scripts/
   hello.sh               # пример shell-задачи
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
 semaphore/
-  templates.json # источник правды: 14 шаблонов + survey_vars + views (Run, System, Security, Observability, Service)
+  templates.json # источник правды: 15 шаблонов + survey_vars + views (Run, System, Security, Observability, Service)
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
@@ -231,6 +232,33 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 }
 ```
 
+`playbooks/logs.yml` (read-only, дефолт `target=all` безопасен):
+- `log_source: journal` -> `file` для хвоста файла (Enum)
+- `log_file: /var/log/syslog` (только для `source=file`, String)
+- `log_unit: ""` (только journal, например `ssh`; пусто — все юниты)
+- `log_priority: info` (только journal: уровень и срочнее; Enum)
+- `log_since: "-1h"` (только journal: `-30min`, `today`, `2026-10-01`)
+- `log_lines: 200` (Integer, guard `1..2000`)
+- `log_grep: ""` (String, regex-фильтр, например `error|fail`)
+- `log_kernel: false` -> `true` для ring buffer ядра `-k` (только journal; Enum)
+
+```json
+{
+  "target": "stage",
+  "log_unit": "ssh",
+  "log_since": "-30min"
+}
+```
+
+```json
+{
+  "target": "vps-prod-01",
+  "log_source": "file",
+  "log_file": "/var/log/auth.log",
+  "log_grep": "Failed"
+}
+```
+
 `playbooks/reboot.yml` (без подтверждения — аккуратнее с `target=all`):
 - `reboot_msg: "Reboot via Semaphore"`
 - `reboot_timeout: 600` (секунд ждать возвращения хоста)
@@ -386,6 +414,7 @@ ansible-playbook --syntax-check playbooks/update.yml
 ansible-playbook --syntax-check playbooks/base.yml
 ansible-playbook --syntax-check playbooks/run_script.yml
 ansible-playbook --syntax-check playbooks/run_cmd.yml
+ansible-playbook --syntax-check playbooks/logs.yml
 ansible-playbook --syntax-check playbooks/reboot.yml
 ansible-playbook --syntax-check playbooks/init_node.yml
 ansible-playbook --syntax-check playbooks/firewall.yml
