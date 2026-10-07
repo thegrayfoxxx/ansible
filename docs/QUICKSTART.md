@@ -85,7 +85,7 @@ docker compose up -d                # http://localhost:3000
 Нажмите `Create`. Репозиторий появится в списке — клонирование произойдёт
 при первом запуске задачи, сейчас проверять нечего.
 
-![создание репозитория](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/04-new-repository.gif)
+![создание репозитория](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/03-new-repository.gif)
 
 ## Шаг 4. API-токен
 
@@ -100,7 +100,7 @@ docker compose up -d                # http://localhost:3000
 > `manager` на этот проект. В логах задач токен не светится (скрипт его
 > не печатает), но в рантайме он доступен окружению задачи.
 
-![выпуск API-токена](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/07-api-token.gif)
+![выпуск API-токена](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/04-api-token.gif)
 
 ## Шаг 5. Variable Group service_vars
 
@@ -115,6 +115,8 @@ docker compose up -d                # http://localhost:3000
 `Save`. Группа прицепится к `update_templates` автоматически при сидинге
 (она так и записана в `semaphore/templates.json`).
 
+![создание service_vars](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/05-new-service-vars.gif)
+
 ## Шаг 6. Key Store
 
 Откройте `Key Store`. Встроенный ключ `None` уже на месте — его достаточно
@@ -122,7 +124,7 @@ docker compose up -d                # http://localhost:3000
 через `New Key` (понадобится на шаге 7 как `User Credentials`, без него
 тестовый `ping` на шаге 11 упадёт с `unreachable`).
 
-![key store](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/03-keystore.gif)
+![key store](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/06-keystore.gif)
 
 ## Шаг 7. Inventory prod_inventory
 
@@ -145,7 +147,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 
 Нажмите `Create`. Должна появиться строка `prod_inventory / static`.
 
-![создание inventory](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/05-new-inventory.gif)
+![создание inventory](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/07-new-inventory.gif)
 
 ## Шаг 8. Включите приложение Python
 
@@ -203,7 +205,7 @@ done: created=7 updated=0 unchanged=0 dry_run=False
 
 Так выглядит страница групп после сидинга (`prod_vars` создана скриптом):
 
-![группы после сидинга](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/06-new-env-group.gif)
+![группы после сидинга](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/11-env-group.gif)
 
 Повторный `Run` — это и есть обновление: скрипт сверяет записи по имени,
 создаёт недостающие (`POST`) и обновляет изменившиеся (`PUT`),
@@ -234,7 +236,7 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 можно оставить как есть или ввести группу/хост из своего inventory
 (например `stage`). `Run`. Успех — `ok=1 unreachable=0 failed=0` в выводе.
 
-![запуск ping](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/11-run-ping.gif)
+![запуск ping](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/12-run-ping.gif)
 
 Готово — стенд рабочий. Дальше смотрите `README.md`: описание переменных
 и survey-полей каждого плейбука.
