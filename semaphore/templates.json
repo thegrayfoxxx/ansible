@@ -68,6 +68,16 @@
       ]
     },
     {
+      "name": "bbr",
+      "view": "System",
+      "description": "TCP BBR + fq (выкл — откат на cubic + fq_codel). Legacy 10-bbr-fq_codel.conf удаляется (playbooks/bbr.yml)",
+      "playbook": "playbooks/bbr.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "bbr_enabled", "title": "bbr_enabled", "description": "false — откатить на cubic + fq_codel", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
       "name": "update",
       "view": "System",
       "description": "apt update + upgrade, опционально reboot (playbooks/update.yml)",

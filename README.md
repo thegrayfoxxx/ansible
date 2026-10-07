@@ -59,13 +59,14 @@ playbooks/
   init_node.yml  # инит новой ноды: ключи + sshd
   firewall.yml   # ufw: правила + опциональное включение
   docker.yml     # установка Docker Engine + compose plugin
+  bbr.yml        # TCP BBR + fq (выкл — откат на cubic + fq_codel)
   cleanup.yml    # чистка диска: apt, journal, docker prune
   rsyslog.yml    # rsyslog + опциональный форвардинг
 scripts/
   hello.sh               # пример shell-задачи
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
 semaphore/
-  templates.json # источник правды: 12 шаблонов + survey_vars + views (Run, System, Security, Observability, Service)
+  templates.json # источник правды: 13 шаблонов + survey_vars + views (Run, System, Security, Observability, Service)
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
@@ -310,6 +311,18 @@ Bootstrap ноды где есть только пароль (Key Store типа
 }
 ```
 
+`playbooks/bbr.yml` (перезагрузка не нужна, применяется сразу):
+- `bbr_enabled: true` -> `false` чтобы откатить на `cubic + fq_codel` (Enum)
+- legacy `/etc/sysctl.d/10-bbr-fq_codel.conf` от `deb_scripts` удаляется, чтобы не было двух файлов на одни ключи
+- на контейнерных VPS (OpenVZ/LXC) без своего ядра упадёт — там BBR включается на хосте провайдера
+
+```json
+{
+  "target": "all",
+  "bbr_enabled": true
+}
+```
+
 `playbooks/cleanup.yml`:
 - `journal_max_age: 14d` (String), `journal_max_size: 500M` (String)
 - `docker_prune: true` (скипается если докера нет; Enum)
@@ -360,6 +373,7 @@ ansible-playbook --syntax-check playbooks/reboot.yml
 ansible-playbook --syntax-check playbooks/init_node.yml
 ansible-playbook --syntax-check playbooks/firewall.yml
 ansible-playbook --syntax-check playbooks/docker.yml
+ansible-playbook --syntax-check playbooks/bbr.yml
 ansible-playbook --syntax-check playbooks/cleanup.yml
 ansible-playbook --syntax-check playbooks/rsyslog.yml
 ansible-galaxy collection install -r requirements.yml

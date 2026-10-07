@@ -1,0 +1,66 @@
+---
+- name: Manage TCP BBR congestion control
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    bbr_enabled: true
+    bbr_sysctl_file: /etc/sysctl.d/99-bbr.conf
+    bbr_legacy_sysctl_file: /etc/sysctl.d/10-bbr-fq_codel.conf
+    bbr_module_file: /etc/modules-load.d/bbr.conf
+  tasks:
+    - name: Remove legacy deb_scripts sysctl config to avoid dual-file conflict
+      ansible.builtin.file:
+        path: "{{ bbr_legacy_sysctl_file }}"
+        state: absent
+
+    - name: Ensure tcp_bbr module autoload entry
+      ansible.builtin.copy:
+        content: "tcp_bbr\n"
+        dest: "{{ bbr_module_file }}"
+        mode: "0644"
+      when: bbr_enabled | bool
+
+    - name: Load tcp_bbr module now
+      community.general.modprobe:
+        name: tcp_bbr
+        state: present
+      when: bbr_enabled | bool
+
+    - name: Apply congestion control sysctl settings
+      ansible.builtin.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_file: "{{ bbr_sysctl_file }}"
+        reload: true
+      loop:
+        - {key: net.core.default_qdisc, value: "{{ 'fq' if (bbr_enabled | bool) else 'fq_codel' }}"}
+        - {key: net.ipv4.tcp_congestion_control, value: "{{ 'bbr' if (bbr_enabled | bool) else 'cubic' }}"}
+
+    - name: Check active qdisc and congestion control
+      ansible.builtin.command: "sysctl -n {{ item }}"
+      register: bbr_current
+      changed_when: false
+      loop:
+        - net.core.default_qdisc
+        - net.ipv4.tcp_congestion_control
+
+    - name: Assert expected qdisc and congestion control
+      ansible.builtin.assert:
+        that:
+          - bbr_current.results[0].stdout.strip() == ('fq' if (bbr_enabled | bool) else 'fq_codel')
+          - bbr_current.results[1].stdout.strip() == ('bbr' if (bbr_enabled | bool) else 'cubic')
+        fail_msg: "qdisc={{ bbr_current.results[0].stdout.strip() }}, cc={{ bbr_current.results[1].stdout.strip() }}"
+
+    - name: Check tcp_bbr module is loaded
+      ansible.builtin.command: lsmod
+      register: bbr_lsmod
+      changed_when: false
+      when: bbr_enabled | bool
+
+    - name: Assert tcp_bbr module is loaded
+      ansible.builtin.assert:
+        that:
+          - "'tcp_bbr' in bbr_lsmod.stdout"
+        fail_msg: "tcp_bbr module is not loaded"
+      when: bbr_enabled | bool
