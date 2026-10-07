@@ -64,7 +64,8 @@
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
         {"name": "docker_users", "title": "docker_users", "description": "Text: юзеры в группу docker, один на строку или через запятую", "type": "text", "required": false},
-        {"name": "docker_verify", "title": "docker_verify", "description": "true — проверить запуском hello-world", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"}
+        {"name": "docker_verify", "title": "docker_verify", "description": "true — проверить запуском hello-world", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"},
+        {"name": "docker_version", "title": "docker_version", "description": "Пин версии Engine, например 5:27.*. Пусто — latest (update с dist-апгрейдом пин перетрёт)", "type": "", "required": false}
       ]
     },
     {
@@ -101,6 +102,7 @@
         {"name": "journal_max_size", "title": "journal_max_size", "description": "Лимит размера журнала, например 500M", "default_value": "500M", "type": "", "required": false},
         {"name": "docker_prune", "title": "docker_prune", "description": "true — docker system prune (скипается если докера нет)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"},
         {"name": "docker_prune_volumes", "title": "docker_prune_volumes", "description": "true — чистить и docker volumes (опасно)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "false"},
+        {"name": "docker_prune_until", "title": "docker_prune_until", "description": "prune только старше N, например 72h. Пусто — без фильтра", "type": "", "required": false},
         {"name": "apt_clean", "title": "apt_clean", "description": "true — autoremove + autoclean", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"}
       ]
     },
@@ -115,7 +117,8 @@
         {"name": "reboot_timeout", "title": "reboot_timeout", "description": "Секунд ждать возвращения хоста (по умолчанию 600)", "default_value": "600", "type": "int", "required": false},
         {"name": "reboot_connect_timeout", "title": "reboot_connect_timeout", "description": "Таймаут SSH-подключения после ребута (по умолчанию 30)", "default_value": "30", "type": "int", "required": false},
         {"name": "reboot_pre_delay", "title": "reboot_pre_delay", "description": "Пауза перед ребутом (по умолчанию 5)", "default_value": "5", "type": "int", "required": false},
-        {"name": "reboot_post_delay", "title": "reboot_post_delay", "description": "Пауза после ребута перед проверкой (по умолчанию 15)", "default_value": "15", "type": "int", "required": false}
+        {"name": "reboot_post_delay", "title": "reboot_post_delay", "description": "Пауза после ребута перед проверкой (по умолчанию 15)", "default_value": "15", "type": "int", "required": false},
+        {"name": "reboot_only_if_required", "title": "reboot_only_if_required", "description": "true — пропустить, если ребута не требуется (для расписаний)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
     {
@@ -154,7 +157,7 @@
         {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
         {"name": "fail2ban_enabled", "title": "fail2ban_enabled", "description": "false чтобы остановить и отключить сервис", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "fail2ban_bantime", "title": "fail2ban_bantime", "description": "Длительность бана, например 1d", "default_value": "1d", "type": "", "required": false},
-        {"name": "fail2ban_maxretry", "title": "fail2ban_maxretry", "description": "Попыток до бана (по умолчанию 5)", "default_value": "5", "type": "", "required": false},
+        {"name": "fail2ban_maxretry", "title": "fail2ban_maxretry", "description": "Попыток до бана (по умолчанию 5)", "default_value": "5", "type": "int", "required": false},
         {"name": "fail2ban_ignoreip", "title": "fail2ban_ignoreip", "description": "Никогда не банить, через пробел. Свои IP дописать!", "default_value": "127.0.0.1/8", "type": "", "required": false}
       ]
     },
@@ -178,7 +181,7 @@
       "playbook": "scripts/semaphore_bootstrap.py",
       "survey_vars": [
         {"name": "token", "title": "API Token", "description": "Пусто — берётся из секрета SEMAPHORE_TOKEN группы service_vars. Заполнить только для разового override", "type": "secret", "required": false},
-        {"name": "project_id", "title": "Project ID", "type": "", "required": true}
+        {"name": "project_id", "title": "Project ID", "type": "int", "required": true}
       ]
     }
   ]

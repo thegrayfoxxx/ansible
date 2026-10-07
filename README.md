@@ -236,6 +236,7 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 - `reboot_timeout: 600` (секунд ждать возвращения хоста)
 - `reboot_connect_timeout: 30`
 - `reboot_pre_delay: 5`, `reboot_post_delay: 15`
+- `reboot_only_if_required: false` -> `true` чтобы пропустить ребут без `/var/run/reboot-required` (для расписаний; Enum)
 
 Перезагрузка через Semaphore Extra vars:
 
@@ -317,6 +318,7 @@ Bootstrap ноды где есть только пароль (Key Store типа
 `playbooks/docker.yml` (только Debian):
 - `docker_users` (Text: юзеры в группу docker, один на строку или через запятую)
 - `docker_verify: true` -> `false` чтобы пропустить `hello-world`
+- `docker_version: ""` (String, например `5:27.*` — пин Engine+CLI; пусто — latest; `update` с dist-апгрейдом пин перетрёт)
 
 ```json
 {
@@ -341,6 +343,7 @@ Bootstrap ноды где есть только пароль (Key Store типа
 - `journal_max_age: 14d` (String), `journal_max_size: 500M` (String)
 - `docker_prune: true` (скипается если докера нет; Enum)
 - `docker_prune_volumes: false` -> `true` чтобы чистить и volumes (опасно; Enum)
+- `docker_prune_until: ""` (String, например `72h` — prune только старше; пусто — без фильтра)
 - `apt_clean: true` (Enum)
 
 ```json

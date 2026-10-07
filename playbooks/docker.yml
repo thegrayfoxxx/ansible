@@ -6,13 +6,12 @@
   vars:
     docker_users: []
     docker_verify: true
+    docker_version: ""
     docker_prereqs:
       - ca-certificates
       - curl
       - gnupg
-    docker_pkgs:
-      - docker-ce
-      - docker-ce-cli
+    docker_rest_pkgs:
       - containerd.io
       - docker-buildx-plugin
       - docker-compose-plugin
@@ -65,9 +64,13 @@
         state: present
         filename: docker
 
+    - name: Resolve Docker engine packages (pin version when requested)
+      ansible.builtin.set_fact:
+        docker_engine_pkgs: "{{ ['docker-ce=' + docker_version, 'docker-ce-cli=' + docker_version] if docker_version | length > 0 else ['docker-ce', 'docker-ce-cli'] }}"
+
     - name: Install Docker packages
       ansible.builtin.apt:
-        name: "{{ docker_pkgs }}"
+        name: "{{ docker_engine_pkgs + docker_rest_pkgs }}"
         state: present
         update_cache: true
 

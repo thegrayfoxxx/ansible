@@ -8,6 +8,7 @@
     journal_max_size: 500M
     docker_prune: true
     docker_prune_volumes: false
+    docker_prune_until: ""
     apt_clean: true
   tasks:
     - name: Disk usage before cleanup
@@ -43,8 +44,16 @@
       changed_when: false
       failed_when: false
 
+    - name: Validate docker_prune_until format
+      ansible.builtin.fail:
+        msg: "docker_prune_until must be a duration like 24h, got {{ docker_prune_until }}"
+      when:
+        - docker_prune | bool
+        - docker_prune_until | length > 0
+        - not (docker_prune_until is regex('^[0-9]+[smhd]$'))
+
     - name: Prune Docker objects
-      ansible.builtin.command: docker system prune -af
+      ansible.builtin.command: "docker system prune -af{{ ' --filter \"until=' + docker_prune_until + '\"' if docker_prune_until | length > 0 else '' }}"
       register: docker_prune_out
       changed_when: true
       when:

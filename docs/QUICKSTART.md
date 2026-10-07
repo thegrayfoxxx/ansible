@@ -173,7 +173,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
   - `Name: token`, `Title: API Token`, `Type: Secret`, **без** галочки `Required`
     (пустое поле — токен берётся из секрета `SEMAPHORE_TOKEN`;
     заполненное вручную — разовый override);
-  - `Name: project_id`, `Title: Project ID`, `Type: String` (по умолчанию),
+  - `Name: project_id`, `Title: Project ID`, `Type: Integer`,
     галочка `Required`.
 
 Нажмите `Create`. Это единственный шаблон, который создаётся руками, —
