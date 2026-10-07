@@ -26,7 +26,7 @@ and auto-created when missing. Templates without `view` stay in "All".
 
 Environments (variable groups) are resolved by name and auto-created empty
 when missing — except names in STRICT_ENVIRONMENTS (currently
-`service-secrets`), which must be created manually since they hold secrets
+`service_vars`), which must be created manually since they hold secrets
 only a human knows. Default group comes from templates.json `defaults`.
 """
 
@@ -116,7 +116,7 @@ _dry_announced_env = set()
 
 # Environments in this set are never auto-created: they carry secrets
 # only a human knows. Everything else is created empty on demand.
-STRICT_ENVIRONMENTS = {"service-secrets"}
+STRICT_ENVIRONMENTS = {"service_vars"}
 
 
 def ensure_environment(base, project_id, token, environments, name, dry_run):
@@ -209,9 +209,9 @@ def main():
         print(f"ERROR: no templates in {args.templates}", file=sys.stderr)
         return 1
 
-    default_inventory = args.inventory or defaults.get("inventory", "main")
+    default_inventory = args.inventory or defaults.get("inventory", "prod_inventory")
     default_repository = args.repository or defaults.get("repository", "ansible")
-    default_environment = args.environment or defaults.get("environment", "prod")
+    default_environment = args.environment or defaults.get("environment", "prod_vars")
 
     try:
         inventories = api_get_list(base, project_id, token, "inventory")

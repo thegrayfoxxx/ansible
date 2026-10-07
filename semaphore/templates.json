@@ -1,8 +1,8 @@
 {
   "defaults": {
-    "inventory": "main",
+    "inventory": "prod_inventory",
     "repository": "ansible",
-    "environment": "prod",
+    "environment": "prod_vars",
     "app": "ansible",
     "view": null
   },
@@ -84,10 +84,10 @@
       ]
     },
     {
-      "name": "init",
+      "name": "init_node",
       "view": "Onboarding",
-      "description": "Инит новой ноды: ключи + sshd. Первый прогон строго с Limit на одну тестовую ноду (playbooks/init.yml)",
-      "playbook": "playbooks/init.yml",
+      "description": "Инит новой ноды: ключи + sshd. Первый прогон строго с Limit на одну тестовую ноду (playbooks/init_node.yml)",
+      "playbook": "playbooks/init_node.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "Имя новой ноды, например new-node-01. Не запускать на all", "type": "", "required": false},
         {"name": "ssh_user", "title": "ssh_user", "description": "Юзер должен существовать, обычно root", "default_value": "root", "type": "", "required": false},
@@ -147,14 +147,14 @@
       ]
     },
     {
-      "name": "update-templates",
+      "name": "update_templates",
       "view": "Service",
       "app": "python",
-      "environment": "service-secrets",
+      "environment": "service_vars",
       "description": "Сидинг шаблонов из semaphore/templates.json (этот репо)",
       "playbook": "scripts/semaphore_bootstrap.py",
       "survey_vars": [
-        {"name": "token", "title": "API Token", "description": "Пусто — берётся из секрета SEMAPHORE_TOKEN группы service-secrets. Заполнить только для разового override", "type": "secret", "required": false},
+        {"name": "token", "title": "API Token", "description": "Пусто — берётся из секрета SEMAPHORE_TOKEN группы service_vars. Заполнить только для разового override", "type": "secret", "required": false},
         {"name": "project_id", "title": "Project ID", "type": "", "required": true}
       ]
     }

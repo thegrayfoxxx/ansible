@@ -2,7 +2,7 @@
 
 Публичный template-репозиторий для управления несколькими VPS (Debian)
 через Semaphore UI: плоские плейбуки + compose для Semaphore
-+ сидинг task templates одной командой (`update-templates` → `Run`).
++ сидинг task templates одной командой (`update_templates` → `Run`).
 
 Принципы:
 - Inventory ведётся в UI Semaphore, в репо его нет.
@@ -38,9 +38,9 @@ docker compose up -d                # http://localhost:3000
 ```
 
 Полный гайд на 10 минут — [docs/QUICKSTART.md](docs/QUICKSTART.md):
-проект, ключ, репозиторий, inventory `main`, группа `prod`, токен,
-шаблон `update-templates` → `Run` → все шаблоны + тестовый `ping`.
-Там же: обновление шаблонов, troubleshooting и FAQ.
+проект, репозиторий, токен + `service_vars`, key store,
+inventory `prod_inventory`, шаблон `update_templates` → `Run` → все шаблоны
++ тестовый `ping`. Там же: обновление шаблонов, troubleshooting и FAQ.
 
 ## Структура
 
@@ -56,7 +56,7 @@ playbooks/
   run_script.yml # запуск скриптов из scripts/
   run_cmd.yml    # произвольная команда
   reboot.yml     # перезагрузка хостов
-  init.yml       # инит новой ноды: ключи + sshd
+  init_node.yml  # инит новой ноды: ключи + sshd
   firewall.yml   # ufw: правила + опциональное включение
   docker.yml     # установка Docker Engine + compose plugin
   cleanup.yml    # чистка диска: apt, journal, docker prune
@@ -73,10 +73,10 @@ docs/
 
 ## Semaphore UI: подключение
 
-1. Project -> Repositories: подключить этот репозиторий.
+1. Project -> Repositories: подключить этот репозиторий (`Access Key: None`, репо публичное).
 2. Key Store: добавить SSH-ключ (`ansible_user`, обычно `debian`/`admin`/`root`).
-3. Inventory -> New Inventory:
-   - тип static (простой INI), вести в UI.
+3. Inventory -> New Inventory с именем `prod_inventory`:
+   - тип static (простой INI), вести в UI (`[prod]`/`[stage]` внутри — это Ansible-группы, не путать с именем inventory и группой `prod_vars`).
    - Пример:
 
 ```ini
@@ -87,11 +87,12 @@ vps-prod-01 ansible_host=203.0.113.10 ansible_user=debian ansible_port=22
 vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 ```
 
-4. Environment -> New Environment:
+4. Environment: вручную только `service_vars` с секретом `SEMAPHORE_TOKEN`
+   (группу `prod_vars` и остальные из `semaphore/templates.json` создаст скрипт сидинга).
    - `ANSIBLE_HOST_KEY_CHECKING=False` уже задан в `ansible.cfg`, дополнительно не нужен.
-   - Секреты (пароли, токены) добавлять как JSON / Environment Variables.
+   - Остальные секреты (пароли, токены) добавлять как JSON / Environment Variables.
 5. Task Templates: не создавать вручную — они заливаются скриптом,
-   см. [docs/QUICKSTART.md](docs/QUICKSTART.md) (шаг 8–9: `update-templates` → `Run`).
+   см. [docs/QUICKSTART.md](docs/QUICKSTART.md) (шаг 9–10: `update_templates` → `Run`).
    Соответствие шаблонов плейбукам лежит в `semaphore/templates.json`.
 
 ## Универсальный target
@@ -251,7 +252,7 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 }
 ```
 
-`playbooks/init.yml` (инит новой ноды — первый прогон строго с `Limit` на одну тестовую ноду):
+`playbooks/init_node.yml` (инит новой ноды — первый прогон строго с `Limit` на одну тестовую ноду):
 - `ssh_user: root` (String; юзер должен существовать)
 - `ssh_keys` (Text, обязательно; один публичник на строку или через запятую; чужие ключи не трогаются)
 - `sshd_permit_root_login: prohibit-password` (String)
@@ -269,7 +270,7 @@ ssh-ed25519 AAAA... first, ssh-ed25519 BBBB... second
 ```
 
 Bootstrap ноды где есть только пароль (Key Store типа Login With Password):
-1. Добавить хост в inventory (`ansible_user: root`), Task Template `init` с парольным Key.
+1. Добавить хост в inventory (`ansible_user: root`), Task Template `init_node` с парольным Key.
 2. Этап 1 — только ключи: `{"target": "new-node-01", "ssh_user": "root", "ssh_keys": [...], "skip_sshd": true}`.
 3. Вручную проверить новый ключ: `ssh -i ~/.ssh/semaphore-ansible root@IP`.
 4. Этап 2 — сменить Key темплейта на SSH-ключ, прогнать без `skip_sshd` (hardening + reload + проверка связи уже по ключу).
@@ -356,7 +357,7 @@ ansible-playbook --syntax-check playbooks/base.yml
 ansible-playbook --syntax-check playbooks/run_script.yml
 ansible-playbook --syntax-check playbooks/run_cmd.yml
 ansible-playbook --syntax-check playbooks/reboot.yml
-ansible-playbook --syntax-check playbooks/init.yml
+ansible-playbook --syntax-check playbooks/init_node.yml
 ansible-playbook --syntax-check playbooks/firewall.yml
 ansible-playbook --syntax-check playbooks/docker.yml
 ansible-playbook --syntax-check playbooks/cleanup.yml

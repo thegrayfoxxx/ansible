@@ -12,9 +12,9 @@
 
 - `docker compose` и доступ в интернет (Docker Hub + ваш git-хостинг).
 - `git` и `python3` — только для полного варианта установки и запасного пути без UI.
-- Ваши хосты и SSH-ключ — понадобятся на шагах 2–4.
+- Ваши хосты и SSH-ключ — для сидинга (шаг 10) хватит `None`, для тестового `ping` (шаг 11) нужен реальный ключ в inventory.
 
-## Короткая версия
+## Шаг 0. Запуск
 
 **Вариант A — минимальный, без git** (плейбуки и шаблоны Semaphore
 подтянет сам из GitHub, локальная копия репо не нужна):
@@ -36,16 +36,6 @@ cp .env.example .env && nano .env   # свои пароли + ключ шифр�
 docker compose up -d                # http://localhost:3000
 ```
 
-Дальше всё в браузере: проект → ключ → репозиторий → inventory →
-variable group → API-токен → шаблон `update-templates` → `Run`.
-Подробности — ниже по шагам.
-
-## Шаг 0. Секреты
-
-```bash
-cp .env.example .env
-```
-
 Откройте `.env` и задайте три вещи:
 
 | Переменная | Что это |
@@ -56,35 +46,31 @@ cp .env.example .env
 
 Файл `.env` уже в `.gitignore` — в репозиторий он не попадёт.
 
-Запуск:
-
-```bash
-docker compose up -d
-```
-
 Проверка: `curl -s http://localhost:3000/api/ping` должен вернуть `pong`,
 а в браузере открыться страница логина `http://localhost:3000`.
 
+Дальше всё в браузере: логин → проект → репозиторий → API-токен →
+группа `service_vars` → key store → inventory `prod_inventory` →
+приложение Python → шаблон `update_templates` → `Run`.
+Подробности — ниже по шагам.
+
+## Шаг 1. Логин
+
+Зайдите как `admin` с паролем из `.env` — откроется страница логина
+`http://localhost:3000`.
+
 ![логин](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/01-login.gif)
 
-## Шаг 1. Логин и проект
+## Шаг 2. Создание проекта
 
-Зайдите как `admin` с паролем из `.env`. Пустой инстанс сразу предложит
-создать проект — назовите его `ansible` и нажмите `Create`.
+Пустой инстанс сразу предложит создать проект — назовите его `ansible`
+и нажмите `Create`.
 
 Как узнать ID проекта: откройте проект — цифра в адресе
 (`http://localhost:3000/project/1/...`) и есть ID. У первого проекта это `1`,
-он понадобится на шаге 9.
+он понадобится на шаге 10.
 
 ![создание проекта](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/02-new-project.gif)
-
-## Шаг 2. Key Store
-
-Откройте `Key Store`. Встроенный ключ `None` уже на месте — его достаточно
-для публичного репозитория. Свой SSH-ключ для доступа на VPS добавьте здесь же
-через `New Key` (понадобится на шаге 4 как `User Credentials` и для приватных реп).
-
-![key store](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/03-keystore.gif)
 
 ## Шаг 3. Repository
 
@@ -94,43 +80,14 @@ docker compose up -d
 - `URL or path`: `https://github.com/thegrayfoxxx/ansible.git`
   (или URL своего форка);
 - `Branch / Tag`: `main`;
-- `Access Key`: `None` для публичного репозитория, свой SSH-ключ для приватного.
+- `Access Key`: `None` (репозиторий публичный).
 
 Нажмите `Create`. Репозиторий появится в списке — клонирование произойдёт
 при первом запуске задачи, сейчас проверять нечего.
 
 ![создание репозитория](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/04-new-repository.gif)
 
-## Шаг 4. Inventory
-
-`Inventory -> New Inventory -> Ansible Inventory`:
-
-- `Name`: `main` — имя важно, его ищет `semaphore/templates.json`;
-- `Type`: `Static`;
-- `User Credentials`: ваш SSH-ключ (для первой проверки сойдёт `None`);
-- в редактор вставьте свои хосты в INI-формате, например:
-
-```ini
-[stage]
-vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
-```
-
-Нажмите `Create`. Должна появиться строка `main / static`.
-
-![создание inventory](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/05-new-inventory.gif)
-
-## Шаг 5. Variable Groups — ничего делать не надо
-
-Группу `prod` (и любые другие из `semaphore/templates.json`) скрипт сидинга
-создаёт сам пустыми при первом `Run`. Секреты докладываете туда позже через UI
-по мере нужды — шаблоны уже привязаны. Вручную создаётся только
-`service-secrets` (следующий шаг) — ей нужен токен, который знаете только вы.
-
-Так выглядит страница групп после сидинга (`prod` создана скриптом):
-
-![группы после сидинга](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/06-new-env-group.gif)
-
-## Шаг 6. API-токен и группа service-secrets
+## Шаг 4. API-токен
 
 Меню пользователя справа сверху -> `API Tokens -> New Token`:
 имя например `bootstrap`, `Expires: Never`, `Create`.
@@ -143,15 +100,54 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 > `manager` на этот проект. В логах задач токен не светится (скрипт его
 > не печатает), но в рантайме он доступен окружению задачи.
 
-Теперь положите токен в секрет, чтобы не вводить его при каждом `Run`:
-`Variable Groups -> New Group` с именем `service-secrets`, вкладка `Secrets`
--> добавить секрет типа `env`: имя `SEMAPHORE_TOKEN`, значение — ваш токен,
-`Save`. Группа прицепится к `update-templates` автоматически при сидинге
-(она так и записана в `semaphore/templates.json`).
-
 ![выпуск API-токена](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/07-api-token.gif)
 
-## Шаг 7. Включите приложение Python
+## Шаг 5. Variable Group service_vars
+
+Группу `prod_vars` (и любые другие из `semaphore/templates.json`) скрипт сидинга
+создаёт сам пустыми при первом `Run` — руками делать ничего не надо,
+секреты доложите туда позже через UI по мере нужды. Вручную создаётся только
+`service_vars` — ей нужен токен с шага 4, который знаете только вы.
+
+Положите токен в секрет, чтобы не вводить его при каждом `Run`:
+`Variable Groups -> New Group` с именем `service_vars`, вкладка `Secrets`
+-> добавить секрет типа `env`: имя `SEMAPHORE_TOKEN`, значение — ваш токен,
+`Save`. Группа прицепится к `update_templates` автоматически при сидинге
+(она так и записана в `semaphore/templates.json`).
+
+## Шаг 6. Key Store
+
+Откройте `Key Store`. Встроенный ключ `None` уже на месте — его достаточно
+для сидинга (шаг 10). Свой SSH-ключ для доступа на VPS добавьте здесь же
+через `New Key` (понадобится на шаге 7 как `User Credentials`, без него
+тестовый `ping` на шаге 11 упадёт с `unreachable`).
+
+![key store](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/03-keystore.gif)
+
+## Шаг 7. Inventory prod_inventory
+
+`Inventory -> New Inventory -> Ansible Inventory`:
+
+- `Name`: `prod_inventory` — имя важно, его ищет `semaphore/templates.json`;
+- `Type`: `Static`;
+- `User Credentials`: ваш SSH-ключ с шага 6 (`None` хватит только для сидинга
+  на шаге 10, для тестового `ping` на шаге 11 нужен реальный ключ);
+- в редактор вставьте свои хосты в INI-формате, например:
+
+```ini
+[stage]
+vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
+```
+
+Имена `[stage]` / `[prod]` внутри редактора — это Ansible-группы хостов,
+не путать с именем самого inventory (`prod_inventory`) и группой переменных
+`prod_vars`.
+
+Нажмите `Create`. Должна появиться строка `prod_inventory / static`.
+
+![создание inventory](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/05-new-inventory.gif)
+
+## Шаг 8. Включите приложение Python
 
 Откройте `Task Templates -> New template`. Если в меню есть только
 `Ansible Playbook`, `Bash Script` и остальные, а `Python Script` нет —
@@ -163,14 +159,14 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 
 ![включение Python](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/08-enable-python.gif)
 
-## Шаг 8. Шаблон update-templates
+## Шаг 9. Шаблон update_templates
 
 `Task Templates -> New template -> Python Script`, заполните:
 
-- `Name`: `update-templates`;
+- `Name`: `update_templates`;
 - `Repository`: `ansible`;
 - `Script Filename`: `scripts/semaphore_bootstrap.py`;
-- `Variable Groups`: `service-secrets` — **обязательно**, иначе скрипту неоткуда взять токен;
+- `Variable Groups`: `service_vars` — **обязательно**, иначе скрипту неоткуда взять токен;
 - `Survey Variables` (кнопка `+ Add variable`, каждого по одному):
   - `Name: token`, `Title: API Token`, `Type: Secret`, **без** галочки `Required`
     (пустое поле — токен берётся из секрета `SEMAPHORE_TOKEN`;
@@ -181,17 +177,12 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 Нажмите `Create`. Это единственный шаблон, который создаётся руками, —
 остальные создаст он сам.
 
-> Уже есть `00-bootstrap` из старой версии гайда? Не создавайте новый —
-> переименуйте его в UI в `update-templates` и нажмите `Run`: скрипт сматчится
-> по новому имени и обновит запись in place, история задач сохранится.
-> Если создать второй рядом — будет дубль, старый удалите руками.
+![создание update_templates](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/09-create-bootstrap.gif)
 
-![создание update-templates](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/09-create-bootstrap.gif)
+## Шаг 10. Run — сидинг шаблонов
 
-## Шаг 9. Run — сидинг шаблонов
-
-Откройте `update-templates -> Run`, введите `project_id`
-с шага 1 (например `1`); поле `token` оставьте пустым — возьмётся из секрета.
+Откройте `update_templates -> Run`, введите `project_id`
+с шага 2 (например `1`); поле `token` оставьте пустым — возьмётся из секрета.
 Нажмите `Run`. (На видео ниже показан вариант с ручным вводом токена —
 это разовый override, он тоже работает.)
 
@@ -203,12 +194,16 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 done: created=7 updated=0 unchanged=0 dry_run=False
 ```
 
-![запуск update-templates](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/10-run-bootstrap.gif)
+![запуск update_templates](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/10-run-bootstrap.gif)
 
 (при первом запуске — все `created`, при повторных — все `updated`).
 В `Task Templates` теперь все шаблоны из `semaphore/templates.json`
-(например `ping` и `run_cmd`, плюс служебный `update-templates`) —
-у всех inventory `main`, репозиторий `ansible`, группа `prod`.
+(например `ping` и `run_cmd`, плюс служебный `update_templates`) —
+у всех inventory `prod_inventory`, репозиторий `ansible`, группа `prod_vars`.
+
+Так выглядит страница групп после сидинга (`prod_vars` создана скриптом):
+
+![группы после сидинга](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/06-new-env-group.gif)
 
 Повторный `Run` — это и есть обновление: скрипт сверяет записи по имени,
 создаёт недостающие (`POST`) и обновляет изменившиеся (`PUT`),
@@ -230,7 +225,10 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
   python3 scripts/semaphore_bootstrap.py              # применить
 ```
 
-## Шаг 10. Проверка: тестовый ping
+## Шаг 11. Проверка: тестовый ping
+
+Требуется inventory `prod_inventory` с реальным SSH-ключом (см. шаг 7) —
+с `None` в `User Credentials` хосты будут `unreachable`.
 
 `ping -> Run`: поле `Target` уже предзаполнено дефолтом (`all`) —
 можно оставить как есть или ввести группу/хост из своего inventory
@@ -241,16 +239,24 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 Готово — стенд рабочий. Дальше смотрите `README.md`: описание переменных
 и survey-полей каждого плейбука.
 
-> Осторожно с `init` и `reboot`: первый прогон `init` — строго с `Limit`
+> Осторожно с `init_node` и `reboot`: первый прогон `init_node` — строго с `Limit`
 > на одну тестовую ноду (подробности в `README.md`), а `reboot` не спрашивает
 > подтверждения — не запускайте его на `all` без нужды.
 
 ## Обновление шаблонов
 
+> Миграция со старых имен: раньше были inventory `main`, группа `prod`,
+> `service-secrets`, шаблоны `update-templates` и `init`. Скрипт ищет строго
+> `prod_inventory`, `prod_vars`, `service_vars`, `update_templates`
+> и `init_node` — старые записи он не переименует сам: проще переименовать
+> шаблоны в UI и нажать `Run` (история задач сохранится), группы
+> и inventory создать с новыми именами (шаги 5 и 7, `prod_vars` создастся
+> сам при `Run`), а старые дубли удалить в UI руками. Скрипт лишнее не удаляет.
+
 1. Заберите свежие `playbooks/` и `semaphore/templates.json`: вариант B —
    `git pull`, вариант A — Semaphore сам подтянет свежий код репозитория
    при запуске (репозиторий-то внешний);
-2. `Run` на `update-templates` — шаблоны обновляются;
+2. `Run` на `update_templates` — шаблоны обновляются;
 3. ничего лишнего скрипт не удаляет: переименованный шаблон оставит старый
    дубль — удалите его в UI руками.
 
@@ -258,12 +264,12 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 
 | Симптом | Причина и лечение |
 |---|---|
-| `Inventory "main" not found in project. Known: ...` | В проекте нет inventory с таким именем. Создайте с именем из `semaphore/templates.json` (раздел `defaults`) или поправьте JSON под свои имена и перезапустите задачу |
+| `Inventory "prod_inventory" not found in project. Known: ...` | В проекте нет inventory с таким именем. Создайте с именем из `semaphore/templates.json` (раздел `defaults`) или поправьте JSON под свои имена и перезапустите задачу |
 | `Repository "ansible" not found` | То же самое для репозитория |
-| Задача `update-templates` падает на клонировании репозитория | Проверьте URL репозитория и Access Key: приватный репозиторий требует SSH-ключ, а не `None` |
-| В `New template` нет `Python Script` | Включите приложение на странице `Applications` (шаг 7) |
-| `Environment "service-secrets" not found in project. Known: ...` | Не создана группа из шага 6. Создайте `service-secrets` с секретом `SEMAPHORE_TOKEN` и перезапустите задачу (уже созданное не сломается — скрипт докатит остаток) |
-| Потеряли API-токен | Токены не показываются повторно: удалите старый, выпустите новый **и обновите секрет `SEMAPHORE_TOKEN` в группе `service-secrets`** |
+| Задача `update_templates` падает на клонировании репозитория | Проверьте URL репозитория: репозиторий публичный, `Access Key` должен быть `None` |
+| В `New template` нет `Python Script` | Включите приложение на странице `Applications` (шаг 8) |
+| `Environment "service_vars" not found in project. Known: ...` | Не создана группа из шага 5. Создайте `service_vars` с секретом `SEMAPHORE_TOKEN` и перезапустите задачу (уже созданное не сломается — скрипт докатит остаток) |
+| Потеряли API-токен | Токены не показываются повторно: удалите старый, выпустите новый **и обновите секрет `SEMAPHORE_TOKEN` в группе `service_vars`** |
 | `PUT .../templates/N -> HTTP 400` на старой версии скрипта | Обновите `scripts/semaphore_bootstrap.py` (`git pull`): свежий скрипт передаёт `id` в теле `PUT`, этого требует API |
 
 ## FAQ
