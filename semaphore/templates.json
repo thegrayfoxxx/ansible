@@ -146,6 +146,19 @@
       ]
     },
     {
+      "name": "fail2ban",
+      "view": "Security",
+      "description": "Fail2Ban + sshd jail (systemd backend). Первый прогон с Limit на тестовую ноду (playbooks/fail2ban.yml)",
+      "playbook": "playbooks/fail2ban.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "fail2ban_enabled", "title": "fail2ban_enabled", "description": "false чтобы остановить и отключить сервис", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "fail2ban_bantime", "title": "fail2ban_bantime", "description": "Длительность бана, например 1d", "default_value": "1d", "type": "", "required": false},
+        {"name": "fail2ban_maxretry", "title": "fail2ban_maxretry", "description": "Попыток до бана (по умолчанию 5)", "default_value": "5", "type": "", "required": false},
+        {"name": "fail2ban_ignoreip", "title": "fail2ban_ignoreip", "description": "Никогда не банить, через пробел. Свои IP дописать!", "default_value": "127.0.0.1/8", "type": "", "required": false}
+      ]
+    },
+    {
       "name": "rsyslog",
       "view": "Observability",
       "description": "Установка rsyslog + опциональный форвардинг (playbooks/rsyslog.yml)",

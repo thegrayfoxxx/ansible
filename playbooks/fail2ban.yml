@@ -1,0 +1,73 @@
+---
+- name: Manage Fail2Ban with sshd jail
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    fail2ban_enabled: true
+    fail2ban_bantime: 1d
+    fail2ban_findtime: 1h
+    fail2ban_maxretry: 5
+    fail2ban_ignoreip: 127.0.0.1/8
+    fail2ban_jail_path: /etc/fail2ban/jail.d/sshd.local
+  tasks:
+    - name: Ensure Fail2Ban is installed
+      ansible.builtin.apt:
+        name: fail2ban
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Configure sshd jail
+      ansible.builtin.copy:
+        content: |
+          [DEFAULT]
+          ignoreip = {{ fail2ban_ignoreip }}
+          [sshd]
+          enabled = true
+          backend = systemd
+          journalmatch = _SYSTEMD_UNIT=ssh.service
+          maxretry = {{ fail2ban_maxretry }}
+          port = ssh
+          bantime = {{ fail2ban_bantime }}
+          findtime = {{ fail2ban_findtime }}
+        dest: "{{ fail2ban_jail_path }}"
+        mode: "0644"
+      notify: Restart Fail2Ban
+      when: fail2ban_enabled | bool
+
+    - name: Remove sshd jail config when disabled
+      ansible.builtin.file:
+        path: "{{ fail2ban_jail_path }}"
+        state: absent
+      notify: Restart Fail2Ban
+      when: not (fail2ban_enabled | bool)
+
+    - name: Flush handlers now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Ensure Fail2Ban service state
+      ansible.builtin.service:
+        name: fail2ban
+        state: "{{ 'started' if (fail2ban_enabled | bool) else 'stopped' }}"
+        enabled: "{{ fail2ban_enabled | bool }}"
+
+    - name: Check sshd jail is active
+      ansible.builtin.command: fail2ban-client status sshd
+      register: fail2ban_status
+      changed_when: false
+      retries: 6
+      delay: 5
+      until: fail2ban_status.rc == 0
+      when: fail2ban_enabled | bool
+
+    - name: Display sshd jail status
+      ansible.builtin.debug:
+        var: fail2ban_status.stdout_lines
+      when: fail2ban_enabled | bool
+
+  handlers:
+    - name: Restart Fail2Ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted

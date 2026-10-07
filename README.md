@@ -58,6 +58,7 @@ playbooks/
   reboot.yml     # перезагрузка хостов
   init_node.yml  # инит новой ноды: ключи + sshd
   firewall.yml   # ufw: правила + опциональное включение
+  fail2ban.yml   # fail2ban + sshd jail (systemd backend)
   docker.yml     # установка Docker Engine + compose plugin
   bbr.yml        # TCP BBR + fq (выкл — откат на cubic + fq_codel)
   cleanup.yml    # чистка диска: apt, journal, docker prune
@@ -66,7 +67,7 @@ scripts/
   hello.sh               # пример shell-задачи
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
 semaphore/
-  templates.json # источник правды: 13 шаблонов + survey_vars + views (Run, System, Security, Observability, Service)
+  templates.json # источник правды: 14 шаблонов + survey_vars + views (Run, System, Security, Observability, Service)
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
@@ -300,6 +301,19 @@ Bootstrap ноды где есть только пароль (Key Store типа
 }
 ```
 
+`playbooks/fail2ban.yml` (первый прогон строго с `Limit` на одну тестовую ноду):
+- `fail2ban_enabled: true` -> `false` чтобы остановить и отключить сервис (Enum)
+- `fail2ban_bantime: 1d`, `fail2ban_maxretry: 5` (findtime зафиксирован `1h`)
+- `fail2ban_ignoreip` (String, через пробел; свои IP дописать, иначе возможен самобан)
+- backend `systemd` (читает journal, не зависит от файловых логов), banaction дефолтный
+
+```json
+{
+  "target": "vps-stage-01",
+  "fail2ban_ignoreip": "127.0.0.1/8 203.0.113.5"
+}
+```
+
 `playbooks/docker.yml` (только Debian):
 - `docker_users` (Text: юзеры в группу docker, один на строку или через запятую)
 - `docker_verify: true` -> `false` чтобы пропустить `hello-world`
@@ -372,6 +386,7 @@ ansible-playbook --syntax-check playbooks/run_cmd.yml
 ansible-playbook --syntax-check playbooks/reboot.yml
 ansible-playbook --syntax-check playbooks/init_node.yml
 ansible-playbook --syntax-check playbooks/firewall.yml
+ansible-playbook --syntax-check playbooks/fail2ban.yml
 ansible-playbook --syntax-check playbooks/docker.yml
 ansible-playbook --syntax-check playbooks/bbr.yml
 ansible-playbook --syntax-check playbooks/cleanup.yml
