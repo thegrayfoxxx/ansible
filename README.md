@@ -289,6 +289,7 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 - `sshd_permit_root_login: prohibit-password` (String)
 - `sshd_pubkey_auth: "yes"`, `sshd_password_auth: "no"`, `sshd_permit_empty: "no"` (String)
 - `skip_sshd: false` -> `true` чтобы добавить только ключи без правок sshd (для bootstrap по паролю; Enum)
+- `ansible_user`, `ansible_password` (Secret), `ansible_port` (Integer) — кастомные креды подключения из полей шаблона, бьют креды инвентаря (все optional, без дефолтов; пусто — используются инвентарные). Приватный ключ через поля не передать — кастомные ключи по-прежнему через Key Store
 
 Инит новой ноды: survey-поля `target=new-node-01`, `ssh_user=root`, `ssh_keys` (Text):
 ```
@@ -300,7 +301,13 @@ ssh-ed25519 AAAA... semaphore-ansible
 ssh-ed25519 AAAA... first, ssh-ed25519 BBBB... second
 ```
 
-Bootstrap ноды где есть только пароль (Key Store типа Login With Password):
+Bootstrap ноды где есть только пароль — способ 1 (рекомендуемый, без смены Key в инвентаре):
+1. Добавить хост в inventory как обычно (SSH-ключ в `User Credentials`).
+2. Этап 1 — только ключи, креды из полей шаблона: `{"target": "new-node-01", "ssh_user": "root", "ssh_keys": [...], "skip_sshd": true, "ansible_user": "root", "ansible_password": "<пароль>"}`.
+3. Вручную проверить новый ключ: `ssh -i ~/.ssh/semaphore-ansible root@IP`.
+4. Этап 2 — те же поля без `ansible_password` (уже по ключу из инвентаря): прогнать без `skip_sshd` (hardening + reload + проверка связи).
+
+Способ 2 (старый, Key Store типа Login With Password):
 1. Добавить хост в inventory (`ansible_user: root`), Task Template `init_node` с парольным Key.
 2. Этап 1 — только ключи: `{"target": "new-node-01", "ssh_user": "root", "ssh_keys": [...], "skip_sshd": true}`.
 3. Вручную проверить новый ключ: `ssh -i ~/.ssh/semaphore-ansible root@IP`.

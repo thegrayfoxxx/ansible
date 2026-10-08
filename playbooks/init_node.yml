@@ -12,6 +12,15 @@
     sshd_password_auth: "no"
     sshd_permit_empty: "no"
   tasks:
+    - name: Reject empty connection overrides
+      ansible.builtin.fail:
+        msg: "Connection override submitted empty (ansible_user/ansible_password/ansible_port). Reopen the Run dialog instead of clearing the field, empty value would shadow inventory credentials"
+      when:
+        - ansible_user is defined and (ansible_user | string) | length == 0
+          or ansible_password is defined and (ansible_password | string) | length == 0
+          or ansible_port is defined and (ansible_port | string) | length == 0
+      tags: [keys, sshd]
+
     - name: Normalize ssh_keys to list
       ansible.builtin.set_fact:
         ssh_keys_list: "{{ ssh_keys.replace(',', '\n').splitlines() | map('trim') | select | list if ssh_keys is string else ssh_keys }}"

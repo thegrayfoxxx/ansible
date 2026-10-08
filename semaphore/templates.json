@@ -145,6 +145,9 @@
       "playbook": "playbooks/init_node.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "Имя новой ноды, например new-node-01. Не запускать на all", "type": "", "required": false},
+        {"name": "ansible_user", "title": "Connection user", "description": "Override кредов инвентаря (пусто — использовать инвентарные)", "type": "", "required": false},
+        {"name": "ansible_password", "title": "Connection password", "description": "Override пароля, для нод только с паролем (пусто — без пароля)", "type": "secret", "required": false},
+        {"name": "ansible_port", "title": "Connection port", "description": "Нестандартный SSH-порт (пусто — порт инвентаря)", "type": "int", "required": false},
         {"name": "ssh_user", "title": "ssh_user", "description": "Юзер должен существовать, обычно root", "default_value": "root", "type": "", "required": false},
         {"name": "ssh_keys", "title": "ssh_keys", "description": "Обязательно. Text: один публичник на строку или через запятую", "type": "text", "required": true},
         {"name": "skip_sshd", "title": "skip_sshd", "description": "true чтобы добавить только ключи без правок sshd (bootstrap по паролю)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
