@@ -1,0 +1,276 @@
+---
+- name: Manage CrowdSec node (agent + bouncer)
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    crowdsec_node_name: ""
+    crowdsec_action: deploy
+    crowdsec_remove_confirmed: false
+    crowdsec_mode: iptables
+    crowdsec_extra_collections: ""
+    crowdsec_extra_logs: ""
+    crowdsec_tz: ""
+    crowdsec_dir: /opt/crowdsec
+    crowdsec_agent_container: crowdsec-agent
+    crowdsec_base_collections:
+      - crowdsecurity/linux
+      - crowdsecurity/sshd
+      - crowdsecurity/iptables
+    crowdsec_host_logs:
+      - /var/log/auth.log
+      - /var/log/syslog
+      - /var/log/kern.log
+  tasks:
+    - name: Validate action and mode
+      ansible.builtin.fail:
+        msg: "crowdsec_action must be deploy/restart/status/remove and crowdsec_mode iptables/nftables"
+      when:
+        - crowdsec_action not in ['deploy', 'restart', 'status', 'remove']
+          or crowdsec_mode not in ['iptables', 'nftables']
+
+    - name: Resolve node name
+      ansible.builtin.set_fact:
+        crowdsec_resolved_name: "{{ crowdsec_node_name if (crowdsec_node_name | default('') | length > 0) else inventory_hostname }}"
+
+    - name: Validate node name
+      ansible.builtin.fail:
+        msg: "Node name '{{ crowdsec_resolved_name }}' must match ^[a-z0-9-]+$ (and not be local/dashboard/localhost). Set explicit crowdsec_node_name when inventory hostnames differ"
+      when:
+        - crowdsec_resolved_name is not match('^[a-z0-9-]+$')
+          or crowdsec_resolved_name in ['local', 'dashboard', 'localhost']
+
+    - name: Require explicit name and confirmation for remove
+      ansible.builtin.fail:
+        msg: "Remove needs explicit crowdsec_node_name and crowdsec_remove_confirmed=true"
+      when:
+        - crowdsec_action == 'remove'
+          and ((crowdsec_node_name | default('') | length == 0) or not (crowdsec_remove_confirmed | bool))
+
+    - name: Resolve node credentials
+      ansible.builtin.set_fact:
+        crowdsec_agent_username: "{{ crowdsec_resolved_name }}-agent"
+        crowdsec_agent_password: "{{ lookup('vars', 'crowdsec_node_' + crowdsec_key + '_agent_password', default='') }}"
+        crowdsec_api_key: "{{ lookup('vars', 'crowdsec_node_' + crowdsec_key + '_api_key', default='') }}"
+        crowdsec_api_url: "{{ crowdsec_api_url | default('') }}"
+      vars:
+        crowdsec_key: "{{ crowdsec_resolved_name | lower | regex_replace('-', '_') }}"
+      when: crowdsec_action != 'status'
+
+    - name: Require registration before deploy
+      ansible.builtin.fail:
+        msg: "No credentials for node '{{ crowdsec_resolved_name }}' in the crowdsec_nodes group. Run crowdsec_register for '{{ crowdsec_resolved_name }}' first"
+      when:
+        - crowdsec_action != 'status'
+          and (crowdsec_agent_password | length == 0 or crowdsec_api_key | length == 0 or crowdsec_api_url | length == 0)
+
+    - name: Check Debian family
+      ansible.builtin.stat:
+        path: /etc/debian_version
+      register: crowdsec_debian
+
+    - name: Require Debian or Ubuntu
+      ansible.builtin.fail:
+        msg: "CrowdSec node needs Debian or Ubuntu"
+      when:
+        - crowdsec_action != 'status'
+          and not crowdsec_debian.stat.exists
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: crowdsec_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker for changing actions
+      ansible.builtin.fail:
+        msg: "docker not found. Run the docker template on this host first"
+      when:
+        - crowdsec_action != 'status'
+          and crowdsec_docker_bin.rc != 0
+
+    - name: Check rsyslog package
+      ansible.builtin.command: dpkg -s rsyslog
+      register: crowdsec_rsyslog_pkg
+      changed_when: false
+      failed_when: false
+
+    - name: Warn about missing rsyslog
+      ansible.builtin.debug:
+        msg: "rsyslog not installed — agent will start but host log files stay empty. Run the rsyslog template"
+      when: crowdsec_rsyslog_pkg.rc != 0
+
+    - name: Resolve timezone
+      ansible.builtin.command: cat /etc/timezone
+      register: crowdsec_host_tz
+      changed_when: false
+      failed_when: false
+      when: (crowdsec_tz | default('') | length == 0)
+
+    - name: Set effective timezone
+      ansible.builtin.set_fact:
+        crowdsec_tz_final: "{{ crowdsec_tz if (crowdsec_tz | default('') | length > 0) else (crowdsec_host_tz.stdout.strip() if (crowdsec_host_tz is defined and crowdsec_host_tz.rc is defined and crowdsec_host_tz.rc == 0 and crowdsec_host_tz.stdout | length > 0) else 'Etc/UTC') }}"
+
+    - name: Normalize extra collections and logs
+      ansible.builtin.set_fact:
+        crowdsec_collections: "{{ crowdsec_base_collections + (crowdsec_extra_collections.replace(',', '\n').splitlines() | map('trim') | select | list if crowdsec_extra_collections is string else crowdsec_extra_collections) }}"
+        crowdsec_extra_logs_list: "{{ crowdsec_extra_logs.replace(',', '\n').splitlines() | map('trim') | select | list if crowdsec_extra_logs is string else crowdsec_extra_logs }}"
+
+    - name: Require extra logs under /var/log
+      ansible.builtin.fail:
+        msg: "Extra log {{ item }} is outside /var/log and would need a manual volume mount. Keep logs under /var/log (e.g. /var/log/nginx/access.log)"
+      loop: "{{ crowdsec_extra_logs_list }}"
+      when: not item.startswith('/var/log/')
+
+    - name: Stat host log files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ crowdsec_host_logs }}"
+      register: crowdsec_log_stats
+      when: crowdsec_action in ['deploy', 'restart']
+
+    - name: List non-empty stub dirs
+      ansible.builtin.command: "ls -A {{ item.item }}"
+      loop: "{{ crowdsec_log_stats.results | default([]) }}"
+      register: crowdsec_stub_ls
+      changed_when: false
+      failed_when: false
+      when:
+        - crowdsec_action in ['deploy', 'restart']
+          and item.stat is defined and item.stat.isdir is defined and item.stat.isdir
+
+    - name: Refuse non-empty stub dirs
+      ansible.builtin.fail:
+        msg: "{{ item.item.item }} is a non-empty directory, not a Docker stub. Inspect it by hand"
+      loop: "{{ crowdsec_stub_ls.results | default([]) }}"
+      when:
+        - crowdsec_action in ['deploy', 'restart']
+          and item.stdout is defined and item.stdout | length > 0
+
+    - name: Remove empty stub dirs
+      ansible.builtin.file:
+        path: "{{ item.item.item }}"
+        state: absent
+      loop: "{{ crowdsec_stub_ls.results | default([]) }}"
+      when:
+        - crowdsec_action in ['deploy', 'restart']
+          and item.stdout is defined and item.stdout | length == 0
+
+    - name: Create missing host log files
+      ansible.builtin.copy:
+        content: ""
+        dest: "{{ item.item }}"
+        mode: "0644"
+        force: false
+      loop: "{{ crowdsec_log_stats.results | default([]) }}"
+      when:
+        - crowdsec_action in ['deploy', 'restart']
+          and item.stat is defined and not item.stat.exists
+
+    - name: Ensure crowdsec dirs
+      ansible.builtin.file:
+        path: "{{ crowdsec_dir }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - ""
+        - config
+      when: crowdsec_action in ['deploy', 'restart']
+
+    - name: Render compose file
+      ansible.builtin.template:
+        src: crowdsec/compose.yml.j2
+        dest: "{{ crowdsec_dir }}/compose.yml"
+        mode: "0644"
+      when: crowdsec_action in ['deploy', 'restart']
+
+    - name: Render node env file
+      ansible.builtin.template:
+        src: crowdsec/dotenv.j2
+        dest: "{{ crowdsec_dir }}/.env"
+        mode: "0600"
+      when: crowdsec_action in ['deploy', 'restart']
+
+    - name: Render acquis config
+      ansible.builtin.template:
+        src: crowdsec/acquis.yaml.j2
+        dest: "{{ crowdsec_dir }}/config/acquis.yaml"
+        mode: "0644"
+      when: crowdsec_action in ['deploy', 'restart']
+
+    - name: Copy bouncer config
+      ansible.builtin.copy:
+        src: crowdsec/crowdsec-firewall-bouncer.yaml
+        dest: "{{ crowdsec_dir }}/config/crowdsec-firewall-bouncer.yaml"
+        mode: "0644"
+      when: crowdsec_action in ['deploy', 'restart']
+
+    - name: Deploy crowdsec stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ crowdsec_dir }}"
+        state: present
+        pull: missing
+      register: crowdsec_deploy
+      when: crowdsec_action == 'deploy'
+
+    - name: Restart crowdsec stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ crowdsec_dir }}"
+        state: present
+        restarted: true
+      register: crowdsec_deploy
+      when: crowdsec_action == 'restart'
+
+    - name: Remove crowdsec stack (volumes kept)
+      community.docker.docker_compose_v2:
+        project_src: "{{ crowdsec_dir }}"
+        state: absent
+      when: crowdsec_action == 'remove'
+
+    - name: Check agent answers LAPI
+      ansible.builtin.command: docker exec {{ crowdsec_agent_container }} cscli lapi status
+      register: crowdsec_agent_status
+      changed_when: false
+      retries: 6
+      delay: 10
+      until: crowdsec_agent_status.rc == 0
+      when: crowdsec_action in ['deploy', 'restart']
+
+    - name: Show node containers
+      ansible.builtin.command:
+        argv: ["docker", "ps", "--filter", "name=crowdsec"]
+      register: crowdsec_ps
+      changed_when: false
+      failed_when: false
+      when: crowdsec_action == 'status' and crowdsec_docker_bin.rc == 0
+
+    - name: Show agent LAPI status
+      ansible.builtin.command: docker exec {{ crowdsec_agent_container }} cscli lapi status
+      register: crowdsec_lapi_check
+      changed_when: false
+      failed_when: false
+      when: crowdsec_action == 'status' and crowdsec_docker_bin.rc == 0
+
+    - name: Show blocked IP sets (ipset)
+      ansible.builtin.shell: ipset list crowdsec-blacklists-0 -t 2>/dev/null | grep "Number of entries" || true
+      args:
+        executable: /bin/bash
+      register: crowdsec_ipset
+      changed_when: false
+      failed_when: false
+      when: crowdsec_action == 'status' and crowdsec_docker_bin.rc == 0
+
+    - name: Show blocked IP sets (nftables)
+      ansible.builtin.shell: nft list table ip crowdsec 2>/dev/null | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?' | sort -u | wc -l || true
+      args:
+        executable: /bin/bash
+      register: crowdsec_nft
+      changed_when: false
+      failed_when: false
+      when: crowdsec_action == 'status' and crowdsec_docker_bin.rc == 0
+
+    - name: Display node summary
+      ansible.builtin.debug:
+        msg: "node={{ crowdsec_resolved_name }} action={{ crowdsec_action }} mode={{ crowdsec_mode }} api={{ crowdsec_api_url | default('n/a') }}"

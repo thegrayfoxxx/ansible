@@ -1,0 +1,218 @@
+---
+- name: Register CrowdSec nodes on LAPI and store credentials in Semaphore
+  hosts: "{{ target | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    crowdsec_node_names: ""
+    crowdsec_api_url: ""
+    project_id: ""
+    crowdsec_lapi_container: crowdsec-lapi
+    crowdsec_group_name: crowdsec_nodes
+  tasks:
+    - name: Require exactly one LAPI host
+      ansible.builtin.fail:
+        msg: "Point target/Limit at exactly one LAPI host, got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Require project_id
+      ansible.builtin.fail:
+        msg: "Set project_id (Semaphore project ID, see URL /project/N/)"
+      when: (project_id | string) | length == 0
+
+    - name: Normalize node names to list
+      ansible.builtin.set_fact:
+        crowdsec_names_list: "{{ crowdsec_node_names.replace(',', '\n').splitlines() | map('trim') | select | list if crowdsec_node_names is string else crowdsec_node_names }}"
+
+    - name: Validate node names
+      ansible.builtin.fail:
+        msg: "crowdsec_node_names must list one node per line, names matching ^[a-z0-9-]+$ without duplicates"
+      when:
+        - crowdsec_names_list | length == 0
+          or (crowdsec_names_list | select('match', '^[a-z0-9-]+$') | list | length) != (crowdsec_names_list | length)
+          or (crowdsec_names_list | unique | length) != (crowdsec_names_list | length)
+
+    - name: Check docker and openssl are available
+      ansible.builtin.shell: command -v docker && command -v openssl
+      args:
+        executable: /bin/bash
+      register: crowdsec_deps_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker and openssl on LAPI host
+      ansible.builtin.fail:
+        msg: "docker and openssl are required on the LAPI host"
+      when: crowdsec_deps_bin.rc != 0
+
+    - name: Check LAPI answers
+      ansible.builtin.command: docker exec {{ crowdsec_lapi_container }} cscli lapi status
+      register: crowdsec_lapi_status
+      changed_when: false
+      failed_when: false
+
+    - name: Require running LAPI
+      ansible.builtin.fail:
+        msg: "LAPI container {{ crowdsec_lapi_container }} is not running or not answering. Start the LAPI stack first"
+      when: crowdsec_lapi_status.rc != 0
+
+    - name: Remove previous agent registration (rotation)
+      ansible.builtin.command: docker exec {{ crowdsec_lapi_container }} cscli machines delete {{ item }}-agent
+      loop: "{{ crowdsec_names_list }}"
+      register: crowdsec_del_agent
+      changed_when: false
+      failed_when: false
+
+    - name: Remove previous bouncer registration (rotation)
+      ansible.builtin.command: docker exec {{ crowdsec_lapi_container }} cscli bouncers delete {{ item }}-bouncer
+      loop: "{{ crowdsec_names_list }}"
+      register: crowdsec_del_bouncer
+      changed_when: false
+      failed_when: false
+
+    - name: Generate agent passwords
+      ansible.builtin.command: openssl rand -base64 32
+      loop: "{{ crowdsec_names_list }}"
+      register: crowdsec_passwords
+      changed_when: false
+      no_log: true
+
+    - name: Register agents
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ crowdsec_lapi_container }}"
+          - cscli
+          - machines
+          - add
+          - "{{ item }}-agent"
+          - --password
+          - "{{ crowdsec_passwords.results[idx].stdout }}"
+          - --force
+      loop: "{{ crowdsec_names_list }}"
+      loop_control:
+        index_var: idx
+      register: crowdsec_agents
+      changed_when: true
+      no_log: true
+
+    - name: Register bouncers
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ crowdsec_lapi_container }}"
+          - cscli
+          - bouncers
+          - add
+          - "{{ item }}-bouncer"
+          - -o
+          - raw
+      loop: "{{ crowdsec_names_list }}"
+      loop_control:
+        index_var: idx
+      register: crowdsec_keys
+      changed_when: true
+      no_log: true
+
+    - name: Collect node credentials
+      ansible.builtin.set_fact:
+        crowdsec_new_creds: "{{ crowdsec_new_creds | default({}) | combine({'crowdsec_node_' + node_key + '_agent_password': crowdsec_passwords.results[idx].stdout, 'crowdsec_node_' + node_key + '_api_key': crowdsec_keys.results[idx].stdout}) }}"
+      vars:
+        node_key: "{{ item | lower | regex_replace('-', '_') }}"
+      loop: "{{ crowdsec_names_list }}"
+      loop_control:
+        index_var: idx
+      no_log: true
+
+    - name: Read Semaphore API credentials
+      ansible.builtin.set_fact:
+        semaphore_token: "{{ lookup('env', 'SEMAPHORE_TOKEN') }}"
+        semaphore_base: "{{ lookup('env', 'SEMAPHORE_URL') | default('http://localhost:3000/api', true) }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Require Semaphore API token
+      ansible.builtin.fail:
+        msg: "SEMAPHORE_TOKEN is empty. Attach the service_vars group to the crowdsec_register template"
+      when: semaphore_token | length == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Find crowdsec_nodes group
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment?sort=name&order=asc"
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        return_content: true
+      register: semaphore_envs
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Resolve group state
+      ansible.builtin.set_fact:
+        crowdsec_group: "{{ (semaphore_envs.json | selectattr('name', 'equalto', crowdsec_group_name) | list | first) | default({}) }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Resolve group JSON and API URL
+      ansible.builtin.set_fact:
+        crowdsec_group_json: "{{ (crowdsec_group.json | default('{}')) | from_json }}"
+        crowdsec_api_url_final: "{{ crowdsec_api_url if (crowdsec_api_url | default('') | length > 0) else ((crowdsec_group.json | default('{}')) | from_json).crowdsec_api_url | default('') }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Require API URL on first registration
+      ansible.builtin.fail:
+        msg: "crowdsec_api_url is empty and the group has no value yet. Provide the public LAPI URL (https://crowdsec.example.com)"
+      when: crowdsec_api_url_final | length == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Create crowdsec_nodes group when missing
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        body_format: json
+        body:
+          project_id: "{{ project_id | int }}"
+          name: "{{ crowdsec_group_name }}"
+        status_code: 201
+        return_content: true
+      register: crowdsec_group_created
+      when: crowdsec_group | length == 0
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Write credentials to crowdsec_nodes group
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment/{{ crowdsec_group_id }}"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        body_format: json
+        body:
+          id: "{{ crowdsec_group_id }}"
+          project_id: "{{ project_id | int }}"
+          name: "{{ crowdsec_group_name }}"
+          json: "{{ (crowdsec_group_json | combine({'crowdsec_api_url': crowdsec_api_url_final}) | combine(crowdsec_new_creds)) | to_json }}"
+          env: "{{ crowdsec_group.env | default('', true) }}"
+          secrets: []
+        status_code: 204
+      vars:
+        crowdsec_group_id: "{{ crowdsec_group.id | default(crowdsec_group_created.json.id) }}"
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Show registration summary
+      ansible.builtin.debug:
+        msg: "registered={{ crowdsec_names_list | join(',') }} group={{ crowdsec_group_name }}"

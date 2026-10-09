@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# CrowdSec node credentials. Rendered by Ansible from the crowdsec_nodes
+# variable group — do not edit by hand, re-run the crowdsec_node template.
+API_URL={{ crowdsec_api_url }}
+TZ={{ crowdsec_tz }}
+AGENT_USERNAME={{ crowdsec_agent_username }}
+AGENT_PASSWORD={{ crowdsec_agent_password }}
+API_KEY={{ crowdsec_api_key }}

@@ -182,6 +182,38 @@
       ]
     },
     {
+      "name": "crowdsec_register",
+      "view": "Security",
+      "app": "ansible",
+      "environment": "service_vars",
+      "description": "Регистрация нод на LAPI + запись секретов в crowdsec_nodes. Target — строго один хост LAPI (playbooks/crowdsec_register.yml)",
+      "playbook": "playbooks/crowdsec_register.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Хост LAPI, например lapi-01. Строго один хост, не all", "type": "", "required": true},
+        {"name": "project_id", "title": "Project ID", "type": "int", "required": true},
+        {"name": "crowdsec_node_names", "title": "Node names", "description": "Обязательно. Text: по одному имени на строку, ^[a-z0-9-]+$ (например us6). Повтор = ротация секретов", "type": "text", "required": true},
+        {"name": "crowdsec_api_url", "title": "LAPI URL", "description": "Публичный URL LAPI, например https://crowdsec.example.com. Пусто — взять текущий из группы (обязателен при первой регистрации)", "type": "", "required": false}
+      ]
+    },
+    {
+      "name": "crowdsec_node",
+      "view": "Security",
+      "app": "ansible",
+      "environment": "crowdsec_nodes",
+      "description": "CrowdSec агент + баунсер на нодах: deploy/restart/status/remove (playbooks/crowdsec_node.yml)",
+      "playbook": "playbooks/crowdsec_node.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "crowdsec_node_name", "title": "Node name", "description": "Пусто — взять из имени хоста в inventory. Явное имя для одиночных прогонов (для remove обязательно)", "type": "", "required": false},
+        {"name": "crowdsec_action", "title": "Action", "description": "deploy — поднять стек, status — read-only проверка", "default_value": "deploy", "type": "enum", "required": false, "values": [{"name": "deploy", "value": "deploy"}, {"name": "restart", "value": "restart"}, {"name": "status", "value": "status"}, {"name": "remove", "value": "remove"}]},
+        {"name": "crowdsec_remove_confirmed", "title": "Confirm remove", "description": "true — разрешить снос защиты (только с явным Node name)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "crowdsec_mode", "title": "Firewall backend", "description": "iptables по умолчанию (nftables в Docker экспериментален)", "default_value": "iptables", "type": "enum", "required": false, "values": [{"name": "iptables", "value": "iptables"}, {"name": "nftables", "value": "nftables"}]},
+        {"name": "crowdsec_extra_collections", "title": "Extra collections", "description": "Text: доп. коллекции агента, по одной на строку (например crowdsecurity/nginx)", "type": "text", "required": false},
+        {"name": "crowdsec_extra_logs", "title": "Extra logs", "description": "Text: доп. пути логов под /var/log, по одному на строку", "type": "text", "required": false},
+        {"name": "crowdsec_tz", "title": "Timezone", "description": "Пусто — взять из /etc/timezone хоста", "type": "", "required": false}
+      ]
+    },
+    {
       "name": "rsyslog",
       "view": "Observability",
       "description": "Установка rsyslog + опциональный форвардинг (playbooks/rsyslog.yml)",

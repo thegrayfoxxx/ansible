@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+filenames:
+  - /var/log/auth.log
+  - /var/log/syslog
+  - /var/log/kern.log
+{% for log_path in crowdsec_extra_logs_list %}
+  - {{ log_path }}
+{% endfor %}
+labels:
+  type: syslog

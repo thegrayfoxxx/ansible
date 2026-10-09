@@ -60,6 +60,8 @@ playbooks/
   init_node.yml  # инит новой ноды: ключи + sshd
   firewall.yml   # ufw: правила + опциональное включение
   fail2ban.yml   # fail2ban + sshd jail (systemd backend)
+  crowdsec_register.yml # регистрация нод на LAPI + секреты в crowdsec_nodes
+  crowdsec_node.yml     # CrowdSec агент + баунсер: deploy/restart/status/remove
   docker.yml     # установка Docker Engine + compose plugin
   bbr.yml        # TCP BBR + fq (выкл — откат на cubic + fq_codel)
   cleanup.yml    # чистка диска: apt, journal, docker prune
@@ -67,8 +69,12 @@ playbooks/
 scripts/
   hello.sh               # пример shell-задачи
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
+templates/
+  crowdsec/          # j2 для ноды: compose.yml, .env, acquis.yaml
+files/
+  crowdsec/          # статика для ноды: crowdsec-firewall-bouncer.yaml (1:1 с configs)
 semaphore/
-  templates.json # источник правды: 15 шаблонов + survey_vars + views (Run, System, Security, Observability, Service)
+  templates.json # источник правды: 17 шаблонов + survey_vars + views (Run, System, Security, Observability, Service)
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
@@ -411,6 +417,49 @@ Bootstrap ноды где есть только пароль — способ 1 
 }
 ```
 
+## CrowdSec (агент + баунсер в Docker, LAPI уже стоит)
+
+Два шаблона во вкладке `Security`, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота). Ручного создания шаблонов не нужно — оба приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
+
+Предусловия на ноде (не ставятся, только проверяются): `docker` (шаблон `docker` — иначе `fail`), `rsyslog` (шаблон `rsyslog` — иначе только warning). LAPI должен отвечать (`cscli lapi status`).
+
+`crowdsec_register` (Target — строго один хост LAPI, не `all`):
+- `project_id` (Integer, обязательно — для записи в API)
+- `crowdsec_node_names` (Text, обязательно; по одному `^[a-z0-9-]+$` на строку; повтор имени = ротация секретов; `local/dashboard/localhost` запрещены)
+- `crowdsec_api_url` (String; пусто — взять текущий из группы, обязателен при первой регистрации)
+- не запускай два register параллельно — записи в группу идут read-modify-write, второй затрет первого
+
+```json
+{
+  "target": "lapi-01",
+  "project_id": 1,
+  "crowdsec_node_names": "us6\nus7",
+  "crowdsec_api_url": "https://crowdsec.example.com"
+}
+```
+
+`crowdsec_node`:
+- `crowdsec_node_name` (String; пусто — взять из имени хоста в inventory; для `remove` явное имя обязательно)
+- `crowdsec_action: deploy` (`restart` / `status` read-only / `remove`; Enum)
+- `crowdsec_remove_confirmed: false` -> `true` чтобы разрешить снос (volumes остаются, баны живут в LAPI; Enum)
+- `crowdsec_mode: iptables` (или `nftables`; Enum)
+- `crowdsec_extra_collections` (Text, по одной на строку; дефолт `linux/sshd/iptables`, сюда же ляжет `nginx`)
+- `crowdsec_extra_logs` (Text, пути строго под `/var/log`, по одному на строку)
+- `crowdsec_tz` (String; пусто — взять из `/etc/timezone` хоста)
+- файлы ноды: `/opt/crowdsec/` (`compose.yml`, `.env 0600`, `config/`); секреты подтягиваются из группы по имени, отсутствуют — `fail` «сначала register»
+- перерегистрация ротирует секреты: после неё обязательно перепрогнать `node deploy`, иначе нода отвалится со старыми кредами
+- ручные регистрации со старым неймингом (`имя_agent`) не подхватываются — мигрируй через перерегистрацию
+
+Массовый флоу (любое число нод — два запуска):
+
+```json
+{
+  "target": "stage",
+  "crowdsec_node_name": "",
+  "crowdsec_action": "deploy"
+}
+```
+
 ## Локальная проверка
 
 Требуется установленный `ansible` (например `pip install ansible-core`):
@@ -426,6 +475,8 @@ ansible-playbook --syntax-check playbooks/reboot.yml
 ansible-playbook --syntax-check playbooks/init_node.yml
 ansible-playbook --syntax-check playbooks/firewall.yml
 ansible-playbook --syntax-check playbooks/fail2ban.yml
+ansible-playbook --syntax-check playbooks/crowdsec_register.yml
+ansible-playbook --syntax-check playbooks/crowdsec_node.yml
 ansible-playbook --syntax-check playbooks/docker.yml
 ansible-playbook --syntax-check playbooks/bbr.yml
 ansible-playbook --syntax-check playbooks/cleanup.yml
