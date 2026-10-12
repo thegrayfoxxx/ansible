@@ -235,9 +235,9 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 Требуется inventory `prod_inventory` с реальным SSH-ключом (см. шаг 7) —
 с `None` в `User Credentials` хосты будут `unreachable`.
 
-`ping -> Run`: поле `Target` уже предзаполнено дефолтом (`all`) —
-можно оставить как есть или ввести группу/хост из своего inventory
-(например `stage`). `Run`. Успех — `ok=1 unreachable=0 failed=0` в выводе.
+`ping -> Run`: поле `Target` пустое и обязательное — введи группу/хост
+из своего inventory (например `stage`; `all` — только осознанно на весь флот).
+`Run`. Успех — `ok=1 unreachable=0 failed=0` в выводе.
 
 ![запуск ping](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/12-run-ping.gif)
 

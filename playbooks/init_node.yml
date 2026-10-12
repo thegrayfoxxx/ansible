@@ -1,6 +1,6 @@
 ---
 - name: Init new node - SSH keys + sshd hardening
-  hosts: "{{ target | default('all') }}"
+  hosts: "{{ target }}"
   gather_facts: false
   become: true
   vars:

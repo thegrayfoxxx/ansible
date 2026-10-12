@@ -1,6 +1,6 @@
 ---
 - name: Manage CrowdSec node (agent + bouncer)
-  hosts: "{{ target | default('all') }}"
+  hosts: "{{ target }}"
   gather_facts: false
   become: true
   vars:

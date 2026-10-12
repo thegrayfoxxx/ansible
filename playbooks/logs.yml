@@ -1,6 +1,6 @@
 ---
 - name: View logs - journal or file, read-only
-  hosts: "{{ target | default('all') }}"
+  hosts: "{{ target }}"
   gather_facts: false
   become: true
   vars:

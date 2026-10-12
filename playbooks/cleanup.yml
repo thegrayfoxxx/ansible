@@ -1,6 +1,6 @@
 ---
 - name: Free disk space
-  hosts: "{{ target | default('all') }}"
+  hosts: "{{ target }}"
   gather_facts: false
   become: true
   vars:

@@ -106,14 +106,14 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 
 ## Универсальный target
 
-Все плейбуки используют:
+Все плейбуки требуют явный `target` (дефолта нет — без него задача падает с ошибкой, а не едет на весь флот):
 
 ```yaml
-hosts: "{{ target | default('all') }}"
+hosts: "{{ target }}"
 ```
 
-Варианты запуска:
-- Всё: ничего не указывать (`target=all` по умолчанию).
+Варианты запуска (поле обязательно в диалоге `Run`):
+- Всё (осознанно): `all`.
 - Группа: в Task Template поле `Limit = prod` или Extra vars `{"target": "prod"}`.
 - Один хост: `Limit = vps-prod-01` или `{"target": "vps-prod-01"}`.
 - Исключить: `Limit = all:!de5` или Extra vars `{"target": "all:!de5"}` (все, кроме хоста; так же `de1,de2` — несколько через запятую).
@@ -239,7 +239,7 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 }
 ```
 
-`playbooks/logs.yml` (read-only, дефолт `target=all` безопасен):
+`playbooks/logs.yml` (read-only — безопасен на любом охвате):
 - `log_source: journal` -> `file` для хвоста файла (Enum)
 - `log_file: /var/log/syslog` (только для `source=file`, String)
 - `log_unit: ""` (только journal, например `ssh`; пусто — все юниты)
@@ -463,24 +463,25 @@ Bootstrap ноды где есть только пароль — способ 1 
 
 ## Локальная проверка
 
-Требуется установленный `ansible` (например `pip install ansible-core`):
+Требуется установленный `ansible` (например `pip install ansible-core`).
+`target` обязателен везде (дефолта нет) — для проверок подставляем `-e '{"target":"all"}'`:
 
 ```bash
-ansible-playbook --syntax-check playbooks/ping.yml
-ansible-playbook --syntax-check playbooks/update.yml
-ansible-playbook --syntax-check playbooks/base.yml
-ansible-playbook --syntax-check playbooks/run_script.yml
-ansible-playbook --syntax-check playbooks/run_cmd.yml
-ansible-playbook --syntax-check playbooks/logs.yml
-ansible-playbook --syntax-check playbooks/reboot.yml
-ansible-playbook --syntax-check playbooks/init_node.yml
-ansible-playbook --syntax-check playbooks/firewall.yml
-ansible-playbook --syntax-check playbooks/fail2ban.yml
-ansible-playbook --syntax-check playbooks/crowdsec_register.yml
-ansible-playbook --syntax-check playbooks/crowdsec_node.yml
-ansible-playbook --syntax-check playbooks/docker.yml
-ansible-playbook --syntax-check playbooks/bbr.yml
-ansible-playbook --syntax-check playbooks/cleanup.yml
-ansible-playbook --syntax-check playbooks/rsyslog.yml
+ansible-playbook --syntax-check playbooks/ping.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/update.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/base.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/run_script.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/run_cmd.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/logs.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/reboot.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/init_node.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/firewall.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/fail2ban.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/crowdsec_register.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/crowdsec_node.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/docker.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/bbr.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/cleanup.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/rsyslog.yml -e '{"target":"all"}'
 ansible-galaxy collection install -r requirements.yml
 ```

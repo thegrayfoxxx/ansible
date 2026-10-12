@@ -1,6 +1,6 @@
 ---
 - name: Run arbitrary command
-  hosts: "{{ target | default('all') }}"
+  hosts: "{{ target }}"
   gather_facts: false
   become: true
   vars:

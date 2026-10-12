@@ -1,6 +1,6 @@
 ---
 - name: Base setup for Debian
-  hosts: "{{ target | default('all') }}"
+  hosts: "{{ target }}"
   gather_facts: true
   become: true
   vars:
