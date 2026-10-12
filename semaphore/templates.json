@@ -13,7 +13,7 @@
       "description": "Проверка связи (playbooks/ping.yml)",
       "playbook": "playbooks/ping.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false}
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false}
       ]
     },
     {
@@ -22,11 +22,11 @@
       "description": "Просмотр логов: journal или файл, read-only (playbooks/logs.yml)",
       "playbook": "playbooks/logs.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
         {"name": "log_source", "title": "log_source", "description": "journal — systemd журнал, file — хвост файла", "default_value": "journal", "type": "enum", "required": false, "values": [{"name": "journal", "value": "journal"}, {"name": "file", "value": "file"}]},
         {"name": "log_file", "title": "log_file", "description": "Только для source=file, например /var/log/auth.log", "default_value": "/var/log/syslog", "type": "", "required": false},
         {"name": "log_unit", "title": "log_unit", "description": "Только journal: юнит, например ssh (пусто — все)", "type": "", "required": false},
-        {"name": "log_priority", "title": "log_priority", "description": "Только journal: уровень и срочнее", "default_value": "info", "type": "enum", "required": false, "values": [{"name": "debug", "value": "debug"}, {"name": "info", "value": "info"}, {"name": "notice", "value": "notice"}, {"name": "warning", "value": "warning"}, {"name": "err", "value": "err"}, {"name": "crit", "value": "crit"}, {"name": "alert", "value": "alert"}, {"name": "emerg", "value": "emerg"}]},
+        {"name": "log_priority", "title": "log_priority", "description": "Только journal: этот уровень и важнее (например err)", "default_value": "info", "type": "enum", "required": false, "values": [{"name": "debug", "value": "debug"}, {"name": "info", "value": "info"}, {"name": "notice", "value": "notice"}, {"name": "warning", "value": "warning"}, {"name": "err", "value": "err"}, {"name": "crit", "value": "crit"}, {"name": "alert", "value": "alert"}, {"name": "emerg", "value": "emerg"}]},
         {"name": "log_since", "title": "log_since", "description": "Только journal: например -1h, today, 2026-10-01", "default_value": "-1h", "type": "", "required": false},
         {"name": "log_lines", "title": "log_lines", "description": "Строк вывода, 1..2000", "default_value": "200", "type": "int", "required": false},
         {"name": "log_grep", "title": "log_grep", "description": "Regex-фильтр, например error|fail (пусто — всё)", "type": "", "required": false},
@@ -39,11 +39,11 @@
       "description": "Произвольная команда (playbooks/run_cmd.yml)",
       "playbook": "playbooks/run_cmd.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
-        {"name": "cmd", "title": "cmd", "description": "Обязательно, например df -h", "type": "", "required": true},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
+        {"name": "cmd", "title": "cmd", "description": "Например df -h", "type": "", "required": true},
         {"name": "use_shell", "title": "use_shell", "description": "false для строгого command без shell", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "cmd_chdir", "title": "cmd_chdir", "description": "Рабочая папка, опционально (например /opt)", "type": "", "required": false},
-        {"name": "cmd_env", "title": "cmd_env", "description": "Text с JSON-объектом, например {\"FOO\": \"1\"}", "type": "text", "required": false},
+        {"name": "cmd_chdir", "title": "cmd_chdir", "description": "Рабочая папка (например /opt)", "type": "", "required": false},
+        {"name": "cmd_env", "title": "cmd_env", "description": "JSON-объект, например {\"FOO\": \"1\"}", "type": "text", "required": false},
         {"name": "cmd_become", "title": "cmd_become", "description": "false чтобы запустить без sudo", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "cmd_tail", "title": "cmd_tail", "description": "Показать только последние N строк (например 20; 0 — всё)", "default_value": "0", "type": "int", "required": false},
         {"name": "allow_fail", "title": "allow_fail", "description": "true чтобы не фейлить хост при rc != 0", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
@@ -55,10 +55,10 @@
       "description": "Запуск скриптов из scripts/ (playbooks/run_script.yml)",
       "playbook": "playbooks/run_script.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
-        {"name": "script_src", "title": "script_src", "description": "Обязательно, путь от корня репо, например scripts/hello.sh", "type": "", "required": true},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
+        {"name": "script_src", "title": "script_src", "description": "Путь от корня репо, например scripts/hello.sh", "type": "", "required": true},
         {"name": "script_args", "title": "script_args", "description": "Аргументы скрипта, например --foo bar", "type": "", "required": false},
-        {"name": "script_env", "title": "script_env", "description": "Text с JSON-объектом, например {\"FOO\": \"1\"}", "type": "text", "required": false},
+        {"name": "script_env", "title": "script_env", "description": "JSON-объект, например {\"FOO\": \"1\"}", "type": "text", "required": false},
         {"name": "script_become", "title": "script_become", "description": "false чтобы запустить без sudo", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
@@ -68,9 +68,9 @@
       "description": "timezone + base packages (playbooks/base.yml)",
       "playbook": "playbooks/base.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
         {"name": "base_timezone", "title": "base_timezone", "description": "Например Etc/UTC или Europe/Berlin", "default_value": "Etc/UTC", "type": "", "required": false},
-        {"name": "base_packages", "title": "base_packages", "description": "Text: один пакет на строку или через запятую. Например: curl, btop", "default_value": "python3, curl, btop, ufw", "type": "text", "required": false}
+        {"name": "base_packages", "title": "base_packages", "description": "Один пакет на строку или через запятую. Например: curl, btop", "default_value": "python3, curl, btop, ufw", "type": "text", "required": false}
       ]
     },
     {
@@ -79,19 +79,19 @@
       "description": "Установка Docker Engine + compose plugin (playbooks/docker.yml)",
       "playbook": "playbooks/docker.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
-        {"name": "docker_users", "title": "docker_users", "description": "Text: юзеры в группу docker, один на строку или через запятую", "type": "text", "required": false},
-        {"name": "docker_verify", "title": "docker_verify", "description": "true — проверить запуском hello-world", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
+        {"name": "docker_users", "title": "docker_users", "description": "Юзеры в группу docker, один на строку или через запятую", "type": "text", "required": false},
+        {"name": "docker_verify", "title": "docker_verify", "description": "false — пропустить проверку hello-world", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"},
         {"name": "docker_version", "title": "docker_version", "description": "Пин версии Engine, например 5:27.*. Пусто — latest (update с dist-апгрейдом пин перетрёт)", "type": "", "required": false}
       ]
     },
     {
       "name": "bbr",
       "view": "System",
-      "description": "TCP BBR + fq (выкл — откат на cubic + fq_codel). Legacy 10-bbr-fq_codel.conf удаляется (playbooks/bbr.yml)",
+      "description": "TCP BBR + fq; выкл — откат на cubic + fq_codel (playbooks/bbr.yml)",
       "playbook": "playbooks/bbr.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
         {"name": "bbr_enabled", "title": "bbr_enabled", "description": "false — откатить на cubic + fq_codel", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
@@ -101,11 +101,11 @@
       "description": "apt update + upgrade, опционально reboot (playbooks/update.yml)",
       "playbook": "playbooks/update.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
-        {"name": "apt_upgrade", "title": "apt_upgrade", "description": "dist или safe", "default_value": "dist", "type": "enum", "required": false, "values": [{"name": "dist", "value": "dist"}, {"name": "safe", "value": "safe"}]},
-        {"name": "apt_autoremove", "title": "apt_autoremove", "description": "true — удалять осиротевшие пакеты", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "apt_autoclean", "title": "apt_autoclean", "description": "true — чистить кеш apt", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "reboot_if_required", "title": "reboot_if_required", "description": "true для авторебута", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
+        {"name": "apt_upgrade", "title": "apt_upgrade", "description": "dist — полное обновление, safe — только безопасные", "default_value": "dist", "type": "enum", "required": false, "values": [{"name": "dist", "value": "dist"}, {"name": "safe", "value": "safe"}]},
+        {"name": "apt_autoremove", "title": "apt_autoremove", "description": "false — оставить осиротевшие пакеты", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "apt_autoclean", "title": "apt_autoclean", "description": "false — не чистить кеш apt", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "reboot_if_required", "title": "reboot_if_required", "description": "true для авторебута (перезагрузит без спроса)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
     {
@@ -114,13 +114,13 @@
       "description": "Чистка диска: apt, journal, docker prune (playbooks/cleanup.yml)",
       "playbook": "playbooks/cleanup.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
         {"name": "journal_max_age", "title": "journal_max_age", "description": "Хранить журнал, например 14d", "default_value": "14d", "type": "", "required": false},
         {"name": "journal_max_size", "title": "journal_max_size", "description": "Лимит размера журнала, например 500M", "default_value": "500M", "type": "", "required": false},
-        {"name": "docker_prune", "title": "docker_prune", "description": "true — docker system prune (скипается если докера нет)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"},
+        {"name": "docker_prune", "title": "docker_prune", "description": "false — пропустить docker prune (скипается если докера нет)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"},
         {"name": "docker_prune_volumes", "title": "docker_prune_volumes", "description": "true — чистить и docker volumes (опасно)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "false"},
         {"name": "docker_prune_until", "title": "docker_prune_until", "description": "prune только старше N, например 72h. Пусто — без фильтра", "type": "", "required": false},
-        {"name": "apt_clean", "title": "apt_clean", "description": "true — autoremove + autoclean", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"}
+        {"name": "apt_clean", "title": "apt_clean", "description": "false — пропустить autoremove/autoclean", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "true"}
       ]
     },
     {
@@ -129,12 +129,12 @@
       "description": "Перезагрузка хостов, без подтверждения (playbooks/reboot.yml)",
       "playbook": "playbooks/reboot.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "Группа или хост (например prod). Аккуратнее с all", "type": "", "required": false},
-        {"name": "reboot_msg", "title": "reboot_msg", "description": "Сообщение в wall перед ребутом (по умолчанию Reboot via Semaphore)", "default_value": "Reboot via Semaphore", "type": "", "required": false},
-        {"name": "reboot_timeout", "title": "reboot_timeout", "description": "Секунд ждать возвращения хоста (по умолчанию 600)", "default_value": "600", "type": "int", "required": false},
-        {"name": "reboot_connect_timeout", "title": "reboot_connect_timeout", "description": "Таймаут SSH-подключения после ребута (по умолчанию 30)", "default_value": "30", "type": "int", "required": false},
-        {"name": "reboot_pre_delay", "title": "reboot_pre_delay", "description": "Пауза перед ребутом (по умолчанию 5)", "default_value": "5", "type": "int", "required": false},
-        {"name": "reboot_post_delay", "title": "reboot_post_delay", "description": "Пауза после ребута перед проверкой (по умолчанию 15)", "default_value": "15", "type": "int", "required": false},
+        {"name": "target", "title": "Target", "description": "Группа, хост или all:!de5 (кроме). Аккуратнее с all", "type": "", "required": false},
+        {"name": "reboot_msg", "title": "reboot_msg", "description": "Сообщение в wall перед ребутом", "default_value": "Reboot via Semaphore", "type": "", "required": false},
+        {"name": "reboot_timeout", "title": "reboot_timeout", "description": "Секунд ждать возвращения хоста", "default_value": "600", "type": "int", "required": false},
+        {"name": "reboot_connect_timeout", "title": "reboot_connect_timeout", "description": "Таймаут SSH-подключения после ребута", "default_value": "30", "type": "int", "required": false},
+        {"name": "reboot_pre_delay", "title": "reboot_pre_delay", "description": "Пауза перед ребутом", "default_value": "5", "type": "int", "required": false},
+        {"name": "reboot_post_delay", "title": "reboot_post_delay", "description": "Пауза после ребута перед проверкой", "default_value": "15", "type": "int", "required": false},
         {"name": "reboot_only_if_required", "title": "reboot_only_if_required", "description": "true — пропустить, если ребута не требуется (для расписаний)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
@@ -149,9 +149,9 @@
         {"name": "ansible_password", "title": "Connection password", "description": "Override пароля, для нод только с паролем (пусто — без пароля)", "type": "secret", "required": false},
         {"name": "ansible_port", "title": "Connection port", "description": "Нестандартный SSH-порт (пусто — порт инвентаря)", "type": "int", "required": false},
         {"name": "ssh_user", "title": "ssh_user", "description": "Юзер должен существовать, обычно root", "default_value": "root", "type": "", "required": false},
-        {"name": "ssh_keys", "title": "ssh_keys", "description": "Обязательно. Text: один публичник на строку или через запятую", "type": "text", "required": true},
+        {"name": "ssh_keys", "title": "ssh_keys", "description": "Один публичник на строку или через запятую", "type": "text", "required": true},
         {"name": "skip_sshd", "title": "skip_sshd", "description": "true чтобы добавить только ключи без правок sshd (bootstrap по паролю)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "sshd_permit_root_login", "title": "sshd_permit_root_login", "description": "prohibit-password по умолчанию", "default_value": "prohibit-password", "type": "", "required": false},
+        {"name": "sshd_permit_root_login", "title": "sshd_permit_root_login", "description": "Кто может заходить под root (prohibit-password — только по ключу)", "default_value": "prohibit-password", "type": "", "required": false},
         {"name": "sshd_pubkey_auth", "title": "sshd_pubkey_auth", "description": "yes — разрешить вход по ключам", "default_value": "yes", "type": "", "required": false},
         {"name": "sshd_password_auth", "title": "sshd_password_auth", "description": "no — запретить вход по паролю", "default_value": "no", "type": "", "required": false},
         {"name": "sshd_permit_empty", "title": "sshd_permit_empty", "description": "no — запретить пустые пароли", "default_value": "no", "type": "", "required": false}
@@ -163,8 +163,8 @@
       "description": "UFW: правила + опциональное включение. Первый прогон с Limit на тестовую ноду (playbooks/firewall.yml)",
       "playbook": "playbooks/firewall.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
-        {"name": "fw_allow", "title": "fw_allow", "description": "Text: одно правило на строку, например 22/tcp", "type": "text", "required": false},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
+        {"name": "fw_allow", "title": "fw_allow", "description": "Одно правило на строку, например 22/tcp", "type": "text", "required": false},
         {"name": "fw_enable", "title": "fw_enable", "description": "true — ВКЛЮЧИТЬ ufw (guard требует 22/tcp в списке)", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}], "default_value": "false"}
       ]
     },
@@ -174,10 +174,10 @@
       "description": "Fail2Ban + sshd jail (systemd backend). Первый прогон с Limit на тестовую ноду (playbooks/fail2ban.yml)",
       "playbook": "playbooks/fail2ban.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
         {"name": "fail2ban_enabled", "title": "fail2ban_enabled", "description": "false чтобы остановить и отключить сервис", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "fail2ban_bantime", "title": "fail2ban_bantime", "description": "Длительность бана, например 1d", "default_value": "1d", "type": "", "required": false},
-        {"name": "fail2ban_maxretry", "title": "fail2ban_maxretry", "description": "Попыток до бана (по умолчанию 5)", "default_value": "5", "type": "int", "required": false},
+        {"name": "fail2ban_maxretry", "title": "fail2ban_maxretry", "description": "Попыток до бана", "default_value": "5", "type": "int", "required": false},
         {"name": "fail2ban_ignoreip", "title": "fail2ban_ignoreip", "description": "Никогда не банить, через пробел. Свои IP дописать!", "default_value": "127.0.0.1/8", "type": "", "required": false}
       ]
     },
@@ -191,7 +191,7 @@
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "Хост LAPI, например lapi-01. Строго один хост, не all", "type": "", "required": true},
         {"name": "project_id", "title": "Project ID", "type": "int", "required": true},
-        {"name": "crowdsec_node_names", "title": "Node names", "description": "Обязательно. Text: по одному имени на строку, ^[a-z0-9-]+$ (например us6). Повтор = ротация секретов", "type": "text", "required": true},
+        {"name": "crowdsec_node_names", "title": "Node names", "description": "По одному имени на строку, ^[a-z0-9-]+$ (например us6). Повтор = ротация секретов", "type": "text", "required": true},
         {"name": "crowdsec_api_url", "title": "LAPI URL", "description": "Публичный URL LAPI, например https://crowdsec.example.com. Пусто — взять текущий из группы (обязателен при первой регистрации)", "type": "", "required": false}
       ]
     },
@@ -203,13 +203,13 @@
       "description": "CrowdSec агент + баунсер на нодах: deploy/restart/status/remove (playbooks/crowdsec_node.yml)",
       "playbook": "playbooks/crowdsec_node.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
         {"name": "crowdsec_node_name", "title": "Node name", "description": "Пусто — взять из имени хоста в inventory. Явное имя для одиночных прогонов (для remove обязательно)", "type": "", "required": false},
-        {"name": "crowdsec_action", "title": "Action", "description": "deploy — поднять стек, status — read-only проверка", "default_value": "deploy", "type": "enum", "required": false, "values": [{"name": "deploy", "value": "deploy"}, {"name": "restart", "value": "restart"}, {"name": "status", "value": "status"}, {"name": "remove", "value": "remove"}]},
+        {"name": "crowdsec_action", "title": "Action", "description": "deploy — поднять стек; restart/status/remove (remove — только с подтверждением)", "default_value": "deploy", "type": "enum", "required": false, "values": [{"name": "deploy", "value": "deploy"}, {"name": "restart", "value": "restart"}, {"name": "status", "value": "status"}, {"name": "remove", "value": "remove"}]},
         {"name": "crowdsec_remove_confirmed", "title": "Confirm remove", "description": "true — разрешить снос защиты (только с явным Node name)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "crowdsec_mode", "title": "Firewall backend", "description": "iptables по умолчанию (nftables в Docker экспериментален)", "default_value": "iptables", "type": "enum", "required": false, "values": [{"name": "iptables", "value": "iptables"}, {"name": "nftables", "value": "nftables"}]},
-        {"name": "crowdsec_extra_collections", "title": "Extra collections", "description": "Text: доп. коллекции агента, по одной на строку (например crowdsecurity/nginx)", "type": "text", "required": false},
-        {"name": "crowdsec_extra_logs", "title": "Extra logs", "description": "Text: доп. пути логов под /var/log, по одному на строку", "type": "text", "required": false},
+        {"name": "crowdsec_extra_collections", "title": "Extra collections", "description": "Доп. коллекции агента, по одной на строку (например crowdsecurity/nginx)", "type": "text", "required": false},
+        {"name": "crowdsec_extra_logs", "title": "Extra logs", "description": "Доп. пути логов под /var/log, по одному на строку", "type": "text", "required": false},
         {"name": "crowdsec_tz", "title": "Timezone", "description": "Пусто — взять из /etc/timezone хоста", "type": "", "required": false}
       ]
     },
@@ -219,7 +219,7 @@
       "description": "Установка rsyslog + опциональный форвардинг (playbooks/rsyslog.yml)",
       "playbook": "playbooks/rsyslog.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "all по умолчанию, группа (prod/stage) или хост", "default_value": "all", "type": "", "required": false},
+        {"name": "target", "title": "Target", "description": "all по умолчанию; de (группа), de1 (хост), de1,de2 (несколько), all:!de5 (кроме)", "default_value": "all", "type": "", "required": false},
         {"name": "rsyslog_remote", "title": "rsyslog_remote", "description": "Центральный сервер, например 192.0.2.10:514. Пусто — только локальные логи", "type": "", "required": false},
         {"name": "rsyslog_proto", "title": "rsyslog_proto", "description": "tcp (@@) или udp (@)", "type": "enum", "required": false, "values": [{"name": "tcp", "value": "tcp"}, {"name": "udp", "value": "udp"}], "default_value": "tcp"}
       ]

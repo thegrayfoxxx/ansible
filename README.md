@@ -116,6 +116,7 @@ hosts: "{{ target | default('all') }}"
 - Всё: ничего не указывать (`target=all` по умолчанию).
 - Группа: в Task Template поле `Limit = prod` или Extra vars `{"target": "prod"}`.
 - Один хост: `Limit = vps-prod-01` или `{"target": "vps-prod-01"}`.
+- Исключить: `Limit = all:!de5` или Extra vars `{"target": "all:!de5"}` (все, кроме хоста; так же `de1,de2` — несколько через запятую).
 
 `Limit` и `target` можно комбинировать, приоритет у `Limit` (стандартный ansible `--limit`).
 
