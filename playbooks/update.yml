@@ -14,6 +14,13 @@
         update_cache: true
         cache_valid_time: 3600
 
+    - name: Recover interrupted dpkg
+      ansible.builtin.command: dpkg --configure -a
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: dpkg_fix
+      changed_when: dpkg_fix.stdout | length > 0 or dpkg_fix.stderr | length > 0
+
     - name: Apt upgrade
       ansible.builtin.apt:
         upgrade: "{{ apt_upgrade }}"

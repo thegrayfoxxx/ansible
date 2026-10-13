@@ -147,6 +147,7 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 - `apt_autoremove: true`
 - `apt_autoclean: true`
 - `reboot_if_required: false` -> `true` для авторебута
+- перед upgrade всегда выполняется `dpkg --configure -a` (донастройка оборванного dpkg; если мёртв по-настоящему — упадёт с его текстом)
 
 `playbooks/base.yml`:
 - `base_timezone: Etc/UTC` (String)
