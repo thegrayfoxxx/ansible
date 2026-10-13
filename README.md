@@ -74,7 +74,7 @@ templates/
 files/
   crowdsec/          # статика для ноды: crowdsec-firewall-bouncer.yaml (1:1 с configs)
 semaphore/
-  templates.json # источник правды: 17 шаблонов + survey_vars + views (Run, System, Security, Observability, Service)
+  templates.json # источник правды: 17 шаблонов + survey_vars + views (Run, System, Security, CrowdSec, Observability, Service)
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
@@ -420,7 +420,7 @@ Bootstrap ноды где есть только пароль — способ 1 
 
 ## CrowdSec (агент + баунсер в Docker, LAPI уже стоит)
 
-Два шаблона во вкладке `Security`, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота). Ручного создания шаблонов не нужно — оба приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
+Два шаблона во вкладке `CrowdSec`, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота). Ручного создания шаблонов не нужно — оба приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
 
 Предусловия на ноде (не ставятся, только проверяются): `docker` (шаблон `docker` — иначе `fail`), `rsyslog` (шаблон `rsyslog` — иначе только warning). LAPI должен отвечать (`cscli lapi status`).
 

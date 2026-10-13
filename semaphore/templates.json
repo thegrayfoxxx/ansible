@@ -183,7 +183,7 @@
     },
     {
       "name": "crowdsec_register",
-      "view": "Security",
+      "view": "CrowdSec",
       "app": "ansible",
       "environment": "service_vars",
       "description": "Регистрация нод на LAPI + запись секретов в crowdsec_nodes. Target — строго один хост LAPI (playbooks/crowdsec_register.yml)",
@@ -197,7 +197,7 @@
     },
     {
       "name": "crowdsec_node",
-      "view": "Security",
+      "view": "CrowdSec",
       "app": "ansible",
       "environment": "crowdsec_nodes",
       "description": "CrowdSec агент + баунсер на нодах: deploy/restart/status/remove (playbooks/crowdsec_node.yml)",
