@@ -55,7 +55,7 @@
     - name: Prune Docker objects
       ansible.builtin.command: "docker system prune -af{{ ' --filter \"until=' + docker_prune_until + '\"' if docker_prune_until | length > 0 else '' }}"
       register: docker_prune_out
-      changed_when: true
+      changed_when: docker_prune_out.stdout is not search('Total reclaimed space:\s*0\s*B(\s|$)')
       when:
         - docker_prune | bool
         - docker_bin.rc == 0
@@ -70,7 +70,7 @@
     - name: Prune Docker volumes
       ansible.builtin.command: docker volume prune -f
       register: docker_volumes_out
-      changed_when: true
+      changed_when: docker_volumes_out.stdout is not search('Total reclaimed space:\s*0\s*B(\s|$)')
       when:
         - docker_prune_volumes | bool
         - docker_bin.rc == 0
