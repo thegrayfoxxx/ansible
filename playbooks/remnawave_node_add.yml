@@ -62,14 +62,14 @@
     - name: Resolve API token and panel URL
       ansible.builtin.set_fact:
         remnawave_token_final: "{{ remnawave_token if (remnawave_token | default('') | length > 0) else lookup('env', 'REMNAWAVE_TOKEN') }}"
-        remnawave_panel_base: "{{ (((remnawave_panel_url | default('') | trim) if ((remnawave_panel_url | default('') | trim) | length > 0) else ((remnawave_default_panel_url | default('')) | trim))).rstrip('/') }}"
+        remnawave_panel_base: "{{ ((remnawave_default_panel_url | default('')) | trim).rstrip('/') }}"
       delegate_to: localhost
       become: false
       no_log: true
 
     - name: Require API token and panel URL
       ansible.builtin.fail:
-        msg: "Panel URL must come from remnawave_panel_url survey override or remnawave_default_panel_url in the remnawave_vars group; API token from REMNAWAVE_TOKEN secret or remnawave_token survey override"
+        msg: "Panel URL must come from remnawave_default_panel_url in the remnawave_vars group; API token from REMNAWAVE_TOKEN secret or remnawave_token survey override"
       when: remnawave_panel_base | length == 0
       delegate_to: localhost
       become: false

@@ -465,7 +465,29 @@ Bootstrap ноды где есть только пароль — способ 1 
 
 ## Remnawave (VPN-панель уже стоит; ноды — register/deploy/both через API)
 
-Один шаблон во вкладке `Remnawave`, два play внутри: register (только API панели, SSH не трогается) и deploy (агент в Docker на ноде). Ручного создания шаблона не нужно — приезжает через `update_templates`; группу `remnawave_vars` сидинг создаст пустой сам, оператор разово вписывает туда секрет `REMNAWAVE_TOKEN` + JSON `remnawave_panel_url` (обязателен), опционально `remnawave_default_config_profile` / `remnawave_default_inbounds`.
+Один шаблон во вкладке `Remnawave`, два play внутри: register (только API панели, SSH не трогается) и deploy (агент в Docker на ноде). Ручного создания шаблона не нужно — приезжает через `update_templates`.
+
+### Заполнение группы `remnawave_vars`
+
+Сидинг создаёт группу сам (см. `environments_seed` в `templates.json`), причём сразу с дефолтами — руками дописывается только секрет:
+
+1. **Вкладка Secrets** → `New Secret`, тип обязательно **env** (не var — иначе плейбук не найдёт через `lookup('env', ...)`):
+   - имя `REMNAWAVE_TOKEN`, значение — API-токен панели.
+2. **Вкладка JSON** — уже предзаполнена сидом, проверь/правь под себя:
+```json
+{
+  "remnawave_default_panel_url": "https://panel.example.com",
+  "remnawave_default_config_profile": "",
+  "remnawave_default_inbounds": ""
+}
+```
+   - `remnawave_default_panel_url` — обязателен (без `/` на конце — обрежется сам, но лучше без);
+   - два `remnawave_default_*` — опциональны: пустые строки или убери ключи (плейбук трактует одинаково); заполненные — дефолт на все прогоны, survey перекрывает разово.
+
+Правила сида (важно):
+- сид пишется **один раз при создании группы** (`POST` → следом `PUT` только с этим JSON, `secrets: []` — секреты не задевает). Повторные `Run update_templates` значения **не трогают** — поменять можно только в UI руками;
+- секреты не сидируются никогда (репо публичное): токен всегда вписывается руками, иначе плейбук упадёт с понятным `fail`, а не молча;
+- проверка после сидинга: `Run remnawave_node_add` с `action=register` на заведомо новом имени — при пустой/кривой группе упадёт с текстом что именно заполнить.
 
 Предусловия: панель доступна с раннера (сеть!); API-токену нужны scopes `nodes:create:write` + `list:read`, `config-profiles:list:read` + `list-profile-inbounds:read`, `keygen:get:read` (иначе `403`). На ноде: `docker` (шаблон `docker` — иначе `fail`), Debian/Ubuntu; панель должна доставать ноду по `address:port` (фаервол!).
 

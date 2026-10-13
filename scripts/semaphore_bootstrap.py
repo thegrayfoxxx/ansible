@@ -28,6 +28,9 @@ Environments (variable groups) are resolved by name and auto-created empty
 when missing — except names in STRICT_ENVIRONMENTS (currently
 `service_vars`), which must be created manually since they hold secrets
 only a human knows. Default group comes from templates.json `defaults`.
+Optional `environments_seed` in templates.json pre-fills non-secret JSON
+values once, at creation time only (re-runs never touch existing groups;
+secrets are never seeded — public repo).
 """
 
 import argparse
@@ -119,11 +122,29 @@ _dry_announced_env = set()
 STRICT_ENVIRONMENTS = {"service_vars"}
 
 
-def ensure_environment(base, project_id, token, environments, name, dry_run):
+def build_seed_put_body(project_id, env_id, name, seed_json):
+    """Build the PUT body that pre-fills a freshly created group with seed JSON.
+
+    Pure helper (no network) so the create-only seed logic is unit-testable.
+    `secrets` is always empty: secrets are never seeded from a public repo,
+    and an empty list is a no-op for existing secrets server-side.
+    """
+    return {
+        "id": env_id,
+        "project_id": project_id,
+        "name": name,
+        "json": json.dumps(seed_json),
+        "secrets": [],
+    }
+
+
+def ensure_environment(base, project_id, token, environments, name, dry_run, seed_json=None):
     """Return environment id by name, auto-creating missing groups.
 
     Groups hold no content at creation time, so creating them is safe.
     STRICT_ENVIRONMENTS must exist beforehand (they hold secrets).
+    When `seed_json` (dict) is given and the group is created now, the seed
+    is written once via PUT. Existing groups are never modified (create-only).
     """
     for env in environments:
         if env.get("name") == name:
@@ -134,7 +155,11 @@ def ensure_environment(base, project_id, token, environments, name, dry_run):
     known = ", ".join(sorted(str(i.get("name")) for i in environments)) or "(empty)"
     if dry_run:
         if name not in _dry_announced_env:
-            print(f'[dry-run] would create environment "{name}" (known: {known})')
+            if seed_json:
+                keys = ", ".join(sorted(seed_json)) or "(empty json)"
+                print(f'[dry-run] would create environment "{name}" with seed json keys ({keys}) (known: {known})')
+            else:
+                print(f'[dry-run] would create environment "{name}" (known: {known})')
             _dry_announced_env.add(name)
         return None
     print(f'[create environment] "{name}"')
@@ -143,6 +168,10 @@ def ensure_environment(base, project_id, token, environments, name, dry_run):
     if not isinstance(created, dict) or "id" not in created:
         raise RuntimeError(f'POST environment "{name}" returned no id')
     environments.append(created)
+    if seed_json:
+        print(f'[seed environment] "{name}" json keys ({", ".join(sorted(seed_json))})')
+        api_request("PUT", f"{base}/project/{project_id}/environment/{created['id']}", token,
+                    build_seed_put_body(project_id, created["id"], name, seed_json))
     return created["id"]
 
 
@@ -208,6 +237,15 @@ def main():
     if not wanted:
         print(f"ERROR: no templates in {args.templates}", file=sys.stderr)
         return 1
+    env_seeds = spec.get("environments_seed", {})
+    if not isinstance(env_seeds, dict):
+        print(f"ERROR: environments_seed must be an object in {args.templates}", file=sys.stderr)
+        return 1
+    for seed_name, seed_spec in env_seeds.items():
+        if not isinstance(seed_spec, dict) or not isinstance(seed_spec.get("json", {}), dict):
+            print(f'ERROR: environments_seed["{seed_name}"] must be {{"json": {{...}}}} in {args.templates}',
+                  file=sys.stderr)
+            return 1
 
     default_inventory = args.inventory or defaults.get("inventory", "prod_inventory")
     default_repository = args.repository or defaults.get("repository", "ansible")
@@ -231,11 +269,13 @@ def main():
             view_name = tpl.get("view", defaults.get("view"))
             view_id = (ensure_view(base, project_id, token, views, view_name, args.dry_run)
                        if view_name else None)
+            env_name = tpl.get("environment", default_environment)
+            env_seed = (env_seeds.get(env_name) or {}).get("json")
             ids = {
                 "inventory": name_to_id(inventories, tpl.get("inventory", default_inventory), "Inventory"),
                 "repository": name_to_id(repositories, tpl.get("repository", default_repository), "Repository"),
                 "environment": ensure_environment(base, project_id, token, environments,
-                                                  tpl.get("environment", default_environment), args.dry_run),
+                                                  env_name, args.dry_run, env_seed),
                 "view": view_id,
             }
         except RuntimeError as exc:

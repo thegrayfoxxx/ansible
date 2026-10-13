@@ -6,6 +6,15 @@
     "app": "ansible",
     "view": null
   },
+  "environments_seed": {
+    "remnawave_vars": {
+      "json": {
+        "remnawave_default_panel_url": "https://panel.example.com",
+        "remnawave_default_config_profile": "",
+        "remnawave_default_inbounds": ""
+      }
+    }
+  },
   "templates": [
     {
       "name": "ping",
