@@ -66,15 +66,17 @@ playbooks/
   bbr.yml        # TCP BBR + fq (выкл — откат на cubic + fq_codel)
   cleanup.yml    # чистка диска: apt, journal, docker prune
   rsyslog.yml    # rsyslog + опциональный форвардинг
+  remnawave_node_add.yml # Remnawave нода: register/deploy/both + автодеплой агента
 scripts/
   hello.sh               # пример shell-задачи
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
 templates/
   crowdsec/          # j2 для ноды: compose.yml, .env, acquis.yaml
+  remnawave/         # j2 для ноды: compose.yml, .env
 files/
   crowdsec/          # статика для ноды: crowdsec-firewall-bouncer.yaml (1:1 с configs)
 semaphore/
-  templates.json # источник правды: 17 шаблонов + survey_vars + views (Run, System, Security, CrowdSec, Observability, Service)
+  templates.json # источник правды: 18 шаблонов + survey_vars + views (Run, System, Security, CrowdSec, Observability, Remnawave, Service)
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
@@ -461,6 +463,35 @@ Bootstrap ноды где есть только пароль — способ 1 
 }
 ```
 
+## Remnawave (VPN-панель уже стоит; ноды — register/deploy/both через API)
+
+Один шаблон во вкладке `Remnawave`, два play внутри: register (только API панели, SSH не трогается) и deploy (агент в Docker на ноде). Ручного создания шаблона не нужно — приезжает через `update_templates`; группу `remnawave_vars` сидинг создаст пустой сам, оператор разово вписывает туда секрет `REMNAWAVE_TOKEN` + JSON `remnawave_panel_url` (обязателен), опционально `remnawave_default_config_profile` / `remnawave_default_inbounds`.
+
+Предусловия: панель доступна с раннера (сеть!); API-токену нужны scopes `nodes:create:write` + `list:read`, `config-profiles:list:read` + `list-profile-inbounds:read`, `keygen:get:read` (иначе `403`). На ноде: `docker` (шаблон `docker` — иначе `fail`), Debian/Ubuntu; панель должна доставать ноду по `address:port` (фаервол!).
+
+`remnawave_action: both` (дефолт — регистрация + деплой одним прогоном; `register` / `deploy` по отдельности):
+- `target` — строго один хост (в register-режиме значение игнорируется, но заполнить надо)
+- `remnawave_node_name` (3..30), `remnawave_node_address` (достижимый со стороны панели)
+- `remnawave_node_port` (пусто — случайный `1024..65535`, фиксируется на прогон; явно — конкретный; `<1024` — warning)
+- `remnawave_country` (`XX`), `remnawave_note` (до 255)
+- `remnawave_config_profile` (UUID/имя/пусто): survey → дефолт группы → авто по `default` (точное ci → вхождение `default` → `дефолт`; 0/несколько — `fail` со списками)
+- `remnawave_inbounds` (Text, UUID построчно; пусто — все инбаунды профиля; чужие — `fail` с доступными тегами)
+- `remnawave_open_port: false` -> `true` чтобы открыть порт в `ufw` (идемпотентно; Enum) + `remnawave_allow_from` (только с IP панели, пусто — отовсюду). `ufw` нет — громкий `fail`. Выключаешь назад — правило сносится руками (одной командой `ufw delete`), свои правила плейбук не трогает
+- `remnawave_token` (Secret, разовый override), `remnawave_validate_certs: true` -> `false` для самоподписанного серта панели
+
+Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт `/opt/remnawave/` (`compose.yml`, `.env 0600`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
+
+```json
+{
+  "target": "de1",
+  "remnawave_action": "both",
+  "remnawave_node_name": "de1-vpn",
+  "remnawave_node_address": "de1.cdn.theshadowfox.com",
+  "remnawave_open_port": true,
+  "remnawave_allow_from": "203.0.113.10"
+}
+```
+
 ## Локальная проверка
 
 Требуется установленный `ansible` (например `pip install ansible-core`).
@@ -483,5 +514,6 @@ ansible-playbook --syntax-check playbooks/docker.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/bbr.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/cleanup.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/rsyslog.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/remnawave_node_add.yml -e '{"target":"all"}'
 ansible-galaxy collection install -r requirements.yml
 ```

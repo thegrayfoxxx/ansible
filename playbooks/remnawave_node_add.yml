@@ -1,0 +1,494 @@
+---
+- name: Remnawave node register (panel API)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    remnawave_action: both
+    remnawave_node_name: ""
+    remnawave_node_address: ""
+    remnawave_node_port: ""
+    remnawave_country: XX
+    remnawave_config_profile: ""
+    remnawave_inbounds: ""
+    remnawave_note: ""
+    remnawave_token: ""
+    remnawave_panel_url: ""
+    remnawave_open_port: false
+    remnawave_allow_from: ""
+    remnawave_validate_certs: true
+    remnawave_dir: /opt/remnawave
+    remnawave_agent_container: remnanode
+    remnawave_uuid_re: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+  tasks:
+    - name: Validate action value
+      ansible.builtin.fail:
+        msg: "remnawave_action must be register/deploy/both"
+      when: remnawave_action not in ['register', 'deploy', 'both']
+
+    - name: Require exactly one node host
+      ansible.builtin.fail:
+        msg: "This template addresses one node per run — point target at a single host (in register mode the value is only an anchor)"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Validate node name and address
+      ansible.builtin.fail:
+        msg: "remnawave_node_name must be 3..30 chars, remnawave_node_address must not be empty"
+      when:
+        - (remnawave_node_name | length < 3 or remnawave_node_name | length > 30)
+          or (remnawave_node_address | default('') | trim | length < 2)
+
+    - name: Validate port value when explicit
+      ansible.builtin.fail:
+        msg: "remnawave_node_port must be 1..65535, got {{ remnawave_node_port }}"
+      when:
+        - (remnawave_node_port | default('') | string | length > 0)
+          and ((remnawave_node_port | int < 1 or remnawave_node_port | int > 65535))
+
+    - name: Validate country and note
+      ansible.builtin.fail:
+        msg: "remnawave_country must be <= 2 chars, remnawave_note <= 255 chars"
+      when:
+        - (remnawave_country | default('XX') | length > 2)
+          or (remnawave_note | default('') | length > 255)
+
+    - name: Validate explicit inbound UUIDs format
+      ansible.builtin.fail:
+        msg: "Every remnawave_inbounds line must be a UUID"
+      when:
+        - remnawave_inbounds | default('') | length > 0
+          and (((remnawave_inbounds.replace(',', '\n').splitlines() | map('trim') | select | list) | select('match', remnawave_uuid_re) | list | length) != ((remnawave_inbounds.replace(',', '\n').splitlines() | map('trim') | select | list) | length))
+
+    - name: Resolve API token and panel URL
+      ansible.builtin.set_fact:
+        remnawave_token_final: "{{ remnawave_token if (remnawave_token | default('') | length > 0) else lookup('env', 'REMNAWAVE_TOKEN') }}"
+        remnawave_panel_base: "{{ (((remnawave_panel_url | default('') | trim) if ((remnawave_panel_url | default('') | trim) | length > 0) else ((remnawave_default_panel_url | default('')) | trim))).rstrip('/') }}"
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Require API token and panel URL
+      ansible.builtin.fail:
+        msg: "Panel URL must come from remnawave_panel_url survey override or remnawave_default_panel_url in the remnawave_vars group; API token from REMNAWAVE_TOKEN secret or remnawave_token survey override"
+      when: remnawave_panel_base | length == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Require API token value
+      ansible.builtin.fail:
+        msg: "API token is empty. Fill REMNAWAVE_TOKEN secret in remnawave_vars group or pass remnawave_token override"
+      when: remnawave_token_final | length == 0
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Fetch panel nodes
+      ansible.builtin.uri:
+        url: "{{ remnawave_panel_base }}/api/nodes"
+        headers:
+          Authorization: "Bearer {{ remnawave_token_final }}"
+          Accept: application/json
+        return_content: true
+        timeout: 30
+        validate_certs: "{{ remnawave_validate_certs | bool }}"
+      register: remnawave_nodes_list
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Resolve existing node entry
+      ansible.builtin.set_fact:
+        remnawave_existing: "{{ (remnawave_nodes_list.json.response | default([]) if (remnawave_nodes_list.json.response is sequence and remnawave_nodes_list.json.response is not string) else (remnawave_nodes_list.json.response.nodes | default([]))) | selectattr('name', 'equalto', remnawave_node_name) | list | first | default({}) }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Require registration before deploy-only run
+      ansible.builtin.fail:
+        msg: "Node '{{ remnawave_node_name }}' not found in panel. Run with action register/both first"
+      when: remnawave_action == 'deploy' and remnawave_existing | length == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Resolve node port
+      ansible.builtin.set_fact:
+        remnawave_port_final: "{{ remnawave_node_port | int if (remnawave_node_port | default('') | string | length > 0) else (remnawave_existing.port | default((range(1024, 65536) | random)) | int) }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Refuse null stored port without explicit override
+      ansible.builtin.fail:
+        msg: "Panel entry '{{ remnawave_node_name }}' has no port and no explicit remnawave_node_port given. Set explicit port or fix the entry in panel UI"
+      when:
+        - remnawave_existing | length > 0
+          and (remnawave_node_port | default('') | string | length == 0)
+          and (remnawave_existing.port | default('', true) | string | length == 0)
+      delegate_to: localhost
+      become: false
+
+    - name: Refuse silently changing port of existing node
+      ansible.builtin.fail:
+        msg: "Panel entry '{{ remnawave_node_name }}' already uses port {{ remnawave_existing.port }} but survey asks {{ remnawave_node_port }}. Change it in panel UI or delete and recreate the node"
+      when:
+        - remnawave_existing | length > 0
+          and (remnawave_node_port | default('') | string | length > 0)
+          and remnawave_existing.port is not none
+          and (remnawave_existing.port | int) != (remnawave_node_port | int)
+      delegate_to: localhost
+      become: false
+
+    - name: Warn about privileged explicit port
+      ansible.builtin.debug:
+        msg: "Port {{ remnawave_port_final }} is privileged (<1024) — agent container may fail to bind it without extra capabilities"
+      when: remnawave_port_final | int < 1024
+      delegate_to: localhost
+      become: false
+
+    - name: Resolve config profile reference
+      ansible.builtin.set_fact:
+        remnawave_profile_want: "{{ remnawave_config_profile if (remnawave_config_profile | default('') | length > 0) else (remnawave_default_config_profile | default('')) }}"
+      delegate_to: localhost
+      become: false
+      when: remnawave_existing | length == 0
+
+    - name: Fetch config profiles for auto resolve
+      ansible.builtin.uri:
+        url: "{{ remnawave_panel_base }}/api/config-profiles"
+        headers:
+          Authorization: "Bearer {{ remnawave_token_final }}"
+          Accept: application/json
+        return_content: true
+        timeout: 30
+        validate_certs: "{{ remnawave_validate_certs | bool }}"
+      register: remnawave_profiles
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when: remnawave_existing | length == 0 and (remnawave_profile_want | default('') | length == 0)
+
+    - name: Match default config profile by keyword
+      ansible.builtin.set_fact:
+        remnawave_profile_match: "{{ remnawave_profiles.json.response.configProfiles | selectattr('name', 'defined') | list }}"
+      delegate_to: localhost
+      become: false
+      when: remnawave_existing | length == 0 and (remnawave_profile_want | default('') | length == 0)
+
+    - name: Resolve profile UUID from keyword match
+      ansible.builtin.set_fact:
+        remnawave_profile_uuid: "{{ (remnawave_exact | first).uuid if (remnawave_exact | length == 1) else ((remnawave_contains | first).uuid if (remnawave_contains | length == 1 and remnawave_exact | length == 0) else '') }}"
+        remnawave_profile_candidates: "{{ (remnawave_exact + remnawave_contains) | map(attribute='name') | list }}"
+      vars:
+        remnawave_exact: "{{ remnawave_profile_match | selectattr('name', 'equalto', 'default') | list + remnawave_profile_match | selectattr('name', 'equalto', 'Default') | list + remnawave_profile_match | selectattr('name', 'equalto', 'DEFAULT') | list }}"
+        remnawave_contains: "{{ remnawave_profile_match | selectattr('name', 'search', '(?i)default') | list + remnawave_profile_match | selectattr('name', 'search', 'дефолт') | list | unique(attribute='uuid') }}"
+      delegate_to: localhost
+      become: false
+      when: remnawave_existing | length == 0 and (remnawave_profile_want | default('') | length == 0)
+
+    - name: Fail when default profile is ambiguous or missing
+      ansible.builtin.fail:
+        msg: "No unique default config profile (candidates: {{ remnawave_profile_candidates | join(', ') | default('none — available: ' + (remnawave_profile_match | map(attribute='name') | join(', '))) }}). Set remnawave_config_profile explicitly (UUID or name)"
+      when:
+        - remnawave_existing | length == 0
+          and (remnawave_profile_want | default('') | length == 0)
+          and (remnawave_profile_uuid | default('') | length == 0)
+      delegate_to: localhost
+      become: false
+
+    - name: Fetch config profiles for explicit name reference
+      ansible.builtin.uri:
+        url: "{{ remnawave_panel_base }}/api/config-profiles"
+        headers:
+          Authorization: "Bearer {{ remnawave_token_final }}"
+          Accept: application/json
+        return_content: true
+        timeout: 30
+        validate_certs: "{{ remnawave_validate_certs | bool }}"
+      register: remnawave_profiles_explicit
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when:
+        - remnawave_existing | length == 0
+          and (remnawave_profile_want | default('') | length > 0)
+          and not (remnawave_profile_want is match(remnawave_uuid_re))
+
+    - name: Resolve profile UUID from explicit reference
+      ansible.builtin.set_fact:
+        remnawave_profile_uuid: "{{ remnawave_profile_want if (remnawave_profile_want is match(remnawave_uuid_re)) else ((remnawave_named | first).uuid if (remnawave_named | length == 1) else '') }}"
+        remnawave_profile_candidates: "{{ remnawave_named | map(attribute='name') | list }}"
+      vars:
+        remnawave_named: "{{ remnawave_named_all | selectattr('name', 'equalto', remnawave_profile_want) | list + remnawave_named_all | selectattr('name', 'search', '(?i)' + remnawave_profile_want) | list | unique(attribute='uuid') }}"
+        remnawave_named_all: "{{ (remnawave_profiles_explicit | default({})).json.response.configProfiles | default([]) }}"
+      delegate_to: localhost
+      become: false
+      when:
+        - remnawave_existing | length == 0
+          and (remnawave_profile_want | default('') | length > 0)
+
+    - name: Fail when explicit profile reference is ambiguous or missing
+      ansible.builtin.fail:
+        msg: "Config profile '{{ remnawave_profile_want }}' not found or ambiguous (candidates: {{ remnawave_profile_candidates | join(', ') | default('none') }}). Use exact UUID or unique name"
+      when:
+        - remnawave_existing | length == 0
+          and (remnawave_profile_want | default('') | length > 0)
+          and (remnawave_profile_uuid | default('') | length == 0)
+      delegate_to: localhost
+      become: false
+
+    - name: Fetch inbounds of resolved profile
+      ansible.builtin.uri:
+        url: "{{ remnawave_panel_base }}/api/config-profiles/{{ remnawave_profile_uuid }}/inbounds"
+        headers:
+          Authorization: "Bearer {{ remnawave_token_final }}"
+          Accept: application/json
+        return_content: true
+        timeout: 30
+        validate_certs: "{{ remnawave_validate_certs | bool }}"
+      register: remnawave_inbounds_resp
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when: remnawave_existing | length == 0
+
+    - name: Resolve active inbounds
+      ansible.builtin.set_fact:
+        remnawave_inbounds_final: "{{ remnawave_want_list if (remnawave_want_list | length > 0) else (remnawave_inbounds_resp.json.response.inbounds | map(attribute='uuid') | list) }}"
+      vars:
+        remnawave_want_list: "{{ ((remnawave_inbounds if (remnawave_inbounds | default('') | length > 0) else (remnawave_default_inbounds | default(''))).replace(',', '\n').splitlines() | map('trim') | select | list) if ((remnawave_inbounds | default('') | length > 0) or (remnawave_default_inbounds | default('') | length > 0)) else [] }}"
+      delegate_to: localhost
+      become: false
+      when: remnawave_existing | length == 0
+
+    - name: Validate inbounds belong to resolved profile
+      ansible.builtin.fail:
+        msg: "Inbounds not in profile (available tags: {{ remnawave_inbounds_resp.json.response.inbounds | map(attribute='tag') | join(', ') }})"
+      when:
+        - remnawave_existing | length == 0
+          and (remnawave_inbounds_final | difference(remnawave_inbounds_resp.json.response.inbounds | map(attribute='uuid') | list) | length > 0)
+      delegate_to: localhost
+      become: false
+
+    - name: Create panel node
+      ansible.builtin.uri:
+        url: "{{ remnawave_panel_base }}/api/nodes"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ remnawave_token_final }}"
+          Accept: application/json
+        body_format: json
+        body:
+          name: "{{ remnawave_node_name }}"
+          address: "{{ remnawave_node_address | trim }}"
+          port: "{{ remnawave_port_final | int }}"
+          countryCode: "{{ remnawave_country | default('XX') | upper }}"
+          note: "{{ remnawave_note | default('') }}"
+          configProfile:
+            activeConfigProfileUuid: "{{ remnawave_profile_uuid }}"
+            activeInbounds: "{{ remnawave_inbounds_final }}"
+        status_code: 201
+        timeout: 30
+        validate_certs: "{{ remnawave_validate_certs | bool }}"
+        return_content: true
+      register: remnawave_created
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when:
+        - remnawave_existing | length == 0
+          and remnawave_action in ['register', 'both']
+
+    - name: Set node UUID
+      ansible.builtin.set_fact:
+        remnawave_node_uuid: "{{ remnawave_created.json.response.uuid if (remnawave_created is defined and remnawave_created.json is defined) else remnawave_existing.uuid }}"
+        remnawave_node_created: "{{ remnawave_created is defined and remnawave_created.json is defined }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Fetch node secret key
+      ansible.builtin.uri:
+        url: "{{ remnawave_panel_base }}/api/keygen"
+        headers:
+          Authorization: "Bearer {{ remnawave_token_final }}"
+          Accept: application/json
+        return_content: true
+        timeout: 30
+        validate_certs: "{{ remnawave_validate_certs | bool }}"
+      register: remnawave_secret_resp
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when: remnawave_action in ['both', 'deploy']
+
+    - name: Validate node secret key
+      ansible.builtin.fail:
+        msg: "Panel returned empty or invalid node SECRET_KEY"
+      when:
+        - remnawave_action in ['both', 'deploy']
+          and (remnawave_secret_resp.json.response.secretKey | default('') | b64decode | from_json).nodeCertPem is not defined
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Store node secret key
+      ansible.builtin.set_fact:
+        remnawave_node_secret: "{{ remnawave_secret_resp.json.response.secretKey }}"
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when: remnawave_action in ['both', 'deploy']
+
+    - name: Show registration summary
+      ansible.builtin.debug:
+        msg: "node={{ remnawave_node_name }} uuid={{ remnawave_node_uuid }} address={{ remnawave_node_address | trim }} port={{ remnawave_port_final }} panel={{ remnawave_panel_base }} (created={{ remnawave_node_created }})"
+
+- name: Remnawave node deploy (agent container)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    remnawave_action: both
+    remnawave_node_name: ""
+    remnawave_node_port: ""
+    remnawave_open_port: false
+    remnawave_allow_from: ""
+    remnawave_dir: /opt/remnawave
+    remnawave_agent_container: remnanode
+    remnawave_node_image: remnawave/node:latest
+  tasks:
+    - name: Deploy remnawave node
+      block:
+        - name: Require resolved node secret
+          ansible.builtin.fail:
+            msg: "Node secret not resolved (internal). Re-run; if persists, check keygen step output"
+          when: remnawave_node_secret | default('') | length == 0
+
+        - name: Check Debian family
+          ansible.builtin.stat:
+            path: /etc/debian_version
+          register: remnawave_debian
+
+        - name: Require Debian or Ubuntu
+          ansible.builtin.fail:
+            msg: "Remnawave node needs Debian or Ubuntu"
+          when: not remnawave_debian.stat.exists
+
+        - name: Check docker is available
+          ansible.builtin.shell: command -v docker
+          args:
+            executable: /bin/bash
+          register: remnawave_docker_bin
+          changed_when: false
+          failed_when: false
+
+        - name: Require docker on node
+          ansible.builtin.fail:
+            msg: "docker not found. Run the docker template on this host first"
+          when: remnawave_docker_bin.rc != 0
+
+        - name: Check node port is free
+          ansible.builtin.shell: "ss -tlnp | grep -E ':({{ remnawave_port_final }})\\s' || true"
+          args:
+            executable: /bin/bash
+          register: remnawave_port_busy
+          changed_when: false
+          failed_when: false
+
+        - name: Refuse busy node port
+          ansible.builtin.fail:
+            msg: "Port {{ remnawave_port_final }} is already listening on this host. Set explicit remnawave_node_port and re-run"
+          when: remnawave_port_busy.stdout | length > 0
+
+        - name: Ensure remnawave dir
+          ansible.builtin.file:
+            path: "{{ remnawave_dir }}"
+            state: directory
+            mode: "0755"
+
+        - name: Render compose file
+          ansible.builtin.template:
+            src: remnawave/compose.yml.j2
+            dest: "{{ remnawave_dir }}/compose.yml"
+            mode: "0644"
+
+        - name: Render node env file
+          ansible.builtin.template:
+            src: remnawave/dotenv.j2
+            dest: "{{ remnawave_dir }}/.env"
+            mode: "0600"
+
+        - name: Deploy remnawave stack
+          community.docker.docker_compose_v2:
+            project_src: "{{ remnawave_dir }}"
+            state: present
+            pull: missing
+          register: remnawave_deploy
+
+        - name: Check ufw is available for auto open
+          ansible.builtin.shell: command -v ufw
+          args:
+            executable: /bin/bash
+          register: remnawave_ufw_bin
+          changed_when: false
+          failed_when: false
+          when: remnawave_open_port | bool
+
+        - name: Require ufw for auto open
+          ansible.builtin.fail:
+            msg: "ufw not installed — install it via base/firewall templates or open port {{ remnawave_port_final }} manually and set remnawave_open_port=false"
+          when:
+            - remnawave_open_port | bool
+              and remnawave_ufw_bin.rc != 0
+
+        - name: Open node port in ufw
+          community.general.ufw:
+            rule: allow
+            port: "{{ remnawave_port_final }}"
+            proto: tcp
+            from_ip: "{{ remnawave_allow_from if (remnawave_allow_from | default('') | length > 0) else omit }}"
+          when: remnawave_open_port | bool
+
+        - name: Check agent answers panel
+          ansible.builtin.uri:
+            url: "{{ remnawave_panel_base }}/api/nodes/{{ remnawave_node_uuid }}"
+            headers:
+              Authorization: "Bearer {{ remnawave_token_final }}"
+              Accept: application/json
+            return_content: true
+            timeout: 30
+            validate_certs: "{{ remnawave_validate_certs | bool }}"
+          register: remnawave_node_state
+          until: remnawave_node_state.json.response.isConnected | default(false)
+          retries: 12
+          delay: 10
+          delegate_to: localhost
+          become: false
+          no_log: true
+
+        - name: Show deploy summary
+          ansible.builtin.debug:
+            msg: "node={{ remnawave_node_name }} connected={{ remnawave_node_state.json.response.isConnected | default('unknown') }} port={{ remnawave_port_final }} firewall={{ 'open' if (remnawave_open_port | bool) else 'manual' }}"
+      when: remnawave_action in ['both', 'deploy']
+      rescue:
+        - name: Roll back panel entry created this run
+          ansible.builtin.uri:
+            url: "{{ remnawave_panel_base }}/api/nodes/{{ remnawave_node_uuid }}"
+            method: DELETE
+            headers:
+              Authorization: "Bearer {{ remnawave_token_final }}"
+              Accept: application/json
+            status_code: 204
+            timeout: 30
+            validate_certs: "{{ remnawave_validate_certs | bool }}"
+          delegate_to: localhost
+          become: false
+          no_log: true
+          when: remnawave_node_created | default(false)
+
+        - name: Fail with rollback note
+          ansible.builtin.fail:
+            msg: "Deploy failed ({{ ansible_failed_result.msg | default('see above') }}); panel entry rolled back"
+          when: remnawave_node_created | default(false)
+
+        - name: Fail without rollback for pre-existing entry
+          ansible.builtin.fail:
+            msg: "Deploy failed ({{ ansible_failed_result.msg | default('see above') }}); panel entry pre-existing, kept"
+          when: not (remnawave_node_created | default(false))

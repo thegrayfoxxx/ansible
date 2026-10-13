@@ -213,7 +213,7 @@ done: created=7 updated=0 unchanged=0 dry_run=False
 просто нажмите `Run` ещё раз.
 
 Вкладки (Views): шаблоны раскладываются по вкладкам согласно полю `view`
-в `semaphore/templates.json` (`Run`, `System`, `Security`, `CrowdSec`, `Observability`, `Service`).
+в `semaphore/templates.json` (`Run`, `System`, `Security`, `CrowdSec`, `Observability`, `Remnawave`, `Service`).
 Недостающие вкладки скрипт создаёт сам. Новую вкладку завести так:
 добавить `"view": "Новое имя"` нужным шаблонам в JSON и нажать `Run`.
 Правило: вкладка — это слой / failure-domain, а не отдельный сервис

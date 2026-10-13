@@ -225,6 +225,29 @@
       ]
     },
     {
+      "name": "remnawave_node_add",
+      "view": "Remnawave",
+      "app": "ansible",
+      "environment": "remnawave_vars",
+      "description": "Remnawave нода: register/deploy/both + автодеплой агента (playbooks/remnawave_node_add.yml)",
+      "playbook": "playbooks/remnawave_node_add.yml",
+      "survey_vars": [
+        {"name": "remnawave_action", "title": "Action", "description": "both — регистрация + деплой одним прогоном", "default_value": "both", "type": "enum", "required": false, "values": [{"name": "register", "value": "register"}, {"name": "deploy", "value": "deploy"}, {"name": "both", "value": "both"}]},
+        {"name": "target", "title": "Target", "description": "Один хост ноды (в register-режиме значение игнорируется). ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "remnawave_node_name", "title": "Node name", "description": "Имя ноды в панели, 3..30 символов (например de1-vpn)", "type": "", "required": true},
+        {"name": "remnawave_node_address", "title": "Node address", "description": "Адрес ноды, достижимый со стороны панели (IP или DNS)", "type": "", "required": true},
+        {"name": "remnawave_node_port", "title": "Node port", "description": "Порт агента (пусто — случайный 1024..65535; явно — конкретный)", "type": "int", "required": false},
+        {"name": "remnawave_country", "title": "Country", "description": "Код страны ISO, например DE", "default_value": "XX", "type": "", "required": false},
+        {"name": "remnawave_config_profile", "title": "Config profile", "description": "UUID/имя конфиг-профиля (пусто — авто по default)", "type": "", "required": false},
+        {"name": "remnawave_inbounds", "title": "Inbounds", "description": "Text: UUID инбаундов, по одному на строку (пусто — все инбаунды профиля)", "type": "text", "required": false},
+        {"name": "remnawave_note", "title": "Note", "description": "Заметка, до 255 символов", "type": "", "required": false},
+        {"name": "remnawave_token", "title": "API token override", "description": "Разовый override токена (пусто — секрет REMNAWAVE_TOKEN из группы)", "type": "secret", "required": false},
+        {"name": "remnawave_open_port", "title": "Open port in ufw", "description": "true — открыть порт агента в ufw (идемпотентно)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnawave_allow_from", "title": "Allow from", "description": "Только с IP панели, например 203.0.113.10 (пусто — отовсюду)", "type": "", "required": false},
+        {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
       "name": "update_templates",
       "view": "Service",
       "app": "python",
