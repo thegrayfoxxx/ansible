@@ -19,15 +19,18 @@
     {
       "name": "ping",
       "view": "Run",
-      "description": "Проверка связи (playbooks/ping.yml)",
+      "description": "Проверка связи: SSH до ноды и/или ICMP с ноды (playbooks/ping.yml)",
       "playbook": "playbooks/ping.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true}
+        {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "ping_mode", "title": "Check mode", "description": "ssh — только проверка SSH до ноды; remote — только ICMP с ноды; both — сначала SSH, потом ICMP", "default_value": "ssh", "type": "enum", "required": false, "values": [{"name": "ssh", "value": "ssh"}, {"name": "remote", "value": "remote"}, {"name": "both", "value": "both"}]},
+        {"name": "ping_dest", "title": "Ping target", "description": "IP или DNS-имя для проверки с ноды (заодно проверяется DNS). Обязательно для remote/both; пусто — только ssh", "type": "", "required": false},
+        {"name": "ping_count", "title": "Ping count", "description": "Число ICMP-запросов, 1..100 (только remote/both)", "default_value": "4", "type": "int", "required": false}
       ]
     },
     {
       "name": "logs",
-      "view": "Run",
+      "view": "Observability",
       "description": "Просмотр логов: journal или файл, read-only (playbooks/logs.yml)",
       "playbook": "playbooks/logs.yml",
       "survey_vars": [

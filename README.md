@@ -50,7 +50,7 @@ requirements.yml
 compose.yml          # semaphore:v2.19.12 + sqlite для чужого
 .env.example         # свои креды -> .env (в git не коммитить)
 playbooks/
-  ping.yml       # проверка связи
+  ping.yml       # проверка связи: SSH до ноды и/или ICMP с ноды
   update.yml     # apt update + upgrade, опционально reboot
   base.yml       # timezone + base packages
   run_script.yml # запуск скриптов из scripts/
@@ -145,6 +145,30 @@ hosts: "{{ target }}"
 Словари (`*_env`) — Text-поле с JSON-объектом: `{"FOO": "1"}`.
 Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значениями `true`/`false` или String.
 Числа (`reboot_timeout`, `cmd_tail`) — Integer.
+
+`playbooks/ping.yml`:
+- `ping_mode: ssh` (`remote` — только ICMP с ноды, `both` — сначала SSH, потом ICMP; Enum)
+- `ping_dest: ""` (IP/DNS для проверки с ноды; обязателен для `remote`/`both`, в `ssh` игнорируется с пометкой в summary)
+- `ping_count: 4` (Integer, `1..100`)
+- финал — одна строка `mode=both dest=8.8.8.8 0% packet loss`
+
+Только SSH (дефолт, как раньше):
+
+```json
+{
+  "target": "stage"
+}
+```
+
+ICMP с ноды до панели (перед deploy remnawave):
+
+```json
+{
+  "target": "de1",
+  "ping_mode": "both",
+  "ping_dest": "panel.example.com"
+}
+```
 
 `playbooks/update.yml`:
 - `apt_upgrade: dist` (или `safe`)

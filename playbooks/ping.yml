@@ -1,8 +1,65 @@
 ---
-- name: Check connectivity
+- name: Check connectivity (SSH to node and/or ICMP from node)
   hosts: "{{ target }}"
   gather_facts: false
   become: false
+  vars:
+    ping_mode: ssh
+    ping_dest: ""
+    ping_count: 4
   tasks:
-    - name: Ping hosts
+    - name: Validate check mode
+      ansible.builtin.fail:
+        msg: "ping_mode must be ssh, remote or both, got {{ ping_mode }}"
+      when: ping_mode not in ['ssh', 'remote', 'both']
+
+    - name: Require ping target for remote checks
+      ansible.builtin.fail:
+        msg: "Set ping_dest for mode '{{ ping_mode }}' (or switch ping_mode to ssh)"
+      when:
+        - ping_mode in ['remote', 'both']
+        - ping_dest | default('') | trim | length == 0
+
+    - name: Validate ping count
+      ansible.builtin.fail:
+        msg: "ping_count must be within 1..100, got {{ ping_count }}"
+      when:
+        - ping_mode in ['remote', 'both']
+        - (ping_count | int) < 1 or (ping_count | int) > 100
+
+    - name: Check SSH to node
       ansible.builtin.ping:
+      when: ping_mode in ['ssh', 'both']
+
+    - name: Check ping utility is available
+      ansible.builtin.shell: command -v ping
+      args:
+        executable: /bin/bash
+      register: ping_bin
+      changed_when: false
+      failed_when: false
+      when: ping_mode in ['remote', 'both']
+
+    - name: Require iputils-ping on node
+      ansible.builtin.fail:
+        msg: "ping not found on {{ inventory_hostname }}. Install iputils-ping (e.g. via base_packages)"
+      when:
+        - ping_mode in ['remote', 'both']
+        - ping_bin.rc != 0
+
+    - name: Ping destination from node
+      ansible.builtin.command: ping -c {{ ping_count | int }} {{ ping_dest | trim }}
+      register: ping_remote_out
+      changed_when: false
+      when: ping_mode in ['remote', 'both']
+
+    - name: Show ping output
+      ansible.builtin.debug:
+        var: ping_remote_out.stdout_lines
+      when: ping_mode in ['remote', 'both']
+
+    - name: Show ping summary
+      ansible.builtin.debug:
+        msg: "mode={{ ping_mode }}{{ ' dest=' + (ping_dest | trim) + ' ' + ping_loss if ping_mode in ['remote', 'both'] else '' }}{{ ' (ping_dest ignored)' if (ping_mode == 'ssh' and (ping_dest | default('') | trim | length > 0)) else '' }}"
+      vars:
+        ping_loss: "{{ (ping_remote_out.stdout | default('') | regex_search('[0-9]+% packet loss')) | default('loss unknown', true) }}"
