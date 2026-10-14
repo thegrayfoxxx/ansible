@@ -415,13 +415,13 @@
 
         - name: Render compose file
           ansible.builtin.template:
-            src: remnawave/compose.yml.j2
+            src: "{{ playbook_dir }}/../templates/remnawave/compose.yml.j2"
             dest: "{{ remnawave_dir }}/compose.yml"
             mode: "0644"
 
         - name: Render node env file
           ansible.builtin.template:
-            src: remnawave/dotenv.j2
+            src: "{{ playbook_dir }}/../templates/remnawave/dotenv.j2"
             dest: "{{ remnawave_dir }}/.env"
             mode: "0600"
 

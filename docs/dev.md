@@ -31,5 +31,6 @@ ansible-galaxy collection install -r requirements.yml
 Правила для новых шаблонов:
 
 - новый плейбук → запись в `semaphore/templates.json` (survey: `target` первым, человеческие Title, `default_value` до `values`) + подраздел в доке своей зоны;
+- `src` в `template`/`copy` — только через `{{ playbook_dir }}/../templates/...` или `{{ playbook_dir }}/../files/...` (относительные пути резолвятся от каталога плейбука, а не корня репо; `--syntax-check` это не ловит — только живой прогон);
 - `README.md` не трогаем (только дерево `docs/`, если появился новый файл);
 - JSON-примеры в доках — тот же формат, что survey-поля в UI.
