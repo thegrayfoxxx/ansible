@@ -9,6 +9,7 @@
 - Секреты ведутся в UI Semaphore (Key Store / Environment), в репо их нет.
 - Плейбуки универсальные: хост/группа подставляется через `target` или `Limit`.
 - `roles/` пока не заводим, только плоские `playbooks/`.
+- Новый шаблон → подраздел в доке своей зоны (см. Доки ниже), README не трогаем.
 
 ## Quickstart
 
@@ -49,28 +50,7 @@ ansible.cfg
 requirements.yml
 compose.yml          # semaphore:v2.19.12 + sqlite для чужого
 .env.example         # свои креды -> .env (в git не коммитить)
-playbooks/
-  ping.yml       # проверка связи: SSH до ноды и/или ICMP с ноды
-  update.yml     # apt update + upgrade, опционально reboot
-  base.yml       # timezone + base packages
-  run_script.yml # запуск скриптов из scripts/
-  run_cmd.yml    # произвольная команда
-  logs.yml       # просмотр логов: journal или файл, read-only
-  health.yml     # сводный read-only статус нод: uptime, диск, docker, fail2ban/crowdsec/remnawave
-  reboot.yml     # перезагрузка хостов
-  init_node.yml  # инит новой ноды: ключи + sshd
-  firewall.yml   # ufw: правила + опциональное включение
-  fail2ban.yml   # fail2ban + sshd jail (systemd backend)
-  crowdsec_register.yml # регистрация нод на LAPI + секреты в crowdsec_nodes
-  crowdsec_node.yml     # CrowdSec агент + баунсер: deploy/restart/status/remove
-  crowdsec_node_update.yml # CrowdSec на ноде: pull + down + up -d
-  crowdsec_unregister.yml # удаление нод из LAPI + чистка crowdsec_nodes
-  docker.yml     # установка Docker Engine + compose plugin
-  bbr.yml        # TCP BBR + fq (выкл — откат на cubic + fq_codel)
-  cleanup.yml    # чистка диска: apt, journal, docker prune
-  rsyslog.yml    # rsyslog + опциональный форвардинг
-  remnawave_node_add.yml # Remnawave нода: register/deploy/both + автодеплой агента
-  remnawave_node_update.yml # Remnawave нода: pull + down + up -d
+playbooks/           # плоские плейбуки, все требуют явный target
 scripts/
   hello.sh               # пример shell-задачи
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
@@ -80,35 +60,26 @@ templates/
 files/
   crowdsec/          # статика для ноды: crowdsec-firewall-bouncer.yaml (1:1 с configs)
 semaphore/
-  templates.json # источник правды: 22 шаблона + survey_vars + views (Run, System, Security, CrowdSec, Observability, Remnawave, Service)
+  templates.json # источник правды: шаблоны + survey_vars + views (см. Доки)
 docs/
-  QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
+  QUICKSTART.md      # полный гайд на 10 минут: compose + сидинг шаблонов
+  semaphore-ui.md    # подключение Semaphore: проект, репозиторий, токен, inventory
+  run.md             # ping, run_cmd, run_script (вкладка Run)
+  observability.md   # logs, health, rsyslog
+  system.md          # base, docker, bbr, update, cleanup, reboot
+  security.md        # init_node, firewall, fail2ban
+  crowdsec.md        # register/node/update/unregister
+  remnawave.md       # node_add/update + группа remnawave_vars
+  dev.md             # локальная проверка плейбуков
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
 ```
 
-## Semaphore UI: подключение
+## Подключение Semaphore UI
 
-1. Project -> Repositories: подключить этот репозиторий (`Access Key: None`, репо публичное).
-2. Key Store: добавить SSH-ключ (`ansible_user`, обычно `debian`/`admin`/`root`).
-3. Inventory -> New Inventory с именем `prod_inventory`:
-   - тип static (простой INI), вести в UI (`[prod]`/`[stage]` внутри — это Ansible-группы, не путать с именем inventory и группой `prod_vars`).
-   - Пример:
-
-```ini
-[prod]
-vps-prod-01 ansible_host=203.0.113.10 ansible_user=debian ansible_port=22
-
-[stage]
-vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
-```
-
-4. Environment: вручную только `service_vars` с секретом `SEMAPHORE_TOKEN`
-   (группу `prod_vars` и остальные из `semaphore/templates.json` создаст скрипт сидинга).
-   - `ANSIBLE_HOST_KEY_CHECKING=False` уже задан в `ansible.cfg`, дополнительно не нужен.
-   - Остальные секреты (пароли, токены) добавлять как JSON / Environment Variables.
-5. Task Templates: не создавать вручную — они заливаются скриптом,
-   см. [docs/QUICKSTART.md](docs/QUICKSTART.md) (шаг 9–10: `update_templates` → `Run`).
-   Соответствие шаблонов плейбукам лежит в `semaphore/templates.json`.
+Коротко: репозиторий (`Access Key: None`) → SSH-ключ в Key Store →
+inventory `prod_inventory` → группа `service_vars` с `SEMAPHORE_TOKEN` →
+`update_templates` → `Run`. Подробный чеклист — [docs/semaphore-ui.md](docs/semaphore-ui.md),
+гайд с картинками — [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
 ## Универсальный target
 
@@ -126,7 +97,7 @@ hosts: "{{ target }}"
 
 `Limit` и `target` можно комбинировать, приоритет у `Limit` (стандартный ansible `--limit`).
 
-## Переменные и типы survey-полей в Semaphore UI
+## Survey-переменные: основы
 
 Переменные задаются через Survey variables шаблона (типы String, Integer, Text, Enum, Secret) и уезжают
 в Ansible как `--extra-vars`. Важно: списки и словари приезжают **строками**, плейбуки сами приводят их
@@ -146,498 +117,17 @@ hosts: "{{ target }}"
 Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значениями `true`/`false` или String.
 Числа (`reboot_timeout`, `cmd_tail`) — Integer.
 
-`playbooks/ping.yml`:
-- `ping_mode: ssh` (`remote` — только ICMP с ноды, `both` — сначала SSH, потом ICMP; Enum)
-- `ping_dest: ""` (IP/DNS для проверки с ноды; обязателен для `remote`/`both`, в `ssh` игнорируется с пометкой в summary)
-- `ping_count: 4` (Integer, `1..100`)
-- финал — одна строка `mode=both dest=8.8.8.8 0% packet loss`
-
-Только SSH (дефолт, как раньше):
-
-```json
-{
-  "target": "stage"
-}
-```
-
-ICMP с ноды до панели (перед deploy remnawave):
-
-```json
-{
-  "target": "de1",
-  "ping_mode": "both",
-  "ping_dest": "panel.example.com"
-}
-```
-
-`playbooks/update.yml`:
-- `apt_upgrade: dist` (или `safe`)
-- `apt_autoremove: true`
-- `apt_autoclean: true`
-- `reboot_if_required: false` -> `true` для авторебута
-- перед upgrade всегда выполняется `dpkg --configure -a` (донастройка оборванного dpkg; если мёртв по-настоящему — упадёт с его текстом)
-
-`playbooks/base.yml`:
-- `base_timezone: Etc/UTC` (String)
-- `base_packages` (Text: один пакет на строку или через запятую; дефолт `python3, curl, btop, ufw`)
-
-`playbooks/run_script.yml`:
-- `script_src: scripts/hello.sh` (String; обязательно, путь от корня репо, резолвится через `playbook_dir`)
-- `script_args: ""` (String, опционально)
-- `script_env` (Text с JSON-объектом, опционально; например `{"FOO": "1"}`)
-- `script_become: true` -> `false` чтобы запустить без sudo (Enum)
-
-Передавать через survey-поля шаблона (ниже те же значения показаны JSON'ом для краткости —
-в UI каждое поле заполняется отдельно; raw JSON работает через API/schedules):
-
-```json
-{
-  "target": "stage",
-  "base_timezone": "Europe/Berlin"
-}
-```
-
-Запуск скрипта через Semaphore Extra vars:
-
-```json
-{
-  "target": "stage",
-  "script_src": "scripts/hello.sh"
-}
-```
-
-С аргументами, env и без sudo:
-
-```json
-{
-  "target": "vps-prod-01",
-  "script_src": "scripts/hello.sh",
-  "script_args": "--foo bar",
-  "script_env": {"FOO": "1"},
-  "script_become": false
-}
-```
-
-`playbooks/run_cmd.yml`:
-- `cmd: "df -h"` (String, обязательно)
-- `use_shell: true` -> `false` для строгого `command` без shell (Enum)
-- `cmd_chdir: ""` (String, опционально, рабочая папка)
-- `cmd_env` (Text с JSON-объектом, опционально; например `{"FOO": "1"}`)
-- `cmd_become: true` -> `false` чтобы запустить без sudo (Enum)
-- `cmd_tail: 0` (Integer, опционально, показать только последние N строк stdout/stderr)
-- `allow_fail: false` -> `true` чтобы не фейлить хост при rc != 0 (rc виден в выводе; Enum)
-
-Запуск команды через Semaphore Extra vars:
-
-```json
-{
-  "target": "vps-prod-01",
-  "cmd": "df -h"
-}
-```
-
-С shell-пайпом, chdir, env и без sudo:
-
-```json
-{
-  "target": "stage",
-  "cmd": "ls -la /opt | grep app",
-  "use_shell": true,
-  "cmd_chdir": "/opt",
-  "cmd_env": {"FOO": "1"},
-  "cmd_become": false
-}
-```
-
-Обновление docker-контейнеров с коротким хвостом лога:
-
-```json
-{
-  "target": "prod",
-  "cmd": "cd /opt/app && docker compose pull && docker compose up -d",
-  "cmd_tail": 20
-}
-```
-
-По гетерогенным хостам без фейла всего таска (rc виден в выводе):
-
-```json
-{
-  "target": "all",
-  "cmd": "cd /opt/app && docker compose up -d",
-  "allow_fail": true,
-  "cmd_tail": 15
-}
-```
-
-`playbooks/logs.yml` (read-only — безопасен на любом охвате):
-- `log_source: journal` -> `file` для хвоста файла (Enum)
-- `log_file: /var/log/syslog` (только для `source=file`, String)
-- `log_unit: ""` (только journal, например `ssh`; пусто — все юниты)
-- `log_priority: info` (только journal: уровень и срочнее; Enum)
-- `log_since: "-1h"` (только journal: `-30min`, `today`, `2026-10-01`)
-- `log_lines: 200` (Integer, guard `1..2000`)
-- `log_grep: ""` (String, regex-фильтр, например `error|fail`)
-- `log_kernel: false` -> `true` для ring buffer ядра `-k` (только journal; Enum)
-
-```json
-{
-  "target": "stage",
-  "log_unit": "ssh",
-  "log_since": "-30min"
-}
-```
-
-```json
-{
-  "target": "vps-prod-01",
-  "log_source": "file",
-  "log_file": "/var/log/auth.log",
-  "log_grep": "Failed"
-}
-```
-
-`playbooks/health.yml` (read-only — безопасен на любом охвате, достаточно `target`):
-- одна строка summary на хост: `uptime/load/mem/disk/containers/fail2ban/crowdsec/remnanode` + компактная таблица контейнеров `имя (image) — state/status`
-- mem считается без page cache, `(!)` помечает `mem>90%` и `disk>80%`
-- опциональное только детектится (`missing`/`na`), не фейлит: нет fail2ban — `missing`, нет агента crowdsec — `na`, LAPI не отвечает — `fail`
-
-```json
-{
-  "target": "prod"
-}
-```
-
-`playbooks/reboot.yml` (без подтверждения — аккуратнее с `target=all`):
-- `reboot_msg: "Reboot via Semaphore"`
-- `reboot_timeout: 600` (секунд ждать возвращения хоста)
-- `reboot_connect_timeout: 30`
-- `reboot_pre_delay: 5`, `reboot_post_delay: 15`
-- `reboot_only_if_required: false` -> `true` чтобы пропустить ребут без `/var/run/reboot-required` (для расписаний; Enum)
-
-Перезагрузка через Semaphore Extra vars:
-
-```json
-{
-  "target": "vps-prod-01"
-}
-```
-
-Группа с увеличенным таймаутом:
-
-```json
-{
-  "target": "prod",
-  "reboot_timeout": 900
-}
-```
-
-`playbooks/init_node.yml` (инит новой ноды — первый прогон строго с `Limit` на одну тестовую ноду):
-- `ssh_user: root` (String; юзер должен существовать)
-- `ssh_keys` (Text, обязательно; один публичник на строку или через запятую; чужие ключи не трогаются)
-- `sshd_permit_root_login: prohibit-password` (String)
-- `sshd_pubkey_auth: "yes"`, `sshd_password_auth: "no"`, `sshd_permit_empty: "no"` (String)
-- `skip_sshd: false` -> `true` чтобы добавить только ключи без правок sshd (для bootstrap по паролю; Enum)
-- `ansible_user`, `ansible_password` (Secret), `ansible_port` (Integer) — кастомные креды подключения из полей шаблона, бьют креды инвентаря (все optional, без дефолтов; пусто — используются инвентарные). Приватный ключ через поля не передать — кастомные ключи по-прежнему через Key Store
-
-Инит новой ноды: survey-поля `target=new-node-01`, `ssh_user=root`, `ssh_keys` (Text):
-```
-ssh-ed25519 AAAA... semaphore-ansible
-```
-
-Несколько ключей другому юзеру (`ssh_user=debian`, `ssh_keys` через запятую):
-```
-ssh-ed25519 AAAA... first, ssh-ed25519 BBBB... second
-```
-
-Bootstrap ноды где есть только пароль — способ 1 (рекомендуемый, без смены Key в инвентаре):
-1. Добавить хост в inventory как обычно (SSH-ключ в `User Credentials`).
-2. Этап 1 — только ключи, креды из полей шаблона: `{"target": "new-node-01", "ssh_user": "root", "ssh_keys": [...], "skip_sshd": true, "ansible_user": "root", "ansible_password": "<пароль>"}`.
-3. Вручную проверить новый ключ: `ssh -i ~/.ssh/semaphore-ansible root@IP`.
-4. Этап 2 — те же поля без `ansible_password` (уже по ключу из инвентаря): прогнать без `skip_sshd` (hardening + reload + проверка связи).
-
-Способ 2 (старый, Key Store типа Login With Password):
-1. Добавить хост в inventory (`ansible_user: root`), Task Template `init_node` с парольным Key.
-2. Этап 1 — только ключи: `{"target": "new-node-01", "ssh_user": "root", "ssh_keys": [...], "skip_sshd": true}`.
-3. Вручную проверить новый ключ: `ssh -i ~/.ssh/semaphore-ansible root@IP`.
-4. Этап 2 — сменить Key темплейта на SSH-ключ, прогнать без `skip_sshd` (hardening + reload + проверка связи уже по ключу).
-5. Парольный Key для этой ноды больше не нужен — удалить/ротировать пароль.
-
-`playbooks/firewall.yml` (первый прогон строго с `Limit` на одну тестовую ноду):
-- `fw_allow` (Text, одно правило на строку: `22/tcp`, `80/tcp`)
-- `fw_enable: false` -> `true` чтобы ВКЛЮЧИТЬ ufw (guard не даст включить без `22/tcp` в списке)
-
-Только правила, без включения:
-
-```json
-{
-  "target": "vps-stage-01",
-  "fw_allow": "22/tcp\n80/tcp\n443/tcp"
-}
-```
-
-Включение (после проверки правил выше):
-
-```json
-{
-  "target": "vps-stage-01",
-  "fw_allow": "22/tcp\n80/tcp\n443/tcp",
-  "fw_enable": true
-}
-```
-
-`playbooks/fail2ban.yml` (первый прогон строго с `Limit` на одну тестовую ноду):
-- `fail2ban_enabled: true` -> `false` чтобы остановить и отключить сервис (Enum)
-- `fail2ban_bantime: 1d`, `fail2ban_maxretry: 5` (findtime зафиксирован `1h`)
-- `fail2ban_ignoreip` (String, через пробел; свои IP дописать, иначе возможен самобан)
-- backend `systemd` (читает journal, не зависит от файловых логов), banaction дефолтный
-
-```json
-{
-  "target": "vps-stage-01",
-  "fail2ban_ignoreip": "127.0.0.1/8 203.0.113.5"
-}
-```
-
-`playbooks/docker.yml` (только Debian):
-- `docker_users` (Text: юзеры в группу docker, один на строку или через запятую)
-- `docker_verify: true` -> `false` чтобы пропустить `hello-world`
-- `docker_version: ""` (String, например `5:27.*` — пин Engine+CLI; пусто — latest; `update` с dist-апгрейдом пин перетрёт)
-
-```json
-{
-  "target": "stage",
-  "docker_users": "debian"
-}
-```
-
-`playbooks/bbr.yml` (перезагрузка не нужна, применяется сразу):
-- `bbr_enabled: true` -> `false` чтобы откатить на `cubic + fq_codel` (Enum)
-- legacy `/etc/sysctl.d/10-bbr-fq_codel.conf` от `deb_scripts` удаляется, чтобы не было двух файлов на одни ключи
-- на контейнерных VPS (OpenVZ/LXC) без своего ядра упадёт — там BBR включается на хосте провайдера
-
-```json
-{
-  "target": "all",
-  "bbr_enabled": true
-}
-```
-
-`playbooks/cleanup.yml`:
-- `journal_max_age: 14d` (String), `journal_max_size: 500M` (String)
-- `docker_prune: true` (скипается если докера нет; Enum)
-- `docker_prune_volumes: false` -> `true` чтобы чистить и volumes (опасно; Enum)
-- `docker_prune_until: ""` (String, например `72h` — prune только старше; пусто — без фильтра)
-- `apt_clean: true` (Enum)
-
-```json
-{
-  "target": "stage"
-}
-```
-
-Только journal без докера:
-
-```json
-{
-  "target": "vps-prod-01",
-  "docker_prune": false,
-  "journal_max_size": "200M"
-}
-```
-
-`playbooks/rsyslog.yml`:
-- `rsyslog_remote: ""` (String, пусто — только локальные логи; например `192.0.2.10:514`)
-- `rsyslog_proto: tcp` (или `udp`; Enum)
-
-С форвардингом на центральный сервер:
-
-```json
-{
-  "target": "prod",
-  "rsyslog_remote": "192.0.2.10:514",
-  "rsyslog_proto": "tcp"
-}
-```
-
-## CrowdSec (агент + баунсер в Docker, LAPI уже стоит)
-
-Четыре шаблона во вкладке `CrowdSec`, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота), обновление — `crowdsec_node_update` (`pull + down + up -d`, секреты LAPI не нужны, работает на группе), снос — `crowdsec_unregister` (на хосте LAPI) + `crowdsec_node` с `action=remove` (на ноде). Ручного создания шаблонов не нужно — все приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
-
-Предусловия на ноде (не ставятся, только проверяются): `docker` (шаблон `docker` — иначе `fail`), `rsyslog` (шаблон `rsyslog` — иначе только warning). LAPI должен отвечать (`cscli lapi status`).
-
-`crowdsec_register` (Target — строго один хост LAPI, не `all`):
-- `project_id` (Integer, обязательно — для записи в API)
-- `crowdsec_node_names` (Text, обязательно; по одному `^[a-z0-9-]+$` на строку; повтор имени = ротация секретов; `local/dashboard/localhost` запрещены)
-- `crowdsec_from_group` (String; например `de` — взять имена-алиасы из группы inventory вместо ручного списка; с `crowdsec_node_names` вместе нельзя — только один источник)
-- `crowdsec_api_url` (String; пусто — взять текущий из группы, обязателен при первой регистрации; поле не для этого прогона — register ходит через `docker exec`, URL складируется в группу для деплоев нод)
-- не запускай два register параллельно — записи в группу идут read-modify-write, второй затрет первого
-
-```json
-{
-  "target": "lapi-01",
-  "project_id": 1,
-  "crowdsec_node_names": "us6\nus7",
-  "crowdsec_api_url": "https://crowdsec.example.com"
-}
-```
-
-Тот же register из группы (имена подтянутся из inventory сами):
-
-```json
-{
-  "target": "lapi-01",
-  "project_id": 1,
-  "crowdsec_from_group": "de",
-  "crowdsec_api_url": "https://crowdsec.example.com"
-}
-```
-
-`crowdsec_node`:
-- `crowdsec_node_name` (String; пусто — взять из имени хоста в inventory; для `remove` явное имя обязательно)
-- `crowdsec_action: deploy` (`restart` / `status` read-only / `remove`; Enum)
-- `crowdsec_remove_confirmed: false` -> `true` чтобы разрешить снос (volumes остаются, баны живут в LAPI; Enum)
-- `crowdsec_mode: iptables` (или `nftables`; Enum)
-- `crowdsec_extra_collections` (Text, по одной на строку; дефолт `linux/sshd/iptables`, сюда же ляжет `nginx`)
-- `crowdsec_extra_logs` (Text, пути строго под `/var/log`, по одному на строку)
-- `crowdsec_tz` (String; пусто — взять из `/etc/timezone` хоста)
-- `crowdsec_dir` (String; папка проекта на ноде, пусто — `/opt/crowdsec`)
-- файлы ноды: `crowdsec_dir` (дефолт `/opt/crowdsec`; пусто — дефолт) (`compose.yml`, `.env 0600`, `config/`); секреты подтягиваются из группы по имени, отсутствуют — `fail` «сначала register»
-- логи контейнеров: `json-file 10m × 3` (зашито в compose, применяется со следующего deploy/recreate)
-- перерегистрация ротирует секреты: после неё обязательно перепрогнать `node deploy`, иначе нода отвалится со старыми кредами
-- ручные регистрации со старым неймингом (`имя_agent`) не подхватываются — мигрируй через перерегистрацию
-
-Массовый флоу (любое число нод — два запуска):
-
-```json
-{
-  "target": "stage",
-  "crowdsec_node_name": "",
-  "crowdsec_action": "deploy"
-}
-```
-
-`crowdsec_node_update` (обновление без секретов — достаточно `target` и опционально `crowdsec_dir`):
-
-```json
-{
-  "target": "stage",
-  "crowdsec_dir": ""
-}
-```
-
-`crowdsec_unregister` (Target — строго один хост LAPI; повтор по тем же именам = `already gone`, не ошибка):
-- `project_id` (Integer, обязательно — для чистки группы)
-- `crowdsec_node_names` (Text) или `crowdsec_from_group` (String) — тот же формат и валидация, что в register
-- `crowdsec_lapi_container` (String; пусто — `crowdsec-lapi`)
-- удаляет `<имя>-agent` и `<имя>-bouncer` из LAPI и стирает их креды из группы `crowdsec_nodes` (`crowdsec_api_url` не трогает); группы нет — чистка скипается с warning, не fail
-
-Снос ноды целиком (два запуска — сначала LAPI, потом нода):
-
-```json
-{
-  "target": "lapi-01",
-  "project_id": 1,
-  "crowdsec_node_names": "us6"
-}
-```
-
-```json
-{
-  "target": "us6",
-  "crowdsec_node_name": "us6",
-  "crowdsec_action": "remove",
-  "crowdsec_remove_confirmed": true
-}
-```
-
-## Remnawave (VPN-панель уже стоит; ноды — register/deploy/both через API)
-
-Два шаблона во вкладке `Remnawave`: `remnawave_node_add` (два play внутри: register — только API панели, SSH не трогается; deploy — агент в Docker на ноде) и `remnawave_node_update` (`pull + down + up -d` на любом числе нод, панель не нужна). Ручного создания шаблонов не нужно — приезжают через `update_templates`.
-
-### Заполнение группы `remnawave_vars`
-
-Сидинг создаёт группу сам (см. `environments_seed` в `templates.json`), причём сразу с дефолтами — руками дописывается только секрет:
-
-1. **Вкладка Secrets** → `New Secret`, тип обязательно **env** (не var — иначе плейбук не найдёт через `lookup('env', ...)`):
-   - имя `REMNAWAVE_TOKEN`, значение — API-токен панели.
-2. **Вкладка JSON** — уже предзаполнена сидом, проверь/правь под себя:
-```json
-{
-  "remnawave_default_panel_url": "https://panel.example.com",
-  "remnawave_default_config_profile": "",
-  "remnawave_default_inbounds": ""
-}
-```
-   - `remnawave_default_panel_url` — обязателен (без `/` на конце — обрежется сам, но лучше без);
-   - два `remnawave_default_*` — опциональны: пустые строки или убери ключи (плейбук трактует одинаково); заполненные — дефолт на все прогоны, survey перекрывает разово.
-
-Правила сида (важно):
-- сид пишется **один раз при создании группы** (`POST` → следом `PUT` только с этим JSON, `secrets: []` — секреты не задевает). Повторные `Run update_templates` значения **не трогают** — поменять можно только в UI руками;
-- секреты не сидируются никогда (репо публичное): токен всегда вписывается руками, иначе плейбук упадёт с понятным `fail`, а не молча;
-- проверка после сидинга: `Run remnawave_node_add` с `action=register` на заведомо новом имени — при пустой/кривой группе упадёт с текстом что именно заполнить.
-
-Предусловия: панель доступна с раннера (сеть!); API-токену нужны scopes `nodes:create:write` + `list:read`, `config-profiles:list:read` + `list-profile-inbounds:read`, `keygen:get:read` (иначе `403`). На ноде: `docker` (шаблон `docker` — иначе `fail`), Debian/Ubuntu; панель должна доставать ноду по `address:port` (фаервол!).
-
-`remnawave_action: both` (дефолт — регистрация + деплой одним прогоном; `register` / `deploy` по отдельности):
-- `target` — строго один хост (в register-режиме значение игнорируется, но заполнить надо)
-- `remnawave_node_name` (3..30), `remnawave_node_address` (достижимый со стороны панели)
-- `remnawave_node_port` (пусто — случайный `1024..65535`, фиксируется на прогон; явно — конкретный; `<1024` — warning)
-- `remnawave_country` (`XX`), `remnawave_note` (до 255)
-- `remnawave_config_profile` (UUID/имя/пусто): survey → дефолт группы → авто по `default` (точное ci → вхождение `default` → `дефолт`; 0/несколько — `fail` со списками)
-- `remnawave_inbounds` (Text, UUID построчно; пусто — все инбаунды профиля; чужие — `fail` с доступными тегами)
-- `remnawave_open_port: false` -> `true` чтобы открыть порт в `ufw` (идемпотентно; Enum) + `remnawave_allow_from` (только с IP панели, пусто — отовсюду). `ufw` нет — громкий `fail`. Выключаешь назад — правило сносится руками (одной командой `ufw delete`), свои правила плейбук не трогает
-- `remnawave_token` (Secret, разовый override), `remnawave_validate_certs: true` -> `false` для самоподписанного серта панели
-- `remnawave_dir` (String; папка проекта на ноде, пусто — `/opt/remnawave`)
-
-Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт в `remnawave_dir` (дефолт `/opt/remnawave/`) (`compose.yml`, `.env 0600`; логи контейнера `json-file 10m × 3`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
-
-```json
-{
-  "target": "de1",
-  "remnawave_action": "both",
-  "remnawave_node_name": "de1-vpn",
-  "remnawave_node_address": "de1.cdn.theshadowfox.com",
-  "remnawave_open_port": true,
-  "remnawave_allow_from": "203.0.113.10"
-}
-```
-
-`remnawave_node_update` (обновление без панели — достаточно `target` и опционально `remnawave_dir`):
-
-```json
-{
-  "target": "de",
-  "remnawave_dir": ""
-}
-```
-
-## Локальная проверка
-
-Требуется установленный `ansible` (например `pip install ansible-core`).
-`target` обязателен везде (дефолта нет) — для проверок подставляем `-e '{"target":"all"}'`:
-
-```bash
-ansible-playbook --syntax-check playbooks/ping.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/update.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/base.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/run_script.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/run_cmd.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/logs.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/health.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/reboot.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/init_node.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/firewall.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/fail2ban.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/crowdsec_register.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/crowdsec_node.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/crowdsec_node_update.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/crowdsec_unregister.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/docker.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/bbr.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/cleanup.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/rsyslog.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/remnawave_node_add.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/remnawave_node_update.yml -e '{"target":"all"}'
-ansible-galaxy collection install -r requirements.yml
-```
+В доках ниже те же значения показаны JSON'ом для краткости —
+в UI каждое поле заполняется отдельно; raw JSON работает через API/schedules.
+
+## Доки
+
+- [docs/QUICKSTART.md](docs/QUICKSTART.md) — гайд на 10 минут: стенд + сидинг + тестовый ping.
+- [docs/semaphore-ui.md](docs/semaphore-ui.md) — чеклист подключения.
+- [docs/run.md](docs/run.md) — ping, run_cmd, run_script.
+- [docs/observability.md](docs/observability.md) — logs, health, rsyslog.
+- [docs/system.md](docs/system.md) — base, docker, bbr, update, cleanup, reboot.
+- [docs/security.md](docs/security.md) — init_node, firewall, fail2ban.
+- [docs/crowdsec.md](docs/crowdsec.md) — register/node/update/unregister.
+- [docs/remnawave.md](docs/remnawave.md) — node_add/update + группа `remnawave_vars`.
+- [docs/dev.md](docs/dev.md) — локальная проверка плейбуков.
