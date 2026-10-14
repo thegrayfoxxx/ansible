@@ -250,6 +250,15 @@
       ]
     },
     {
+      "name": "health",
+      "view": "Observability",
+      "description": "Сводный read-only статус нод: uptime, диск, docker, fail2ban/crowdsec/remnawave (playbooks/health.yml)",
+      "playbook": "playbooks/health.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true}
+      ]
+    },
+    {
       "name": "rsyslog",
       "view": "Observability",
       "description": "Установка rsyslog + опциональный форвардинг (playbooks/rsyslog.yml)",

@@ -7,6 +7,11 @@ services:
     image: {{ remnawave_node_image }}
     network_mode: host
     restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     cap_add:
       - NET_ADMIN
     ulimits:

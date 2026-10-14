@@ -56,6 +56,7 @@ playbooks/
   run_script.yml # запуск скриптов из scripts/
   run_cmd.yml    # произвольная команда
   logs.yml       # просмотр логов: journal или файл, read-only
+  health.yml     # сводный read-only статус нод: uptime, диск, docker, fail2ban/crowdsec/remnawave
   reboot.yml     # перезагрузка хостов
   init_node.yml  # инит новой ноды: ключи + sshd
   firewall.yml   # ufw: правила + опциональное включение
@@ -79,7 +80,7 @@ templates/
 files/
   crowdsec/          # статика для ноды: crowdsec-firewall-bouncer.yaml (1:1 с configs)
 semaphore/
-  templates.json # источник правды: 21 шаблон + survey_vars + views (Run, System, Security, CrowdSec, Observability, Remnawave, Service)
+  templates.json # источник правды: 22 шаблона + survey_vars + views (Run, System, Security, CrowdSec, Observability, Remnawave, Service)
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
@@ -269,6 +270,16 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
   "log_source": "file",
   "log_file": "/var/log/auth.log",
   "log_grep": "Failed"
+}
+```
+
+`playbooks/health.yml` (read-only — безопасен на любом охвате, достаточно `target`):
+- одна строка summary на хост: `uptime/load/mem/disk/containers/fail2ban/crowdsec/remnanode` + таблица `docker ps` (если docker есть)
+- опциональное только детектится (`missing`/`na`), не фейлит: нет fail2ban — `missing`, нет агента crowdsec — `na`, LAPI не отвечает — `fail`
+
+```json
+{
+  "target": "prod"
 }
 ```
 
@@ -467,6 +478,7 @@ Bootstrap ноды где есть только пароль — способ 1 
 - `crowdsec_tz` (String; пусто — взять из `/etc/timezone` хоста)
 - `crowdsec_dir` (String; папка проекта на ноде, пусто — `/opt/crowdsec`)
 - файлы ноды: `crowdsec_dir` (дефолт `/opt/crowdsec`; пусто — дефолт) (`compose.yml`, `.env 0600`, `config/`); секреты подтягиваются из группы по имени, отсутствуют — `fail` «сначала register»
+- логи контейнеров: `json-file 10m × 3` (зашито в compose, применяется со следующего deploy/recreate)
 - перерегистрация ротирует секреты: после неё обязательно перепрогнать `node deploy`, иначе нода отвалится со старыми кредами
 - ручные регистрации со старым неймингом (`имя_agent`) не подхватываются — мигрируй через перерегистрацию
 
@@ -553,7 +565,7 @@ Bootstrap ноды где есть только пароль — способ 1 
 - `remnawave_token` (Secret, разовый override), `remnawave_validate_certs: true` -> `false` для самоподписанного серта панели
 - `remnawave_dir` (String; папка проекта на ноде, пусто — `/opt/remnawave`)
 
-Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт в `remnawave_dir` (дефолт `/opt/remnawave/`) (`compose.yml`, `.env 0600`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
+Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт в `remnawave_dir` (дефолт `/opt/remnawave/`) (`compose.yml`, `.env 0600`; логи контейнера `json-file 10m × 3`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
 
 ```json
 {
@@ -587,6 +599,7 @@ ansible-playbook --syntax-check playbooks/base.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/run_script.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/run_cmd.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/logs.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/health.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/reboot.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/init_node.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/firewall.yml -e '{"target":"all"}'

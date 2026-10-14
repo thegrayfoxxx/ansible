@@ -3,6 +3,11 @@ services:
     image: crowdsecurity/crowdsec:latest
     container_name: crowdsec-agent
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - DISABLE_LOCAL_API=true
       - LOCAL_API_URL=${API_URL}
@@ -23,6 +28,11 @@ services:
     image: ghcr.io/shgew/cs-firewall-bouncer-docker:latest
     container_name: crowdsec-bouncer
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     network_mode: host
     cap_add:
       - NET_ADMIN
