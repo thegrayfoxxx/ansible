@@ -96,9 +96,9 @@
 
     - name: Show Docker version
       ansible.builtin.command: docker --version
-      register: docker_version
+      register: docker_version_out
       changed_when: false
 
     - name: Display Docker version
       ansible.builtin.debug:
-        var: docker_version.stdout
+        var: docker_version_out.stdout

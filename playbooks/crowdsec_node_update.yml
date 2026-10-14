@@ -44,7 +44,7 @@
       args:
         chdir: "{{ crowdsec_dir }}"
       register: crowdsec_pull
-      changed_when: "'Downloaded newer image' in (crowdsec_pull.stdout + crowdsec_pull.stderr)"
+      changed_when: "'Downloaded' in (crowdsec_pull.stdout + crowdsec_pull.stderr)"
 
     - name: Recreate stack (down, volumes kept)
       community.docker.docker_compose_v2:

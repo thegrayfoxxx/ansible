@@ -43,7 +43,7 @@
       args:
         chdir: "{{ remnawave_dir }}"
       register: remnawave_pull
-      changed_when: "'Downloaded newer image' in (remnawave_pull.stdout + remnawave_pull.stderr)"
+      changed_when: "'Downloaded' in (remnawave_pull.stdout + remnawave_pull.stderr)"
 
     - name: Recreate stack (down, volumes kept)
       community.docker.docker_compose_v2:

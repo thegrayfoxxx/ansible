@@ -25,7 +25,7 @@
         msg: "Refusing to enable UFW without SSH access: add 22/tcp to fw_allow (via Extra vars)"
       when:
         - fw_enable | bool
-        - "'22' not in (fw_allow_list | map('regex_replace', '/.*$', ''))"
+        - (fw_allow_list | map('regex_replace', '/.*$', '') | select('equalto', '22') | list | length) == 0
 
     - name: Set default policies
       community.general.ufw:

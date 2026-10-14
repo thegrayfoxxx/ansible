@@ -425,7 +425,7 @@ Bootstrap ноды где есть только пароль — способ 1 
 
 ## CrowdSec (агент + баунсер в Docker, LAPI уже стоит)
 
-Два шаблона во вкладке `CrowdSec`, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота). Ручного создания шаблонов не нужно — оба приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
+Три шаблона во вкладке `CrowdSec`, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота), обновление — `crowdsec_node_update` (`pull + down + up -d`, секреты LAPI не нужны, работает на группе). Ручного создания шаблонов не нужно — все приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
 
 Предусловия на ноде (не ставятся, только проверяются): `docker` (шаблон `docker` — иначе `fail`), `rsyslog` (шаблон `rsyslog` — иначе только warning). LAPI должен отвечать (`cscli lapi status`).
 
@@ -464,7 +464,8 @@ Bootstrap ноды где есть только пароль — способ 1 
 - `crowdsec_extra_collections` (Text, по одной на строку; дефолт `linux/sshd/iptables`, сюда же ляжет `nginx`)
 - `crowdsec_extra_logs` (Text, пути строго под `/var/log`, по одному на строку)
 - `crowdsec_tz` (String; пусто — взять из `/etc/timezone` хоста)
-- файлы ноды: `/opt/crowdsec/` (`compose.yml`, `.env 0600`, `config/`); секреты подтягиваются из группы по имени, отсутствуют — `fail` «сначала register»
+- `crowdsec_dir` (String; папка проекта на ноде, пусто — `/opt/crowdsec`)
+- файлы ноды: `crowdsec_dir` (дефолт `/opt/crowdsec`; пусто — дефолт) (`compose.yml`, `.env 0600`, `config/`); секреты подтягиваются из группы по имени, отсутствуют — `fail` «сначала register»
 - перерегистрация ротирует секреты: после неё обязательно перепрогнать `node deploy`, иначе нода отвалится со старыми кредами
 - ручные регистрации со старым неймингом (`имя_agent`) не подхватываются — мигрируй через перерегистрацию
 
@@ -478,9 +479,18 @@ Bootstrap ноды где есть только пароль — способ 1 
 }
 ```
 
+`crowdsec_node_update` (обновление без секретов — достаточно `target` и опционально `crowdsec_dir`):
+
+```json
+{
+  "target": "stage",
+  "crowdsec_dir": ""
+}
+```
+
 ## Remnawave (VPN-панель уже стоит; ноды — register/deploy/both через API)
 
-Один шаблон во вкладке `Remnawave`, два play внутри: register (только API панели, SSH не трогается) и deploy (агент в Docker на ноде). Ручного создания шаблона не нужно — приезжает через `update_templates`.
+Два шаблона во вкладке `Remnawave`: `remnawave_node_add` (два play внутри: register — только API панели, SSH не трогается; deploy — агент в Docker на ноде) и `remnawave_node_update` (`pull + down + up -d` на любом числе нод, панель не нужна). Ручного создания шаблонов не нужно — приезжают через `update_templates`.
 
 ### Заполнение группы `remnawave_vars`
 
@@ -515,8 +525,9 @@ Bootstrap ноды где есть только пароль — способ 1 
 - `remnawave_inbounds` (Text, UUID построчно; пусто — все инбаунды профиля; чужие — `fail` с доступными тегами)
 - `remnawave_open_port: false` -> `true` чтобы открыть порт в `ufw` (идемпотентно; Enum) + `remnawave_allow_from` (только с IP панели, пусто — отовсюду). `ufw` нет — громкий `fail`. Выключаешь назад — правило сносится руками (одной командой `ufw delete`), свои правила плейбук не трогает
 - `remnawave_token` (Secret, разовый override), `remnawave_validate_certs: true` -> `false` для самоподписанного серта панели
+- `remnawave_dir` (String; папка проекта на ноде, пусто — `/opt/remnawave`)
 
-Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт `/opt/remnawave/` (`compose.yml`, `.env 0600`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
+Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт в `remnawave_dir` (дефолт `/opt/remnawave/`) (`compose.yml`, `.env 0600`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
 
 ```json
 {
@@ -526,6 +537,15 @@ Bootstrap ноды где есть только пароль — способ 1 
   "remnawave_node_address": "de1.cdn.theshadowfox.com",
   "remnawave_open_port": true,
   "remnawave_allow_from": "203.0.113.10"
+}
+```
+
+`remnawave_node_update` (обновление без панели — достаточно `target` и опционально `remnawave_dir`):
+
+```json
+{
+  "target": "de",
+  "remnawave_dir": ""
 }
 ```
 
@@ -547,10 +567,12 @@ ansible-playbook --syntax-check playbooks/firewall.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/fail2ban.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/crowdsec_register.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/crowdsec_node.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/crowdsec_node_update.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/docker.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/bbr.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/cleanup.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/rsyslog.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/remnawave_node_add.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/remnawave_node_update.yml -e '{"target":"all"}'
 ansible-galaxy collection install -r requirements.yml
 ```
