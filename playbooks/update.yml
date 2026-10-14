@@ -8,7 +8,16 @@
     apt_autoremove: true
     apt_autoclean: true
     reboot_if_required: false
+    update_confirmed: false
   tasks:
+    - name: Require confirmation for fleet auto-reboot
+      ansible.builtin.fail:
+        msg: "Auto-reboot on {{ ansible_play_hosts_all | length }} hosts needs update_confirmed=true. Set it in survey (or set reboot_if_required=false, or narrow target/Limit to one host)"
+      when:
+        - reboot_if_required | bool
+        - ansible_play_hosts_all | length > 1
+        - not (update_confirmed | bool)
+
     - name: Apt update
       ansible.builtin.apt:
         update_cache: true

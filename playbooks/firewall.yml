@@ -6,9 +6,18 @@
   vars:
     fw_allow: []
     fw_enable: false
+    fw_confirmed: false
     fw_default_incoming: deny
     fw_default_outgoing: allow
   tasks:
+    - name: Require confirmation for fleet firewall enable
+      ansible.builtin.fail:
+        msg: "Enabling UFW on {{ ansible_play_hosts_all | length }} hosts at once needs fw_confirmed=true. Set it in survey (or narrow target/Limit to one host)"
+      when:
+        - fw_enable | bool
+        - ansible_play_hosts_all | length > 1
+        - not (fw_confirmed | bool)
+
     - name: Normalize fw_allow to list (one rule per line, e.g. 22/tcp)
       ansible.builtin.set_fact:
         fw_allow_list: "{{ fw_allow.splitlines() | map('trim') | select | list if fw_allow is string else fw_allow }}"

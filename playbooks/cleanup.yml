@@ -10,7 +10,15 @@
     docker_prune_volumes: false
     docker_prune_until: ""
     apt_clean: true
+    cleanup_confirmed: false
   tasks:
+    - name: Require confirmation for volume prune
+      ansible.builtin.fail:
+        msg: "docker volume prune deletes data. Set cleanup_confirmed=true to allow (volumes are kept by default)"
+      when:
+        - docker_prune_volumes | bool
+        - not (cleanup_confirmed | bool)
+
     - name: Disk usage before cleanup
       ansible.builtin.command: df -h /
       register: df_before

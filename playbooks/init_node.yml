@@ -12,6 +12,12 @@
     sshd_password_auth: "no"
     sshd_permit_empty: "no"
   tasks:
+    - name: Require exactly one node host
+      ansible.builtin.fail:
+        msg: "init_node runs on exactly one host per run — point target/Limit at a single new node, got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+      tags: [keys, sshd]
+
     - name: Reject empty connection overrides
       ansible.builtin.fail:
         msg: "Connection override submitted empty (ansible_user/ansible_password/ansible_port). Reopen the Run dialog instead of clearing the field, empty value would shadow inventory credentials"

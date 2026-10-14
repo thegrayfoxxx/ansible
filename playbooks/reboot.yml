@@ -10,7 +10,15 @@
     reboot_pre_delay: 5
     reboot_post_delay: 15
     reboot_only_if_required: false
+    reboot_confirmed: false
   tasks:
+    - name: Require confirmation for fleet reboot
+      ansible.builtin.fail:
+        msg: "Rebooting {{ ansible_play_hosts_all | length }} hosts at once needs reboot_confirmed=true. Set it in survey (or narrow target/Limit to one host)"
+      when:
+        - ansible_play_hosts_all | length > 1
+        - not (reboot_confirmed | bool)
+
     - name: Show uptime before reboot
       ansible.builtin.debug:
         msg: "uptime={{ ansible_facts.uptime_seconds }}s ({{ inventory_hostname }})"

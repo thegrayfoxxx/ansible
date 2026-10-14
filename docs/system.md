@@ -44,6 +44,7 @@
 - `apt_autoremove: true`
 - `apt_autoclean: true`
 - `reboot_if_required: false` -> `true` для авторебута
+- `update_confirmed: false` -> `true` чтобы разрешить авторебут сразу на нескольких хостах (нужен только с `reboot_if_required: true`)
 - перед upgrade всегда выполняется `dpkg --configure -a` (донастройка оборванного dpkg; если мёртв по-настоящему — упадёт с его текстом)
 
 ## `playbooks/cleanup.yml`
@@ -53,6 +54,7 @@
 - `docker_prune_volumes: false` -> `true` чтобы чистить и volumes (опасно; Enum)
 - `docker_prune_until: ""` (String, например `72h` — prune только старше; пусто — без фильтра)
 - `apt_clean: true` (Enum)
+- `cleanup_confirmed: false` -> `true` чтобы разрешить снос docker volumes (без него чистятся только образы/контейнеры)
 
 ```json
 {
@@ -77,6 +79,7 @@
 - `reboot_connect_timeout: 30`
 - `reboot_pre_delay: 5`, `reboot_post_delay: 15`
 - `reboot_only_if_required: false` -> `true` чтобы пропустить ребут без `/var/run/reboot-required` (для расписаний; Enum)
+- `reboot_confirmed: false` -> `true` чтобы разрешить ребут сразу нескольких хостов (для одного не нужен; Enum)
 
 Перезагрузка через Semaphore Extra vars:
 
