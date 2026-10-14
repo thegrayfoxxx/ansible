@@ -235,6 +235,21 @@
       ]
     },
     {
+      "name": "crowdsec_unregister",
+      "view": "CrowdSec",
+      "app": "ansible",
+      "environment": "service_vars",
+      "description": "Удаление нод из LAPI + чистка секретов в crowdsec_nodes. Target — строго один хост LAPI (playbooks/crowdsec_unregister.yml)",
+      "playbook": "playbooks/crowdsec_unregister.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Хост LAPI, например lapi-01. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "project_id", "title": "Project ID", "type": "int", "required": true},
+        {"name": "crowdsec_node_names", "title": "Node names", "description": "По одному имени на строку, ^[a-z0-9-]+$ (например us6). Повтор = already gone, не ошибка (или задай From group вместо этого)", "type": "text", "required": false},
+        {"name": "crowdsec_from_group", "title": "From group", "description": "Группа inventory (например de) — взять имена-алиасы из неё вместо ручного списка", "type": "", "required": false},
+        {"name": "crowdsec_lapi_container", "title": "LAPI container", "description": "Имя контейнера LAPI (пусто — crowdsec-lapi)", "default_value": "crowdsec-lapi", "type": "", "required": false}
+      ]
+    },
+    {
       "name": "rsyslog",
       "view": "Observability",
       "description": "Установка rsyslog + опциональный форвардинг (playbooks/rsyslog.yml)",

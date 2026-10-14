@@ -1,0 +1,179 @@
+---
+- name: Unregister CrowdSec nodes from LAPI and clean credentials in Semaphore
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    crowdsec_node_names: ""
+    crowdsec_from_group: ""
+    project_id: ""
+    crowdsec_lapi_container: crowdsec-lapi
+    crowdsec_group_name: crowdsec_nodes
+  tasks:
+    - name: Normalize LAPI container name
+      ansible.builtin.set_fact:
+        crowdsec_lapi_container: "{{ (crowdsec_lapi_container | default('') | trim) or 'crowdsec-lapi' }}"
+
+    - name: Require exactly one LAPI host
+      ansible.builtin.fail:
+        msg: "Point target/Limit at exactly one LAPI host, got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Require project_id
+      ansible.builtin.fail:
+        msg: "Set project_id (Semaphore project ID, see URL /project/N/)"
+      when: (project_id | string) | length == 0
+
+    - name: Normalize node names to list
+      ansible.builtin.set_fact:
+        crowdsec_names_list: "{{ crowdsec_node_names.replace(',', '\n').splitlines() | map('trim') | select | list if crowdsec_node_names is string else crowdsec_node_names }}"
+
+    - name: Require single name source
+      ansible.builtin.fail:
+        msg: "Set either crowdsec_node_names or crowdsec_from_group, not both"
+      when:
+        - (crowdsec_node_names | default('') | length > 0)
+          and (crowdsec_from_group | default('') | length > 0)
+
+    - name: Require existing inventory group
+      ansible.builtin.fail:
+        msg: "Inventory group '{{ crowdsec_from_group }}' not found. Available: {{ groups.keys() | list | join(', ') }}"
+      when:
+        - crowdsec_from_group | default('') | length > 0
+          and crowdsec_from_group not in groups
+
+    - name: Resolve node names from inventory group
+      ansible.builtin.set_fact:
+        crowdsec_names_list: "{{ groups[crowdsec_from_group] }}"
+      when: crowdsec_from_group | default('') | length > 0
+
+    - name: Require non-empty inventory group
+      ansible.builtin.fail:
+        msg: "Inventory group '{{ crowdsec_from_group }}' has no hosts"
+      when:
+        - crowdsec_from_group | default('') | length > 0
+          and crowdsec_names_list | length == 0
+
+    - name: Validate node names
+      ansible.builtin.fail:
+        msg: "Node names must list one per line, matching ^[a-z0-9-]+$, without duplicates and not local/dashboard/localhost"
+      when:
+        - crowdsec_names_list | length == 0
+          or (crowdsec_names_list | select('match', '^[a-z0-9-]+$') | list | length) != (crowdsec_names_list | length)
+          or (crowdsec_names_list | unique | length) != (crowdsec_names_list | length)
+          or (crowdsec_names_list | intersect(['local', 'dashboard', 'localhost']) | length > 0)
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: crowdsec_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker on LAPI host
+      ansible.builtin.fail:
+        msg: "docker is required on the LAPI host"
+      when: crowdsec_docker_bin.rc != 0
+
+    - name: Check LAPI answers
+      ansible.builtin.command: docker exec {{ crowdsec_lapi_container }} cscli lapi status
+      register: crowdsec_lapi_status
+      changed_when: false
+      failed_when: false
+
+    - name: Require running LAPI
+      ansible.builtin.fail:
+        msg: "LAPI container {{ crowdsec_lapi_container }} is not running or not answering. Start the LAPI stack first"
+      when: crowdsec_lapi_status.rc != 0
+
+    - name: Delete agent registration
+      ansible.builtin.command: docker exec {{ crowdsec_lapi_container }} cscli machines delete {{ item }}-agent
+      loop: "{{ crowdsec_names_list }}"
+      register: crowdsec_del_agent
+      changed_when: false
+      failed_when: false
+
+    - name: Delete bouncer registration
+      ansible.builtin.command: docker exec {{ crowdsec_lapi_container }} cscli bouncers delete {{ item }}-bouncer
+      loop: "{{ crowdsec_names_list }}"
+      register: crowdsec_del_bouncer
+      changed_when: false
+      failed_when: false
+
+    - name: Summarize deletions
+      ansible.builtin.set_fact:
+        crowdsec_unregistered: "{{ crowdsec_unregistered | default([]) + [item + ': agent=' + ('deleted' if crowdsec_del_agent.results[idx].rc == 0 else 'already gone') + ', bouncer=' + ('deleted' if crowdsec_del_bouncer.results[idx].rc == 0 else 'already gone')] }}"
+      loop: "{{ crowdsec_names_list }}"
+      loop_control:
+        index_var: idx
+
+    - name: Read Semaphore API credentials
+      ansible.builtin.set_fact:
+        semaphore_token: "{{ lookup('env', 'SEMAPHORE_TOKEN') }}"
+        semaphore_base: "{{ lookup('env', 'SEMAPHORE_URL') | default('http://localhost:3000/api', true) }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Require Semaphore API token
+      ansible.builtin.fail:
+        msg: "SEMAPHORE_TOKEN is empty. Attach the service_vars group to the crowdsec_unregister template"
+      when: semaphore_token | length == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Find crowdsec_nodes group
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment?sort=name&order=asc"
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        return_content: true
+      register: semaphore_envs
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Resolve group state
+      ansible.builtin.set_fact:
+        crowdsec_group: "{{ (semaphore_envs.json | selectattr('name', 'equalto', crowdsec_group_name) | list | first) | default({}) }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Warn when group is missing
+      ansible.builtin.debug:
+        msg: "Group {{ crowdsec_group_name }} not found, skipped credential cleanup"
+      when: crowdsec_group | length == 0
+
+    - name: Collect stale credential keys
+      ansible.builtin.set_fact:
+        crowdsec_stale_keys: "{{ (crowdsec_stale_keys | default([])) + ['crowdsec_node_' + node_key + '_agent_password', 'crowdsec_node_' + node_key + '_api_key'] }}"
+      vars:
+        node_key: "{{ item | lower | regex_replace('-', '_') }}"
+      loop: "{{ crowdsec_names_list }}"
+      when: crowdsec_group | length > 0
+
+    - name: Remove node credentials from group JSON
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment/{{ crowdsec_group.id }}"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        body_format: json
+        body:
+          id: "{{ crowdsec_group.id }}"
+          project_id: "{{ project_id | int }}"
+          name: "{{ crowdsec_group_name }}"
+          json: "{{ ((crowdsec_group.json | default('{}')) | from_json | dict2items | rejectattr('key', 'in', crowdsec_stale_keys) | items2dict) | to_json }}"
+          env: "{{ crowdsec_group.env | default('', true) }}"
+          secrets: []
+        status_code: 204
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when: crowdsec_group | length > 0
+
+    - name: Show unregistration summary
+      ansible.builtin.debug:
+        msg: "unregistered={{ crowdsec_unregistered | join('; ') }} group_cleaned={{ (crowdsec_group | length > 0) | ternary('yes', 'no (group missing)') }}"

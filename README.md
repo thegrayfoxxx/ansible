@@ -63,6 +63,7 @@ playbooks/
   crowdsec_register.yml # регистрация нод на LAPI + секреты в crowdsec_nodes
   crowdsec_node.yml     # CrowdSec агент + баунсер: deploy/restart/status/remove
   crowdsec_node_update.yml # CrowdSec на ноде: pull + down + up -d
+  crowdsec_unregister.yml # удаление нод из LAPI + чистка crowdsec_nodes
   docker.yml     # установка Docker Engine + compose plugin
   bbr.yml        # TCP BBR + fq (выкл — откат на cubic + fq_codel)
   cleanup.yml    # чистка диска: apt, journal, docker prune
@@ -78,7 +79,7 @@ templates/
 files/
   crowdsec/          # статика для ноды: crowdsec-firewall-bouncer.yaml (1:1 с configs)
 semaphore/
-  templates.json # источник правды: 20 шаблонов + survey_vars + views (Run, System, Security, CrowdSec, Observability, Remnawave, Service)
+  templates.json # источник правды: 21 шаблон + survey_vars + views (Run, System, Security, CrowdSec, Observability, Remnawave, Service)
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
@@ -425,7 +426,7 @@ Bootstrap ноды где есть только пароль — способ 1 
 
 ## CrowdSec (агент + баунсер в Docker, LAPI уже стоит)
 
-Три шаблона во вкладке `CrowdSec`, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота), обновление — `crowdsec_node_update` (`pull + down + up -d`, секреты LAPI не нужны, работает на группе). Ручного создания шаблонов не нужно — все приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
+Четыре шаблона во вкладке `CrowdSec`, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота), обновление — `crowdsec_node_update` (`pull + down + up -d`, секреты LAPI не нужны, работает на группе), снос — `crowdsec_unregister` (на хосте LAPI) + `crowdsec_node` с `action=remove` (на ноде). Ручного создания шаблонов не нужно — все приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
 
 Предусловия на ноде (не ставятся, только проверяются): `docker` (шаблон `docker` — иначе `fail`), `rsyslog` (шаблон `rsyslog` — иначе только warning). LAPI должен отвечать (`cscli lapi status`).
 
@@ -485,6 +486,31 @@ Bootstrap ноды где есть только пароль — способ 1 
 {
   "target": "stage",
   "crowdsec_dir": ""
+}
+```
+
+`crowdsec_unregister` (Target — строго один хост LAPI; повтор по тем же именам = `already gone`, не ошибка):
+- `project_id` (Integer, обязательно — для чистки группы)
+- `crowdsec_node_names` (Text) или `crowdsec_from_group` (String) — тот же формат и валидация, что в register
+- `crowdsec_lapi_container` (String; пусто — `crowdsec-lapi`)
+- удаляет `<имя>-agent` и `<имя>-bouncer` из LAPI и стирает их креды из группы `crowdsec_nodes` (`crowdsec_api_url` не трогает); группы нет — чистка скипается с warning, не fail
+
+Снос ноды целиком (два запуска — сначала LAPI, потом нода):
+
+```json
+{
+  "target": "lapi-01",
+  "project_id": 1,
+  "crowdsec_node_names": "us6"
+}
+```
+
+```json
+{
+  "target": "us6",
+  "crowdsec_node_name": "us6",
+  "crowdsec_action": "remove",
+  "crowdsec_remove_confirmed": true
 }
 ```
 
@@ -568,6 +594,7 @@ ansible-playbook --syntax-check playbooks/fail2ban.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/crowdsec_register.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/crowdsec_node.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/crowdsec_node_update.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/crowdsec_unregister.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/docker.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/bbr.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/cleanup.yml -e '{"target":"all"}'
