@@ -24,7 +24,7 @@
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true},
         {"name": "ping_mode", "title": "Check mode", "description": "ssh — только проверка SSH до ноды; remote — только ICMP с ноды; both — сначала SSH, потом ICMP", "default_value": "ssh", "type": "enum", "required": false, "values": [{"name": "ssh", "value": "ssh"}, {"name": "remote", "value": "remote"}, {"name": "both", "value": "both"}]},
-        {"name": "ping_dest", "title": "Ping target", "description": "IP или DNS-имя для проверки с ноды (заодно проверяется DNS). Обязательно для remote/both; пусто — только ssh", "type": "", "required": false},
+        {"name": "ping_dest", "title": "Ping target", "description": "IP или DNS-имя для проверки с ноды (заодно проверяется DNS). Пусто — только для mode=ssh; в remote/both обязателен", "type": "", "required": false},
         {"name": "ping_count", "title": "Ping count", "description": "Число ICMP-запросов, 1..100 (только remote/both)", "default_value": "4", "type": "int", "required": false}
       ]
     },
@@ -202,7 +202,7 @@
       "playbook": "playbooks/crowdsec_register.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "Хост LAPI, например lapi-01. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
-        {"name": "project_id", "title": "Project ID", "type": "int", "required": true},
+        {"name": "project_id", "title": "Project ID", "description": "Цифра в URL проекта: /project/N/", "type": "int", "required": true},
         {"name": "crowdsec_node_names", "title": "Node names", "description": "По одному имени на строку, ^[a-z0-9-]+$ (например us6). Повтор = ротация секретов (или задай From group вместо этого)", "type": "text", "required": false},
         {"name": "crowdsec_from_group", "title": "From group", "description": "Группа inventory (например de) — взять имена-алиасы из неё вместо ручного списка", "type": "", "required": false},
         {"name": "crowdsec_api_url", "title": "LAPI URL", "description": "Не для этого прогона — запишется в группу для деплоев нод. Пусто — взять текущий из группы (обязателен при первой регистрации)", "type": "", "required": false}
@@ -246,7 +246,7 @@
       "playbook": "playbooks/crowdsec_unregister.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "Хост LAPI, например lapi-01. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
-        {"name": "project_id", "title": "Project ID", "type": "int", "required": true},
+        {"name": "project_id", "title": "Project ID", "description": "Цифра в URL проекта: /project/N/", "type": "int", "required": true},
         {"name": "crowdsec_node_names", "title": "Node names", "description": "По одному имени на строку, ^[a-z0-9-]+$ (например us6). Повтор = already gone, не ошибка (или задай From group вместо этого)", "type": "text", "required": false},
         {"name": "crowdsec_from_group", "title": "From group", "description": "Группа inventory (например de) — взять имена-алиасы из неё вместо ручного списка", "type": "", "required": false},
         {"name": "crowdsec_lapi_container", "title": "LAPI container", "description": "Имя контейнера LAPI (пусто — crowdsec-lapi)", "default_value": "crowdsec-lapi", "type": "", "required": false}
@@ -280,7 +280,7 @@
       "description": "Remnawave нода: register/deploy/both + автодеплой агента (playbooks/remnawave_node_add.yml)",
       "playbook": "playbooks/remnawave_node_add.yml",
       "survey_vars": [
-        {"name": "remnawave_action", "title": "Action", "description": "both — регистрация + деплой одним прогоном", "default_value": "both", "type": "enum", "required": false, "values": [{"name": "register", "value": "register"}, {"name": "deploy", "value": "deploy"}, {"name": "both", "value": "both"}]},
+        {"name": "remnawave_action", "title": "Action", "description": "both — регистрация + деплой одним прогоном (register/deploy — по отдельности)", "default_value": "both", "type": "enum", "required": false, "values": [{"name": "register", "value": "register"}, {"name": "deploy", "value": "deploy"}, {"name": "both", "value": "both"}]},
         {"name": "target", "title": "Target", "description": "Один хост ноды (в register-режиме значение игнорируется). ⚠️ Проверь охват перед Run", "type": "", "required": true},
         {"name": "remnawave_node_name", "title": "Node name", "description": "Имя ноды в панели, 3..30 символов (например de1-vpn)", "type": "", "required": true},
         {"name": "remnawave_node_address", "title": "Node address", "description": "Адрес ноды, достижимый со стороны панели (IP или DNS)", "type": "", "required": true},
@@ -315,7 +315,7 @@
       "playbook": "scripts/semaphore_bootstrap.py",
       "survey_vars": [
         {"name": "token", "title": "API Token", "description": "Пусто — берётся из секрета SEMAPHORE_TOKEN группы service_vars. Заполнить только для разового override", "type": "secret", "required": false},
-        {"name": "project_id", "title": "Project ID", "type": "int", "required": true}
+        {"name": "project_id", "title": "Project ID", "description": "Цифра в URL проекта: /project/N/", "type": "int", "required": true}
       ]
     }
   ]
