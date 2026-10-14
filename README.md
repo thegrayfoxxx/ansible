@@ -62,11 +62,13 @@ playbooks/
   fail2ban.yml   # fail2ban + sshd jail (systemd backend)
   crowdsec_register.yml # регистрация нод на LAPI + секреты в crowdsec_nodes
   crowdsec_node.yml     # CrowdSec агент + баунсер: deploy/restart/status/remove
+  crowdsec_node_update.yml # CrowdSec на ноде: pull + down + up -d
   docker.yml     # установка Docker Engine + compose plugin
   bbr.yml        # TCP BBR + fq (выкл — откат на cubic + fq_codel)
   cleanup.yml    # чистка диска: apt, journal, docker prune
   rsyslog.yml    # rsyslog + опциональный форвардинг
   remnawave_node_add.yml # Remnawave нода: register/deploy/both + автодеплой агента
+  remnawave_node_update.yml # Remnawave нода: pull + down + up -d
 scripts/
   hello.sh               # пример shell-задачи
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
@@ -76,7 +78,7 @@ templates/
 files/
   crowdsec/          # статика для ноды: crowdsec-firewall-bouncer.yaml (1:1 с configs)
 semaphore/
-  templates.json # источник правды: 18 шаблонов + survey_vars + views (Run, System, Security, CrowdSec, Observability, Remnawave, Service)
+  templates.json # источник правды: 20 шаблонов + survey_vars + views (Run, System, Security, CrowdSec, Observability, Remnawave, Service)
 docs/
   QUICKSTART.md  # полный гайд на 10 минут: compose + сидинг шаблонов
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git

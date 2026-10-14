@@ -1,0 +1,71 @@
+---
+- name: CrowdSec node update (pull + down + up)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    crowdsec_dir: /opt/crowdsec
+    crowdsec_agent_container: crowdsec-agent
+  tasks:
+    - name: Normalize project dir
+      ansible.builtin.set_fact:
+        crowdsec_dir: "{{ (crowdsec_dir | default('') | trim) or '/opt/crowdsec' }}"
+
+    - name: Validate project dir
+      ansible.builtin.fail:
+        msg: "crowdsec_dir must be an absolute path, got '{{ crowdsec_dir }}'"
+      when: not (crowdsec_dir is match('^/.+'))
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: crowdsec_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker on node
+      ansible.builtin.fail:
+        msg: "docker not found. Run the docker template on this host first"
+      when: crowdsec_docker_bin.rc != 0
+
+    - name: Check compose file exists
+      ansible.builtin.stat:
+        path: "{{ crowdsec_dir }}/compose.yml"
+      register: crowdsec_compose
+
+    - name: Require deployed stack
+      ansible.builtin.fail:
+        msg: "No compose.yml in {{ crowdsec_dir }}. Run crowdsec_node with action deploy first"
+      when: not crowdsec_compose.stat.exists
+
+    - name: Pull latest images
+      ansible.builtin.command: docker compose pull
+      args:
+        chdir: "{{ crowdsec_dir }}"
+      register: crowdsec_pull
+      changed_when: "'Downloaded newer image' in (crowdsec_pull.stdout + crowdsec_pull.stderr)"
+
+    - name: Recreate stack (down, volumes kept)
+      community.docker.docker_compose_v2:
+        project_src: "{{ crowdsec_dir }}"
+        state: absent
+      register: crowdsec_down
+
+    - name: Recreate stack (up -d)
+      community.docker.docker_compose_v2:
+        project_src: "{{ crowdsec_dir }}"
+        state: present
+      register: crowdsec_up
+
+    - name: Check agent answers LAPI
+      ansible.builtin.command: docker exec {{ crowdsec_agent_container }} cscli lapi status
+      register: crowdsec_agent_status
+      changed_when: false
+      retries: 6
+      delay: 10
+      until: crowdsec_agent_status.rc == 0
+
+    - name: Show update summary
+      ansible.builtin.debug:
+        msg: "updated {{ crowdsec_dir }} (pull changed={{ crowdsec_pull.changed }})"
