@@ -193,7 +193,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 ```text
 [update] ping (id=1, playbooks/ping.yml)
 ...
-done: created=7 updated=0 unchanged=0 dry_run=False
+done: created=21 updated=0 unchanged=0 dry_run=False
 ```
 
 ![запуск update_templates](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/10-run-bootstrap.gif)
