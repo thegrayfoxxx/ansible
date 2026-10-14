@@ -430,6 +430,7 @@ Bootstrap ноды где есть только пароль — способ 1 
 `crowdsec_register` (Target — строго один хост LAPI, не `all`):
 - `project_id` (Integer, обязательно — для записи в API)
 - `crowdsec_node_names` (Text, обязательно; по одному `^[a-z0-9-]+$` на строку; повтор имени = ротация секретов; `local/dashboard/localhost` запрещены)
+- `crowdsec_from_group` (String; например `de` — взять имена-алиасы из группы inventory вместо ручного списка; с `crowdsec_node_names` вместе нельзя — только один источник)
 - `crowdsec_api_url` (String; пусто — взять текущий из группы, обязателен при первой регистрации)
 - не запускай два register параллельно — записи в группу идут read-modify-write, второй затрет первого
 
@@ -438,6 +439,17 @@ Bootstrap ноды где есть только пароль — способ 1 
   "target": "lapi-01",
   "project_id": 1,
   "crowdsec_node_names": "us6\nus7",
+  "crowdsec_api_url": "https://crowdsec.example.com"
+}
+```
+
+Тот же register из группы (имена подтянутся из inventory сами):
+
+```json
+{
+  "target": "lapi-01",
+  "project_id": 1,
+  "crowdsec_from_group": "de",
   "crowdsec_api_url": "https://crowdsec.example.com"
 }
 ```

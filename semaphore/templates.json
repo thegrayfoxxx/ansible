@@ -200,7 +200,8 @@
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "Хост LAPI, например lapi-01. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
         {"name": "project_id", "title": "Project ID", "type": "int", "required": true},
-        {"name": "crowdsec_node_names", "title": "Node names", "description": "По одному имени на строку, ^[a-z0-9-]+$ (например us6). Повтор = ротация секретов", "type": "text", "required": true},
+        {"name": "crowdsec_node_names", "title": "Node names", "description": "По одному имени на строку, ^[a-z0-9-]+$ (например us6). Повтор = ротация секретов (или задай From group вместо этого)", "type": "text", "required": false},
+        {"name": "crowdsec_from_group", "title": "From group", "description": "Группа inventory (например de) — взять имена-алиасы из неё вместо ручного списка", "type": "", "required": false},
         {"name": "crowdsec_api_url", "title": "LAPI URL", "description": "Публичный URL LAPI, например https://crowdsec.example.com. Пусто — взять текущий из группы (обязателен при первой регистрации)", "type": "", "required": false}
       ]
     },

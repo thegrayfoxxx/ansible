@@ -5,6 +5,7 @@
   become: true
   vars:
     crowdsec_node_names: ""
+    crowdsec_from_group: ""
     crowdsec_api_url: ""
     project_id: ""
     crowdsec_lapi_container: crowdsec-lapi
@@ -24,13 +25,40 @@
       ansible.builtin.set_fact:
         crowdsec_names_list: "{{ crowdsec_node_names.replace(',', '\n').splitlines() | map('trim') | select | list if crowdsec_node_names is string else crowdsec_node_names }}"
 
+    - name: Require single name source
+      ansible.builtin.fail:
+        msg: "Set either crowdsec_node_names or crowdsec_from_group, not both"
+      when:
+        - (crowdsec_node_names | default('') | length > 0)
+          and (crowdsec_from_group | default('') | length > 0)
+
+    - name: Require existing inventory group
+      ansible.builtin.fail:
+        msg: "Inventory group '{{ crowdsec_from_group }}' not found. Available: {{ groups.keys() | list | join(', ') }}"
+      when:
+        - crowdsec_from_group | default('') | length > 0
+          and crowdsec_from_group not in groups
+
+    - name: Resolve node names from inventory group
+      ansible.builtin.set_fact:
+        crowdsec_names_list: "{{ groups[crowdsec_from_group] }}"
+      when: crowdsec_from_group | default('') | length > 0
+
+    - name: Require non-empty inventory group
+      ansible.builtin.fail:
+        msg: "Inventory group '{{ crowdsec_from_group }}' has no hosts"
+      when:
+        - crowdsec_from_group | default('') | length > 0
+          and crowdsec_names_list | length == 0
+
     - name: Validate node names
       ansible.builtin.fail:
-        msg: "crowdsec_node_names must list one node per line, names matching ^[a-z0-9-]+$ without duplicates"
+        msg: "Node names must list one per line, matching ^[a-z0-9-]+$, without duplicates and not local/dashboard/localhost"
       when:
         - crowdsec_names_list | length == 0
           or (crowdsec_names_list | select('match', '^[a-z0-9-]+$') | list | length) != (crowdsec_names_list | length)
           or (crowdsec_names_list | unique | length) != (crowdsec_names_list | length)
+          or (crowdsec_names_list | intersect(['local', 'dashboard', 'localhost']) | length > 0)
 
     - name: Check docker and openssl are available
       ansible.builtin.shell: command -v docker && command -v openssl
