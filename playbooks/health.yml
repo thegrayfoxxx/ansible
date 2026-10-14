@@ -66,10 +66,6 @@
         health_cs_state: "{{ 'n/a' if (health_docker.rc != 0) else ('ok' if (health_cs.rc | default(1) | int == 0) else ('na' if 'No such container' in ((health_cs.stdout | default('')) + (health_cs.stderr | default(''))) else 'fail')) }}"
         health_remna_state: "{{ 'n/a' if (health_docker.rc != 0) else ('na' if (health_remna.rc | default(1) | int != 0) else ('up' if '\"Status\": \"running\"' in (health_remna.stdout | default('')) else 'stopped')) }}"
 
-    - name: Show health summary
-      ansible.builtin.debug:
-        var: health_summary
-
     - name: Summarize docker containers
       ansible.builtin.set_fact:
         health_containers: "{{ health_containers | default([]) + [item.Names + ' (' + item.Image + ') — ' + item.State + '/' + item.Status] }}"
@@ -82,3 +78,7 @@
       when:
         - health_docker.rc == 0
         - health_containers | default([]) | length > 0
+
+    - name: Show health summary
+      ansible.builtin.debug:
+        var: health_summary
