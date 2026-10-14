@@ -39,7 +39,7 @@
 - `remnawave_country` (`XX`), `remnawave_note` (до 255)
 - `remnawave_config_profile` (UUID/имя/пусто): survey → дефолт группы → авто по `default` (точное ci → вхождение `default` → `дефолт`; 0/несколько — `fail` со списками)
 - `remnawave_inbounds` (Text, UUID построчно; пусто — все инбаунды профиля; чужие — `fail` с доступными тегами)
-- `remnawave_open_port: false` -> `true` чтобы открыть порт в `ufw` (идемпотентно; Enum) + `remnawave_allow_from` (только с IP панели, пусто — отовсюду). `ufw` нет — громкий `fail`. Выключаешь назад — правило сносится руками (одной командой `ufw delete`), свои правила плейбук не трогает
+- `remnawave_open_port: false` -> `true` чтобы открыть порт в `ufw`, если он есть (нет — скип с warning; идемпотентно; Enum) + `remnawave_allow_from` (только с IP панели, пусто — отовсюду). `ufw` нет — громкий `fail`. Выключаешь назад — правило сносится руками (одной командой `ufw delete`), свои правила плейбук не трогает
 - `remnawave_token` (Secret, разовый override), `remnawave_validate_certs: true` -> `false` для самоподписанного серта панели
 - `remnawave_dir` (String; папка проекта на ноде, пусто — `/opt/remnawave`)
 

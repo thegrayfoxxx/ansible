@@ -441,12 +441,12 @@
           failed_when: false
           when: remnawave_open_port | bool
 
-        - name: Require ufw for auto open
-          ansible.builtin.fail:
-            msg: "ufw not installed — install it via base/firewall templates or open port {{ remnawave_port_final }} manually and set remnawave_open_port=false"
+        - name: Warn when ufw is missing for auto open
+          ansible.builtin.debug:
+            msg: "ufw not found — port {{ remnawave_port_final }} NOT opened. Install ufw (base/firewall templates) or open it manually; panel may fail to reach this node"
           when:
             - remnawave_open_port | bool
-              and remnawave_ufw_bin.rc != 0
+            - remnawave_ufw_bin.rc | default(1) | int != 0
 
         - name: Open node port in ufw
           community.general.ufw:
@@ -454,7 +454,9 @@
             port: "{{ remnawave_port_final }}"
             proto: tcp
             from_ip: "{{ remnawave_allow_from if (remnawave_allow_from | default('') | length > 0) else omit }}"
-          when: remnawave_open_port | bool
+          when:
+            - remnawave_open_port | bool
+            - remnawave_ufw_bin.rc | default(1) | int == 0
 
         - name: Check agent answers panel
           ansible.builtin.uri:
@@ -475,7 +477,7 @@
 
         - name: Show deploy summary
           ansible.builtin.debug:
-            msg: "node={{ remnawave_node_name }} connected={{ remnawave_node_state.json.response.isConnected | default('unknown') }} port={{ remnawave_port_final }} firewall={{ 'open' if (remnawave_open_port | bool) else 'manual' }}"
+            msg: "node={{ remnawave_node_name }} connected={{ remnawave_node_state.json.response.isConnected | default('unknown') }} port={{ remnawave_port_final }} firewall={{ 'manual' if not (remnawave_open_port | bool) else ('open' if (remnawave_ufw_bin.rc | default(1) | int == 0) else 'skipped (no ufw)') }}"
       when: remnawave_action in ['both', 'deploy']
       rescue:
         - name: Roll back panel entry created this run

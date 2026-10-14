@@ -294,7 +294,7 @@
         {"name": "remnawave_inbounds", "title": "Inbounds", "description": "Text: UUID инбаундов, по одному на строку (пусто — все инбаунды профиля)", "type": "text", "required": false},
         {"name": "remnawave_note", "title": "Note", "description": "Заметка, до 255 символов", "type": "", "required": false},
         {"name": "remnawave_token", "title": "API token override", "description": "Разовый override токена (пусто — секрет REMNAWAVE_TOKEN из группы)", "type": "secret", "required": false},
-        {"name": "remnawave_open_port", "title": "Open port in ufw", "description": "true — открыть порт агента в ufw (идемпотентно)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnawave_open_port", "title": "Open port in ufw", "description": "true — открыть порт агента в ufw, если он есть (нет — скип с warning; идемпотентно)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnawave_allow_from", "title": "Allow from", "description": "Только с IP панели, например 203.0.113.10 (пусто — отовсюду)", "type": "", "required": false},
         {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnawave_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnawave)", "default_value": "/opt/remnawave", "type": "", "required": false}
