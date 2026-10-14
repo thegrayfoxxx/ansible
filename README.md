@@ -274,7 +274,8 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 ```
 
 `playbooks/health.yml` (read-only — безопасен на любом охвате, достаточно `target`):
-- одна строка summary на хост: `uptime/load/mem/disk/containers/fail2ban/crowdsec/remnanode` + таблица `docker ps` (если docker есть)
+- одна строка summary на хост: `uptime/load/mem/disk/containers/fail2ban/crowdsec/remnanode` + компактная таблица контейнеров `имя (image) — state/status`
+- mem считается без page cache, `(!)` помечает `mem>90%` и `disk>80%`
 - опциональное только детектится (`missing`/`na`), не фейлит: нет fail2ban — `missing`, нет агента crowdsec — `na`, LAPI не отвечает — `fail`
 
 ```json

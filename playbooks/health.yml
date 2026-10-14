@@ -9,6 +9,11 @@
       register: health_df
       changed_when: false
 
+    - name: Read load average
+      ansible.builtin.command: cat /proc/loadavg
+      register: health_loadavg
+      changed_when: false
+
     - name: Check docker is available
       ansible.builtin.shell: command -v docker
       args:
@@ -49,11 +54,13 @@
         health_summary: "uptime={{ health_uptime_h }}h load={{ health_load }} mem={{ health_mem }} disk={{ health_disk }} containers={{ health_n }} fail2ban={{ health_f2b_state }} crowdsec={{ health_cs_state }} remnanode={{ health_remna_state }}"
       vars:
         health_uptime_h: "{{ ansible_facts.uptime_seconds | int // 3600 }}"
-        health_load: "{{ ansible_facts.load_avg_1m | default('n/a') }}"
-        health_mem_t: "{{ ansible_facts.memory_mb.real.total | default(0) }}"
-        health_mem_u: "{{ ansible_facts.memory_mb.real.used | default(0) }}"
-        health_mem: "{{ '%s/%sMB(%s%%)' % (health_mem_u, health_mem_t, ((health_mem_u | int / health_mem_t | int * 100) | round | int)) if (health_mem_t | int > 0) else 'n/a' }}"
-        health_disk: "{{ ((health_df.stdout_lines | last).split()[4]) if (health_df.stdout_lines | default([]) | length > 1) else 'n/a' }}"
+        health_load: "{{ (health_loadavg.stdout.split()[0]) if (health_loadavg.stdout | default('') | length > 0) else 'n/a' }}"
+        health_mem_t: "{{ ansible_facts.memory_mb.nocache.total | default(ansible_facts.memory_mb.real.total | default(0)) }}"
+        health_mem_u: "{{ ansible_facts.memory_mb.nocache.used | default(ansible_facts.memory_mb.real.used | default(0)) }}"
+        health_mem_pct: "{{ ((health_mem_u | int / health_mem_t | int * 100) | round | int) if (health_mem_t | int > 0) else -1 }}"
+        health_mem: "{{ '%s/%sMB(%s%%%s)' % (health_mem_u, health_mem_t, health_mem_pct, '(!)' if (health_mem_pct | int > 90) else '') if (health_mem_t | int > 0) else 'n/a' }}"
+        health_disk_raw: "{{ ((health_df.stdout_lines | last).split()[4]) if (health_df.stdout_lines | default([]) | length > 1) else '' }}"
+        health_disk: "{{ (health_disk_raw + '(!)' if (health_disk_raw | regex_replace('%', '') | int > 80) else health_disk_raw) if (health_disk_raw | length > 0) else 'n/a' }}"
         health_n: "{{ health_ps.stdout_lines | default([]) | length if (health_docker.rc == 0) else 'n/a' }}"
         health_f2b_state: "{{ 'active' if (health_f2b.stdout | default('') | trim == 'active') else ('missing' if 'could not be found' in (health_f2b.stderr | default('')) else 'inactive') }}"
         health_cs_state: "{{ 'n/a' if (health_docker.rc != 0) else ('ok' if (health_cs.rc | default(1) | int == 0) else ('na' if 'No such container' in ((health_cs.stdout | default('')) + (health_cs.stderr | default(''))) else 'fail')) }}"
@@ -63,9 +70,15 @@
       ansible.builtin.debug:
         var: health_summary
 
+    - name: Summarize docker containers
+      ansible.builtin.set_fact:
+        health_containers: "{{ health_containers | default([]) + [item.Names + ' (' + item.Image + ') — ' + item.State + '/' + item.Status] }}"
+      loop: "{{ health_ps.stdout_lines | default([]) | map('from_json') | list }}"
+      when: health_docker.rc == 0
+
     - name: Show docker containers
       ansible.builtin.debug:
-        var: health_ps.stdout_lines
+        var: health_containers
       when:
         - health_docker.rc == 0
-        - health_ps.stdout_lines | default([]) | length > 0
+        - health_containers | default([]) | length > 0
