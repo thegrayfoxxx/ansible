@@ -220,7 +220,8 @@
         {"name": "crowdsec_mode", "title": "Firewall backend", "description": "iptables по умолчанию (nftables в Docker экспериментален)", "default_value": "iptables", "type": "enum", "required": false, "values": [{"name": "iptables", "value": "iptables"}, {"name": "nftables", "value": "nftables"}]},
         {"name": "crowdsec_extra_collections", "title": "Extra collections", "description": "Доп. коллекции агента, по одной на строку (например crowdsecurity/nginx)", "type": "text", "required": false},
         {"name": "crowdsec_extra_logs", "title": "Extra logs", "description": "Доп. пути логов под /var/log, по одному на строку", "type": "text", "required": false},
-        {"name": "crowdsec_tz", "title": "Timezone", "description": "Пусто — взять из /etc/timezone хоста", "type": "", "required": false}
+        {"name": "crowdsec_tz", "title": "Timezone", "description": "Пусто — взять из /etc/timezone хоста", "type": "", "required": false},
+        {"name": "crowdsec_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/crowdsec)", "default_value": "/opt/crowdsec", "type": "", "required": false}
       ]
     },
     {
@@ -254,7 +255,8 @@
         {"name": "remnawave_token", "title": "API token override", "description": "Разовый override токена (пусто — секрет REMNAWAVE_TOKEN из группы)", "type": "secret", "required": false},
         {"name": "remnawave_open_port", "title": "Open port in ufw", "description": "true — открыть порт агента в ufw (идемпотентно)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnawave_allow_from", "title": "Allow from", "description": "Только с IP панели, например 203.0.113.10 (пусто — отовсюду)", "type": "", "required": false},
-        {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+        {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnawave_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnawave)", "default_value": "/opt/remnawave", "type": "", "required": false}
       ]
     },
     {

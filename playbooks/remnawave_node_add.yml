@@ -356,6 +356,15 @@
   tasks:
     - name: Deploy remnawave node
       block:
+        - name: Normalize project dir
+          ansible.builtin.set_fact:
+            remnawave_dir: "{{ (remnawave_dir | default('') | trim) or '/opt/remnawave' }}"
+
+        - name: Validate project dir
+          ansible.builtin.fail:
+            msg: "remnawave_dir must be an absolute path, got '{{ remnawave_dir }}'"
+          when: not (remnawave_dir is match('^/.+'))
+
         - name: Require resolved node secret
           ansible.builtin.fail:
             msg: "Node secret not resolved (internal). Re-run; if persists, check keygen step output"

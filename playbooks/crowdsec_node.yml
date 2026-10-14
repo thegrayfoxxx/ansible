@@ -33,6 +33,18 @@
       ansible.builtin.set_fact:
         crowdsec_resolved_name: "{{ crowdsec_node_name if (crowdsec_node_name | default('') | length > 0) else inventory_hostname }}"
 
+    - name: Normalize project dir
+      ansible.builtin.set_fact:
+        crowdsec_dir: "{{ (crowdsec_dir | default('') | trim) or '/opt/crowdsec' }}"
+      when: crowdsec_action in ['deploy', 'restart', 'remove']
+
+    - name: Validate project dir
+      ansible.builtin.fail:
+        msg: "crowdsec_dir must be an absolute path, got '{{ crowdsec_dir }}'"
+      when:
+        - crowdsec_action in ['deploy', 'restart', 'remove']
+        - not (crowdsec_dir is match('^/.+'))
+
     - name: Validate node name
       ansible.builtin.fail:
         msg: "Node name '{{ crowdsec_resolved_name }}' must match ^[a-z0-9-]+$ (and not be local/dashboard/localhost). Set explicit crowdsec_node_name when inventory hostnames differ"
