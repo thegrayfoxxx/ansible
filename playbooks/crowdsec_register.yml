@@ -188,8 +188,8 @@
 
     - name: Resolve group JSON and API URL
       ansible.builtin.set_fact:
-        crowdsec_group_json: "{{ (crowdsec_group.json | default('{}')) | from_json }}"
-        crowdsec_api_url_final: "{{ crowdsec_api_url if (crowdsec_api_url | default('') | length > 0) else ((crowdsec_group.json | default('{}')) | from_json).crowdsec_api_url | default('') }}"
+        crowdsec_group_json: "{{ ((crowdsec_group.json | default('', true)) | trim or '{}') | from_json }}"
+        crowdsec_api_url_final: "{{ crowdsec_api_url if (crowdsec_api_url | default('') | length > 0) else (((crowdsec_group.json | default('', true)) | trim or '{}') | from_json).crowdsec_api_url | default('') }}"
       delegate_to: localhost
       become: false
 

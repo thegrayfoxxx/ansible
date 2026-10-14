@@ -165,7 +165,7 @@
           id: "{{ crowdsec_group.id }}"
           project_id: "{{ project_id | int }}"
           name: "{{ crowdsec_group_name }}"
-          json: "{{ ((crowdsec_group.json | default('{}')) | from_json | dict2items | rejectattr('key', 'in', crowdsec_stale_keys) | items2dict) | to_json }}"
+          json: "{{ (((crowdsec_group.json | default('', true)) | trim or '{}') | from_json | dict2items | rejectattr('key', 'in', crowdsec_stale_keys) | items2dict) | to_json }}"
           env: "{{ crowdsec_group.env | default('', true) }}"
           secrets: []
         status_code: 204

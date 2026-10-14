@@ -323,7 +323,8 @@
         msg: "Panel returned empty or invalid node SECRET_KEY"
       when:
         - remnawave_action in ['both', 'deploy']
-          and (remnawave_secret_resp.json.response.secretKey | default('') | b64decode | from_json).nodeCertPem is not defined
+        - (remnawave_secret_resp.json.response.secretKey | default('') | length == 0)
+          or ((remnawave_secret_resp.json.response.secretKey | b64decode | from_json).nodeCertPem is not defined)
       delegate_to: localhost
       become: false
       no_log: true
