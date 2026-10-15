@@ -179,7 +179,7 @@
       "playbook": "playbooks/firewall.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true},
-        {"name": "fw_allow", "title": "Allow rules", "description": "Одно правило на строку: 22/tcp (всем) или 2096/tcp from 203.0.113.10 (только с IP, например панели). Остальным порт закрыт дефолтным deny (DROP)", "type": "text", "required": false},
+        {"name": "fw_allow", "title": "Allow rules", "description": "Одно правило на строку: 22/tcp (всем) или 2096/tcp from 203.0.113.10 (только с IP, например панели). Guard требует порт SSH-подключения (обычно 22/tcp). Остальным порт закрыт дефолтным deny (DROP)", "type": "text", "required": false},
         {"name": "fw_enable", "title": "Enable UFW", "description": "true — ВКЛЮЧИТЬ ufw (guard требует 22/tcp в списке)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "fw_confirmed", "title": "Confirm enable", "description": "true — разрешить ВКЛЮЧЕНИЕ ufw сразу на нескольких хостах (для одного хоста не нужен)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]

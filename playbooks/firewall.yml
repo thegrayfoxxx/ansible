@@ -43,12 +43,16 @@
         update_cache: true
         cache_valid_time: 3600
 
+    - name: Resolve SSH port under guard
+      ansible.builtin.set_fact:
+        fw_ssh_port: "{{ ansible_port | default(22) }}"
+
     - name: Guard against SSH lockout
       ansible.builtin.fail:
-        msg: "Refusing to enable UFW without SSH access: add 22/tcp to fw_allow (via Extra vars)"
+        msg: "Refusing to enable UFW without SSH access: add {{ fw_ssh_port }}/tcp to fw_allow (via Extra vars)"
       when:
         - fw_enable | bool
-        - (fw_allow_list | map('regex_replace', '^([0-9]{1,5}).*$', '\\1') | select('equalto', '22') | list | length) == 0
+        - (fw_allow_list | map('regex_replace', '^([0-9]{1,5}).*$', '\\1') | select('equalto', (fw_ssh_port | string)) | list | length) == 0
 
     - name: Set default policies
       community.general.ufw:
