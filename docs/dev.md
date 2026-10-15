@@ -35,6 +35,6 @@ ansible-galaxy collection install -r requirements.yml
 
 - новый плейбук → запись в `semaphore/templates.json` (survey: `target` первым, человеческие Title, `default_value` до `values`) + подраздел в доке своей зоны;
 - `src` в `template`/`copy` — только через `{{ playbook_dir }}/../templates/...` или `{{ playbook_dir }}/../files/...` (относительные пути резолвятся от каталога плейбука, а не корня репо; `--syntax-check` это не ловит — только живой прогон);
-- блоки discovery/render в `remnawave_node_adopt.yml` и `remnawave_node_move.yml` — держать побайтово одинаковыми (`add` — референс вывода render);
+- блоки discovery/render/ufw-check в `remnawave_node_adopt.yml` и `remnawave_node_move.yml` — держать побайтово одинаковыми (`add` — референс вывода render);
 - `README.md` не трогаем (только дерево `docs/`, если появился новый файл);
 - JSON-примеры в доках — тот же формат, что survey-поля в UI.

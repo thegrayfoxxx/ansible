@@ -144,9 +144,37 @@
         - (remnawave_port_final | int < 1) or (remnawave_port_final | int > 65535)
           or (remnawave_node_secret | default('') | length == 0)
 
+    - name: Check ufw is available
+      ansible.builtin.shell: command -v ufw
+      args:
+        executable: /bin/bash
+      register: remnanode_ufw_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Get ufw status
+      ansible.builtin.command: ufw status
+      register: remnanode_ufw_status
+      changed_when: false
+      failed_when: false
+      when: remnanode_ufw_bin.rc == 0
+
+    - name: Resolve ufw state
+      ansible.builtin.set_fact:
+        remnanode_ufw_state: "{{ 'missing' if (remnanode_ufw_bin.rc != 0) else ('active' if ('Status: active' in (remnanode_ufw_status.stdout | default(''))) else 'inactive') }}"
+
+    - name: Resolve port firewall state
+      ansible.builtin.set_fact:
+        remnanode_port_fw: "{{ 'na' if (remnanode_ufw_state != 'active') else ('allowed' if ((remnanode_ufw_status.stdout_lines | default([]) | select('search', '^' + remnawave_port_final + '/') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed') }}"
+
+    - name: Warn when ufw blocks the port
+      ansible.builtin.debug:
+        msg: "ufw is active but port {{ remnawave_port_final }} is not allowed — panel may not reach this node. Open it via the firewall template ({{ remnawave_port_final }}/tcp [from PANEL_IP])"
+      when: remnanode_port_fw == 'closed'
+
     - name: Show discovery summary
       ansible.builtin.debug:
-        msg: "container={{ remnanode_agent_container }} old_dir={{ remnanode_old_dir_final }} compose={{ remnanode_old_compose.stat.exists }} port={{ remnawave_port_final }} creds_from={{ remnanode_creds_source }} target_dir={{ remnanode_dir }}"
+        msg: "container={{ remnanode_agent_container }} old_dir={{ remnanode_old_dir_final }} compose={{ remnanode_old_compose.stat.exists }} port={{ remnawave_port_final }} creds_from={{ remnanode_creds_source }} target_dir={{ remnanode_dir }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"
 
     - name: Stop at inspect
       ansible.builtin.meta: end_play
@@ -272,7 +300,7 @@
 
         - name: Show adopt summary
           ansible.builtin.debug:
-            msg: "adopted {{ remnanode_old_dir_final }} -> {{ remnanode_dir }} port={{ remnawave_port_final }} backup_container={{ remnanode_backup_container }}{{ (' backup_dir=' + remnanode_backup_dir) if remnanode_old_compose.stat.exists else '' }} (remove backups manually when stable)"
+            msg: "adopted {{ remnanode_old_dir_final }} -> {{ remnanode_dir }} port={{ remnawave_port_final }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} backup_container={{ remnanode_backup_container }}{{ (' backup_dir=' + remnanode_backup_dir) if remnanode_old_compose.stat.exists else '' }} (remove backups manually when stable)"
       rescue:
         - name: Take down partial new stack
           community.docker.docker_compose_v2:

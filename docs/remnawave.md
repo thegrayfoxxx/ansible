@@ -84,6 +84,7 @@
 - `remnanode_old_dir` (пусто — автоопределить из compose-меток; нет меток — обязательно явно)
 - `remnanode_dir` + флаги `mount_shm/mount_logs/log_dir/log_max_size/log_keep` — те же, что в deploy
 - discovery: compose-метки → `working_dir`, креды — сначала из running-контейнера (`docker inspect` → `Env`), потом из старого `.env`; секрет в логах не светится
+- фаервол только светим (`ufw=active/inactive/missing`, `port_fw=allowed/closed/na` + warning при закрытом) — правила меняет `firewall`-шаблон
 - migrate: бэкап (переименование контейнера + каталога с timestamp, не удаление) → рендер стандарта → `up` → проверка running+listen; провал — автораollback (поднять бэкап) + fail с командой ручной проверки
 - тот же каталог как target — fail с подсказкой гнать `deploy` (переезжать нечего)
 

@@ -159,6 +159,34 @@
       no_log: true
       when: remnawave_move_action == 'move'
 
+    - name: Check ufw is available
+      ansible.builtin.shell: command -v ufw
+      args:
+        executable: /bin/bash
+      register: remnanode_ufw_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Get ufw status
+      ansible.builtin.command: ufw status
+      register: remnanode_ufw_status
+      changed_when: false
+      failed_when: false
+      when: remnanode_ufw_bin.rc == 0
+
+    - name: Resolve ufw state
+      ansible.builtin.set_fact:
+        remnanode_ufw_state: "{{ 'missing' if (remnanode_ufw_bin.rc != 0) else ('active' if ('Status: active' in (remnanode_ufw_status.stdout | default(''))) else 'inactive') }}"
+
+    - name: Resolve port firewall state
+      ansible.builtin.set_fact:
+        remnanode_port_fw: "{{ 'na' if (remnanode_ufw_state != 'active') else ('allowed' if ((remnanode_ufw_status.stdout_lines | default([]) | select('search', '^' + remnawave_port_final + '/') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed') }}"
+
+    - name: Warn when ufw blocks the port
+      ansible.builtin.debug:
+        msg: "ufw is active but port {{ remnawave_port_final }} is not allowed — panel may not reach this node. Open it via the firewall template ({{ remnawave_port_final }}/tcp [from PANEL_IP])"
+      when: remnanode_port_fw == 'closed'
+
     - name: Show discovery summary
       ansible.builtin.debug:
         msg: "source={{ inventory_hostname }} container={{ remnanode_agent_container }} old_dir={{ remnanode_old_dir_final }} compose={{ remnanode_old_compose.stat.exists }} port={{ remnawave_port_final }} creds_from={{ remnanode_creds_source }} dest={{ remnanode_move_dest | trim }}"
@@ -347,6 +375,34 @@
             msg: "Port {{ remnawave_port_final }} is not listening on destination. Check docker logs in {{ remnanode_dir }}"
           when: remnanode_port_listen.stdout | length == 0
 
+        - name: Check ufw is available
+          ansible.builtin.shell: command -v ufw
+          args:
+            executable: /bin/bash
+          register: remnanode_ufw_bin
+          changed_when: false
+          failed_when: false
+
+        - name: Get ufw status
+          ansible.builtin.command: ufw status
+          register: remnanode_ufw_status
+          changed_when: false
+          failed_when: false
+          when: remnanode_ufw_bin.rc == 0
+
+        - name: Resolve ufw state
+          ansible.builtin.set_fact:
+            remnanode_ufw_state: "{{ 'missing' if (remnanode_ufw_bin.rc != 0) else ('active' if ('Status: active' in (remnanode_ufw_status.stdout | default(''))) else 'inactive') }}"
+
+        - name: Resolve port firewall state
+          ansible.builtin.set_fact:
+            remnanode_port_fw: "{{ 'na' if (remnanode_ufw_state != 'active') else ('allowed' if ((remnanode_ufw_status.stdout_lines | default([]) | select('search', '^' + remnawave_port_final + '/') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed') }}"
+
+        - name: Warn when ufw blocks the port
+          ansible.builtin.debug:
+            msg: "ufw is active but port {{ remnawave_port_final }} is not allowed — panel may not reach this node. Open it via the firewall template ({{ remnawave_port_final }}/tcp [from PANEL_IP])"
+          when: remnanode_port_fw == 'closed'
+
         - name: Mark move verified
           ansible.builtin.set_fact:
             remnawave_move_ok: true
@@ -366,7 +422,7 @@
 
     - name: Show move summary
       ansible.builtin.debug:
-        msg: "moved to {{ inventory_hostname }}:{{ remnanode_dir }} port={{ remnawave_port_final }} (same domain — repoint DNS to {{ inventory_hostname }}; old node decommissioned next)"
+        msg: "moved to {{ inventory_hostname }}:{{ remnanode_dir }} port={{ remnawave_port_final }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} (same domain — repoint DNS to {{ inventory_hostname }}; old node decommissioned next)"
 
 - name: Remnawave node move — decommission source
   hosts: "{{ target }}"
