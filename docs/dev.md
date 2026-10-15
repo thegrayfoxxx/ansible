@@ -19,6 +19,8 @@ ansible-playbook --syntax-check playbooks/crowdsec_register.yml -e '{"target":"a
 ansible-playbook --syntax-check playbooks/crowdsec_node.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/crowdsec_node_update.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/crowdsec_unregister.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/crowdsec_adopt.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/crowdsec_move.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/docker.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/bbr.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/cleanup.yml -e '{"target":"all"}'
@@ -29,6 +31,7 @@ ansible-playbook --syntax-check playbooks/remnawave_node_adopt.yml -e '{"target"
 ansible-playbook --syntax-check playbooks/remnawave_node_move.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/nginx_fallback.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/nginx_adopt.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/nginx_move.yml -e '{"target":"all"}'
 ansible-galaxy collection install -r requirements.yml
 ```
 
@@ -36,6 +39,6 @@ ansible-galaxy collection install -r requirements.yml
 
 - новый плейбук → запись в `semaphore/templates.json` (survey: `target` первым, человеческие Title, `default_value` до `values`) + подраздел в доке своей зоны;
 - `src` в `template`/`copy` — только через `{{ playbook_dir }}/../templates/...` или `{{ playbook_dir }}/../files/...` (относительные пути резолвятся от каталога плейбука, а не корня репо; `--syntax-check` это не ловит — только живой прогон);
-- блоки discovery/render/ufw-check в `remnawave_node_adopt.yml` и `remnawave_node_move.yml` — держать побайтово одинаковыми (`add` — референс вывода render);
+- парные `*_adopt`/`*_move` плейбуки: общие блоки (discovery/render/ufw-check/rename-backup) — держать побайтово одинаковыми внутри пары (`add`/`deploy` — референс вывода render);
 - `README.md` не трогаем (только дерево `docs/`, если появился новый файл);
 - JSON-примеры в доках — тот же формат, что survey-поля в UI.

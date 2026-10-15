@@ -1,0 +1,660 @@
+---
+- name: Nginx move — discover source (certs and account preserved)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    nginx_move_action: inspect
+    nginx_move_dest: ""
+    nginx_move_confirmed: false
+    nginx_web_container: ""
+    nginx_old_dir: ""
+  tasks:
+    - name: Validate move action value
+      ansible.builtin.fail:
+        msg: "nginx_move_action must be inspect or move, got {{ nginx_move_action }}"
+      when: nginx_move_action not in ['inspect', 'move']
+
+    - name: Require exactly one source host
+      ansible.builtin.fail:
+        msg: "Move reads from one source node per run — point target at a single source host, got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Require destination host
+      ansible.builtin.fail:
+        msg: "Set nginx_move_dest to the destination inventory hostname (e.g. de9)"
+      when: nginx_move_dest | default('') | trim | length == 0
+
+    - name: Require destination different from source
+      ansible.builtin.fail:
+        msg: "Destination '{{ nginx_move_dest | trim }}' is the source host itself. Move needs two different nodes"
+      when: (nginx_move_dest | trim) == inventory_hostname
+
+    - name: Require move confirmation
+      ansible.builtin.fail:
+        msg: "Move decommissions the working fallback on {{ inventory_hostname }}. Set nginx_move_confirmed=true to allow"
+      when:
+        - nginx_move_action == 'move'
+        - not (nginx_move_confirmed | bool)
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: nginx_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker on node
+      ansible.builtin.fail:
+        msg: "docker not found. Run the docker template on this host first"
+      when: nginx_docker_bin.rc != 0
+
+    - name: List running containers
+      ansible.builtin.command: docker ps --format json
+      register: nginx_ps
+      changed_when: false
+      failed_when: false
+
+    - name: Require working docker daemon
+      ansible.builtin.fail:
+        msg: "docker ps failed — is dockerd running on {{ inventory_hostname }}?"
+      when: nginx_ps.rc != 0
+
+    - name: Resolve nginx candidates
+      ansible.builtin.set_fact:
+        nginx_candidates: "{{ (nginx_ps.stdout_lines | default([]) | map('from_json') | selectattr('Image', 'search', '(?i)(^|/)nginx:') | map(attribute='Names') | list) }}"
+
+    - name: Resolve web container
+      ansible.builtin.set_fact:
+        nginx_web_final: "{{ (nginx_web_container | default('') | trim) or ((nginx_candidates | first) if (nginx_candidates | length == 1) else '') }}"
+
+    - name: Require single nginx container
+      ansible.builtin.fail:
+        msg: "Nginx container not resolved: found {{ nginx_candidates | length }} running nginx:* containers ({{ nginx_candidates | join(', ') | default('none', true) }}). Set explicit Nginx container"
+      when: nginx_web_final | default('') | trim | length == 0
+
+    - name: Validate web container name
+      ansible.builtin.fail:
+        msg: "Container name must match ^[a-zA-Z0-9_.-]+$, got '{{ nginx_web_final }}'"
+      when: nginx_web_final is not match('^[a-zA-Z0-9_.-]+$')
+
+    - name: Inspect web container
+      ansible.builtin.command: docker inspect {{ nginx_web_final }}
+      register: nginx_inspect_raw
+      changed_when: false
+      failed_when: false
+
+    - name: Require web container
+      ansible.builtin.fail:
+        msg: "Container '{{ nginx_web_final }}' not found on {{ inventory_hostname }} (stopped?). Start it or set explicit Nginx container"
+      when: nginx_inspect_raw.rc != 0
+
+    - name: Parse container metadata
+      ansible.builtin.set_fact:
+        nginx_inspect: "{{ (nginx_inspect_raw.stdout | from_json | first) | default({}) }}"
+
+    - name: Resolve compose metadata
+      ansible.builtin.set_fact:
+        nginx_compose_labels: "{{ nginx_inspect.Config.Labels | default({}) }}"
+        nginx_inspect_env: "{{ nginx_inspect.Config.Env | default([]) }}"
+        nginx_inspect_mounts: "{{ nginx_inspect.Config.Mounts | default(nginx_inspect.Mounts | default([])) }}"
+
+    - name: Resolve label config file
+      ansible.builtin.set_fact:
+        nginx_label_config: "{{ ((nginx_compose_labels['com.docker.compose.project.config_files'] | default('')).split(',') | map('trim') | select | list | first) | default('') }}"
+
+    - name: Resolve old project dir
+      ansible.builtin.set_fact:
+        nginx_old_dir_final: "{{ (nginx_old_dir | default('') | trim) or (nginx_compose_labels['com.docker.compose.project.working_dir'] | default('') | trim) or ((nginx_label_config | dirname) if (nginx_label_config | length > 0) else '') }}"
+
+    - name: Require discovered project dir
+      ansible.builtin.fail:
+        msg: "No compose metadata found for '{{ nginx_web_final }}' (manual docker run?). Set explicit Old project dir"
+      when: nginx_old_dir_final | default('') | trim | length == 0
+
+    - name: Validate old project dir
+      ansible.builtin.fail:
+        msg: "Old project dir must be an absolute path, got '{{ nginx_old_dir_final }}'"
+      when: not (nginx_old_dir_final is match('^/.+'))
+
+    - name: Resolve bind source by destination
+      ansible.builtin.set_fact:
+        nginx_html_mount: "{{ (nginx_inspect_mounts | selectattr('Destination', 'in', ['/usr/share/nginx/html/index.html', '/usr/share/nginx/html']) | list | first) | default({}) }}"
+        nginx_le_mount: "{{ (nginx_inspect_mounts | selectattr('Destination', 'equalto', '/etc/letsencrypt') | list | first) | default({}) }}"
+        nginx_conf_mount: "{{ (nginx_inspect_mounts | selectattr('Destination', 'equalto', '/etc/nginx/templates/default.conf.template') | list | first) | default({}) }}"
+
+    - name: Require bind mounts for migration
+      ansible.builtin.fail:
+        msg: "Migration needs bind mounts for html/letsencrypt/nginx-conf, found: html={{ nginx_html_mount | default({}) != {} }} letsencrypt={{ nginx_le_mount | default({}) != {} }} conf={{ nginx_conf_mount | default({}) != {} }}. Named volumes or missing mounts are not supported in v1"
+      when:
+        - (nginx_html_mount | default({}) | length == 0)
+          or (nginx_html_mount.Type | default('') != 'bind')
+          or (nginx_le_mount | default({}) | length == 0)
+          or (nginx_le_mount.Type | default('') != 'bind')
+          or (nginx_conf_mount | default({}) | length == 0)
+          or (nginx_conf_mount.Type | default('') != 'bind')
+
+    - name: Resolve html source file
+      ansible.builtin.set_fact:
+        nginx_html_src: "{{ nginx_html_mount.Source if (nginx_html_mount.Destination == '/usr/share/nginx/html/index.html') else ((nginx_html_mount.Source + '/index.html') if (nginx_html_mount.Destination == '/usr/share/nginx/html') else '') }}"
+
+    - name: Require known html mount form
+      ansible.builtin.fail:
+        msg: "Html mount has unexpected destination '{{ nginx_html_mount.Destination }}' (expected the index.html file or the html dir). Fix the old layout manually"
+      when: nginx_html_src | length == 0
+
+    - name: Resolve letsencrypt and config sources
+      ansible.builtin.set_fact:
+        nginx_le_src: "{{ nginx_le_mount.Source }}"
+        nginx_conf_src: "{{ nginx_conf_mount.Source }}"
+
+    - name: Check migrated sources exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ nginx_html_src }}"
+        - "{{ nginx_le_src }}"
+        - "{{ nginx_conf_src }}"
+      register: nginx_src_stat
+
+    - name: Require present migrated sources
+      ansible.builtin.fail:
+        msg: "Migrated source missing: {{ item.item }}. Inspect the old layout manually"
+      loop: "{{ nginx_src_stat.results }}"
+      when: not item.stat.exists
+
+    - name: Discover acme container
+      ansible.builtin.set_fact:
+        nginx_acme_found: "{{ (nginx_ps.stdout_lines | default([]) | map('from_json') | selectattr('Image', 'search', '(?i)acme\\.sh') | list | length) > 0 }}"
+        nginx_acme_name: "{{ ((nginx_ps.stdout_lines | default([]) | map('from_json') | selectattr('Image', 'search', '(?i)acme\\.sh') | map(attribute='Names') | list | first) | default('')) }}"
+
+    - name: Inspect acme container
+      ansible.builtin.command: docker inspect {{ nginx_acme_name }}
+      register: nginx_acme_inspect_raw
+      changed_when: false
+      failed_when: false
+      when: nginx_acme_found | bool
+
+    - name: Resolve acme state source
+      ansible.builtin.set_fact:
+        nginx_acme_src: "{{ (((nginx_acme_inspect_raw.stdout | from_json | first) | default({})).Config.Mounts | default([]) | selectattr('Destination', 'equalto', '/acme.sh') | list | first | default({})).Source | default('') }}"
+      when: nginx_acme_found | bool
+
+    - name: Warn when acme state is not portable
+      ansible.builtin.debug:
+        msg: "acme container '{{ nginx_acme_name }}' has no /acme.sh bind mount — account state stays behind; future renewals will need a fresh issue"
+      when:
+        - nginx_acme_found | bool
+        - nginx_acme_src | default('') | length == 0
+
+    - name: Check old env file
+      ansible.builtin.stat:
+        path: "{{ nginx_old_dir_final }}/.env"
+      register: nginx_old_env
+
+    - name: Read old env file
+      ansible.builtin.slurp:
+        src: "{{ nginx_old_dir_final }}/.env"
+      register: nginx_old_env_content
+      when: nginx_old_env.stat.exists
+
+    - name: Resolve domain and account
+      ansible.builtin.set_fact:
+        nginx_domain_final: "{{ (nginx_inspect_env | select('match', '^DOMAIN=') | list | first | default('') | regex_replace('^DOMAIN=', '') | trim) or ((nginx_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^DOMAIN=') | list | first | default('') | regex_replace('^DOMAIN=', '') | trim) }}"
+        nginx_email_final: "{{ (nginx_email | default('') | trim) or ((nginx_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^EMAIL=') | list | first | default('') | regex_replace('^EMAIL=', '') | trim) }}"
+        nginx_acme_server_final: "{{ (((nginx_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^ACME_SERVER=') | list | first | default('') | regex_replace('^ACME_SERVER=', '')) | trim) or 'https://acme-v02.api.letsencrypt.org/directory' }}"
+
+    - name: Require discovered domain
+      ansible.builtin.fail:
+        msg: "DOMAIN not found (checked container env and old .env). Refusing to migrate blind"
+      when: nginx_domain_final | default('') | trim | length == 0
+
+    - name: Require email for future issues
+      ansible.builtin.fail:
+        msg: "EMAIL not found in old .env and no survey override. It is required for future certificate re-issues — fill ACME email"
+      when: nginx_email_final | default('') | trim | length == 0
+
+    - name: Check live certificates on source
+      ansible.builtin.stat:
+        path: "{{ nginx_le_src }}/live/{{ nginx_domain_final }}/{{ item }}"
+      loop:
+        - fullchain.pem
+        - privkey.pem
+      register: nginx_src_cert
+
+    - name: Require issued certificates on source
+      ansible.builtin.fail:
+        msg: "No live certificates for {{ nginx_domain_final }} in source letsencrypt. Issue them first, then move"
+      when: (nginx_src_cert.results | selectattr('stat.exists') | list | length) != 2
+
+    - name: Publish state for destination play
+      ansible.builtin.set_fact:
+        nginx_move_bundle:
+          source: "{{ inventory_hostname }}"
+          domain: "{{ nginx_domain_final }}"
+          email: "{{ nginx_email_final }}"
+          acme_server: "{{ nginx_acme_server_final }}"
+          html_src: "{{ nginx_html_src }}"
+          le_src: "{{ nginx_le_src }}"
+          conf_src: "{{ nginx_conf_src }}"
+          acme_src: "{{ nginx_acme_src | default('') }}"
+          acme_found: "{{ nginx_acme_found | bool }}"
+          web_container: "{{ nginx_web_final }}"
+          acme_name: "{{ nginx_acme_name | default('') }}"
+          old_dir: "{{ nginx_old_dir_final }}"
+        nginx_move_ok: false
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+      when: nginx_move_action == 'move'
+
+    - name: Show discovery summary
+      ansible.builtin.debug:
+        msg: "source={{ inventory_hostname }} container={{ nginx_web_final }} old_dir={{ nginx_old_dir_final }} domain={{ nginx_domain_final }} email={{ 'set' if (nginx_email_final | trim | length > 0) else 'missing' }} acme={{ nginx_acme_name if (nginx_acme_found | bool) else 'missing (renewals need re-issue)' }} certs=issued dest={{ nginx_move_dest | trim }}"
+
+    - name: Stop at inspect
+      ansible.builtin.meta: end_play
+      when: nginx_move_action == 'inspect'
+
+- name: Nginx move — deploy on destination with moved state
+  hosts: "{{ nginx_move_dest }}"
+  gather_facts: false
+  become: true
+  vars:
+    nginx_move_action: inspect
+    nginx_dir: /opt/nginx
+    nginx_open_ports: false
+    nginx_overwrite_conf: false
+    nginx_socket: /dev/shm/nginx.sock
+    nginx_new_web_container: fallback-web
+    nginx_new_acme_container: fallback-acme
+  tasks:
+    - name: Stop at inspect
+      ansible.builtin.meta: end_play
+      when: nginx_move_action != 'move'
+
+    - name: Require exactly one destination host
+      ansible.builtin.fail:
+        msg: "Move deploys to one destination node per run — point Destination host at a single inventory hostname, got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Load published bundle
+      ansible.builtin.set_fact:
+        nginx_move_src: "{{ hostvars['localhost']['nginx_move_bundle'] }}"
+
+    - name: Normalize project dir
+      ansible.builtin.set_fact:
+        nginx_dir: "{{ (nginx_dir | default('') | trim) or '/opt/nginx' }}"
+
+    - name: Validate project dir
+      ansible.builtin.fail:
+        msg: "nginx_dir must be an absolute path, got '{{ nginx_dir }}'"
+      when: not (nginx_dir is match('^/.+'))
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: nginx_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker on node
+      ansible.builtin.fail:
+        msg: "docker not found. Run the docker template on this host first"
+      when: nginx_docker_bin.rc != 0
+
+    - name: Check destination container names are free
+      ansible.builtin.command: docker inspect {{ item }}
+      loop:
+        - "{{ nginx_new_web_container }}"
+        - "{{ nginx_new_acme_container }}"
+      register: nginx_dest_taken
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse occupied destination names
+      ansible.builtin.fail:
+        msg: "Destination already has container '{{ item.item }}'. Move needs a clean destination"
+      loop: "{{ nginx_dest_taken.results }}"
+      when: item.rc == 0
+
+    - name: Check destination port 80 is free
+      ansible.builtin.shell: "ss -tlnp | grep -E ':(80)\\s' || true"
+      args:
+        executable: /bin/bash
+      register: nginx_dest_port_busy
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse busy destination port
+      ansible.builtin.fail:
+        msg: "Port 80 is already listening on destination. Move needs it free"
+      when: nginx_dest_port_busy.stdout | length > 0
+
+    - name: Timestamp for transfer
+      ansible.builtin.command: date +%Y%m%d%H%M%S
+      register: nginx_ts
+      changed_when: false
+
+    - name: Ensure target dirs
+      ansible.builtin.file:
+        path: "{{ nginx_dir }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - ""
+        - nginx
+        - html
+        - webroot
+        - acme.sh
+        - letsencrypt
+
+    - name: Render compose file
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/nginx/compose.yml.j2"
+        dest: "{{ nginx_dir }}/compose.yml"
+        mode: "0644"
+
+    - name: Render fallback env file
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/nginx/dotenv.j2"
+        dest: "{{ nginx_dir }}/.env"
+        mode: "0644"
+      vars:
+        nginx_domain: "{{ nginx_move_src.domain }}"
+        nginx_email: "{{ nginx_move_src.email }}"
+        nginx_acme_server: "{{ nginx_move_src.acme_server }}"
+
+    - name: Copy stock nginx config
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../files/nginx/fallback.conf.template"
+        dest: "{{ nginx_dir }}/nginx/fallback.conf.template"
+        mode: "0644"
+      when: nginx_overwrite_conf | bool
+
+    - name: Deploy moved state
+      block:
+        - name: Stage LE state on source
+          ansible.builtin.file:
+            path: "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}/{{ item }}"
+            state: directory
+            mode: "0700"
+          loop:
+            - html
+            - nginx
+            - letsencrypt
+          delegate_to: "{{ nginx_move_src.source }}"
+          no_log: true
+
+        - name: Copy html page to staging
+          ansible.builtin.copy:
+            src: "{{ nginx_move_src.html_src }}"
+            dest: "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}/html/index.html"
+            mode: "0644"
+            remote_src: true
+          delegate_to: "{{ nginx_move_src.source }}"
+          no_log: true
+
+        - name: Copy nginx config to staging
+          ansible.builtin.copy:
+            src: "{{ nginx_move_src.conf_src }}"
+            dest: "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}/nginx/fallback.conf.template"
+            mode: "0644"
+            remote_src: true
+          delegate_to: "{{ nginx_move_src.source }}"
+          no_log: true
+          when: not (nginx_overwrite_conf | bool)
+
+        - name: Copy LE state to staging
+          ansible.builtin.command:
+            argv: ["cp", "-a", "{{ nginx_move_src.le_src.rstrip('/') }}/.", "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}/letsencrypt/"]
+          changed_when: true
+          delegate_to: "{{ nginx_move_src.source }}"
+          no_log: true
+
+        - name: Copy acme state to staging
+          ansible.builtin.command:
+            argv: ["cp", "-a", "{{ nginx_move_src.acme_src.rstrip('/') }}/.", "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}/acme.sh/"]
+          changed_when: true
+          delegate_to: "{{ nginx_move_src.source }}"
+          no_log: true
+          when: (nginx_move_src.acme_src | default('')) | length > 0
+
+        - name: Archive staged state
+          ansible.builtin.command:
+            argv: ["tar", "czf", "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}.tgz", "-C", "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}", "html", "nginx", "letsencrypt", "acme.sh"]
+          changed_when: true
+          delegate_to: "{{ nginx_move_src.source }}"
+          no_log: true
+
+        - name: Remove staging dir on source
+          ansible.builtin.file:
+            path: "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}"
+            state: absent
+          delegate_to: "{{ nginx_move_src.source }}"
+          no_log: true
+
+        - name: Fetch state archive
+          ansible.builtin.fetch:
+            src: "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}.tgz"
+            dest: "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}.tgz"
+            flat: true
+          delegate_to: "{{ nginx_move_src.source }}"
+          no_log: true
+
+        - name: Remove archive on source
+          ansible.builtin.file:
+            path: "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}.tgz"
+            state: absent
+          delegate_to: "{{ nginx_move_src.source }}"
+          no_log: true
+
+        - name: Unpack state archive
+          ansible.builtin.unarchive:
+            src: "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}.tgz"
+            dest: "{{ nginx_dir }}/"
+            remote_src: false
+          no_log: true
+
+        - name: Remove controller archive
+          ansible.builtin.file:
+            path: "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}.tgz"
+            state: absent
+          delegate_to: localhost
+          become: false
+          no_log: true
+
+        - name: Deploy moved stack
+          community.docker.docker_compose_v2:
+            project_src: "{{ nginx_dir }}"
+            state: present
+          register: nginx_deploy
+
+        - name: Wait for nginx socket
+          ansible.builtin.stat:
+            path: "{{ nginx_socket }}"
+          register: nginx_sock
+          until: nginx_sock.stat.exists
+          retries: 12
+          delay: 5
+
+        - name: Allow xray to use the socket
+          ansible.builtin.file:
+            path: "{{ nginx_socket }}"
+            mode: "0666"
+
+        - name: Validate nginx config
+          ansible.builtin.command: docker exec {{ nginx_new_web_container }} nginx -t
+          changed_when: false
+
+        - name: Check moved web container is running
+          ansible.builtin.command: docker ps -q --filter name={{ nginx_new_web_container }}
+          register: nginx_verify
+          changed_when: false
+          failed_when: false
+
+        - name: Require running moved container
+          ansible.builtin.fail:
+            msg: "Moved container '{{ nginx_new_web_container }}' is not running on destination. Check docker logs in {{ nginx_dir }}"
+          when: nginx_verify.stdout | default('') | trim | length == 0
+
+        - name: Check moved port 80 is listening
+          ansible.builtin.shell: "ss -tlnp | grep -E ':(80)\\s' || true"
+          args:
+            executable: /bin/bash
+          register: nginx_port_listen
+          changed_when: false
+          failed_when: false
+
+        - name: Require listening port 80
+          ansible.builtin.fail:
+            msg: "Port 80 is not listening on destination. Check docker logs in {{ nginx_dir }}"
+          when: nginx_port_listen.stdout | length == 0
+
+        - name: Check moved certificates exist
+          ansible.builtin.stat:
+            path: "{{ nginx_dir }}/letsencrypt/live/{{ nginx_move_src.domain }}/{{ item }}"
+          loop:
+            - fullchain.pem
+            - privkey.pem
+          register: nginx_cert_check
+
+        - name: Require moved certificates
+          ansible.builtin.fail:
+            msg: "Certificate files missing after move in {{ nginx_dir }}/letsencrypt/live/{{ nginx_move_src.domain }}/. Inspect the transfer manually"
+          when: (nginx_cert_check.results | selectattr('stat.exists') | list | length) != 2
+
+        - name: Check moved certificate issuer
+          ansible.builtin.command: openssl x509 -noout -issuer -in {{ nginx_dir }}/letsencrypt/live/{{ nginx_move_src.domain }}/fullchain.pem
+          register: nginx_cert_issuer
+          changed_when: false
+          failed_when: false
+
+        - name: Warn on staging certificate
+          ansible.builtin.debug:
+            msg: "Moved certificate is LE staging — browsers will distrust it. Re-issue prod via nginx_fallback deploy with force on this node"
+          when: "'staging' in (nginx_cert_issuer.stdout | default('') | lower)"
+
+        - name: Check ufw is available
+          ansible.builtin.shell: command -v ufw
+          args:
+            executable: /bin/bash
+          register: nginx_ufw_bin
+          changed_when: false
+          failed_when: false
+
+        - name: Get ufw status
+          ansible.builtin.command: ufw status
+          register: nginx_ufw_status
+          changed_when: false
+          failed_when: false
+          when: nginx_ufw_bin.rc == 0
+
+        - name: Resolve ufw state
+          ansible.builtin.set_fact:
+            nginx_ufw_state: "{{ 'missing' if (nginx_ufw_bin.rc != 0) else ('active' if ('Status: active' in (nginx_ufw_status.stdout | default(''))) else 'inactive') }}"
+
+        - name: Resolve web ports firewall state
+          ansible.builtin.set_fact:
+            nginx_ports_fw: "{{ nginx_ports_fw | default({}) | combine({item: ('na' if (nginx_ufw_state != 'active') else ('allowed' if ((nginx_ufw_status.stdout_lines | default([]) | select('search', '^' + item + '/') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed'))}) }}"
+          loop:
+            - "80"
+            - "443"
+
+        - name: Warn when ufw blocks web ports
+          ansible.builtin.debug:
+            msg: "ufw is active but web ports not fully allowed {{ nginx_ports_fw }} — clients may not reach this node. Open 80,443/tcp via the firewall template"
+          when: "'closed' in (nginx_ports_fw.values() | list)"
+
+        - name: Check ufw is available for auto open
+          ansible.builtin.shell: command -v ufw
+          args:
+            executable: /bin/bash
+          register: nginx_ufw_open_bin
+          changed_when: false
+          failed_when: false
+          when: nginx_open_ports | bool
+
+        - name: Warn when ufw is missing for auto open
+          ansible.builtin.debug:
+            msg: "ufw not found — ports 80,443 NOT opened. Install ufw (base/firewall templates) or open them manually"
+          when:
+            - nginx_open_ports | bool
+            - nginx_ufw_open_bin.rc | default(1) | int != 0
+
+        - name: Open web ports in ufw
+          community.general.ufw:
+            rule: allow
+            port: "{{ item }}"
+            proto: tcp
+          loop:
+            - "80"
+            - "443"
+          when:
+            - nginx_open_ports | bool
+            - nginx_ufw_open_bin.rc | default(1) | int == 0
+
+        - name: Mark move verified
+          ansible.builtin.set_fact:
+            nginx_move_ok: true
+          delegate_to: localhost
+          delegate_facts: true
+          run_once: true
+      rescue:
+        - name: Take down partial moved stack
+          community.docker.docker_compose_v2:
+            project_src: "{{ nginx_dir | default('/opt/nginx') }}"
+            state: absent
+          failed_when: false
+
+        - name: Fail with source intact note
+          ansible.builtin.fail:
+            msg: "Move failed ({{ ansible_failed_result.msg | default('see above') }}); source node untouched — fix and re-run"
+
+    - name: Show move summary
+      ansible.builtin.debug:
+        msg: "moved to {{ inventory_hostname }}:{{ nginx_dir }} domain={{ nginx_move_src.domain }} cert={{ 'staging!' if ('staging' in (nginx_cert_issuer.stdout | default('') | lower)) else 'prod' }} ufw={{ nginx_ufw_state }} ports_fw={{ nginx_ports_fw }} firewall={{ 'manual' if not (nginx_open_ports | bool) else 'open' }} (same domain — repoint DNS to {{ inventory_hostname }}; old node decommissioned next)"
+
+- name: Nginx move — decommission source
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    nginx_move_action: inspect
+    nginx_web_container: ""
+  tasks:
+    - name: Stop at inspect
+      ansible.builtin.meta: end_play
+      when: nginx_move_action != 'move'
+
+    - name: Timestamp for backup
+      ansible.builtin.command: date +%Y%m%d%H%M%S
+      register: nginx_ts
+      changed_when: false
+
+    - name: Stop old containers
+      ansible.builtin.command:
+        argv: ["docker", "stop", "{{ item }}"]
+      loop: "{{ [nginx_web_final | default('')] + ([nginx_acme_name] if (nginx_acme_found | default(false) | bool) else []) | select | list }}"
+      register: nginx_old_stop
+      changed_when: true
+      failed_when: false
+      when: (nginx_web_final | default('') | length) > 0
+
+    - name: Require stopped old containers
+      ansible.builtin.fail:
+        msg: "Could not stop old containers on source. New node is UP with the same domain — stop the old ones MANUALLY NOW to avoid split-brain: docker stop {{ nginx_web_final }}"
+      when: nginx_old_stop.results | default([]) | rejectattr('rc', 'equalto', 0) | list | length > 0
+
+    - name: Rename old containers aside
+      ansible.builtin.command:
+        argv: ["docker", "rename", "{{ item }}", "{{ item }}-moved-bak-{{ nginx_ts.stdout | trim }}"]
+      loop: "{{ [nginx_web_final | default('')] + ([nginx_acme_name] if (nginx_acme_found | default(false) | bool) else []) | select | list }}"
+      changed_when: true
+      when: (nginx_web_final | default('') | length) > 0
+
+    - name: Show decommission summary
+      ansible.builtin.debug:
+        msg: "source {{ inventory_hostname }} decommissioned: containers renamed *-moved-bak (rename back + start to roll back), project files left intact (remove manually when stable). DNS already repointed?"

@@ -1,6 +1,6 @@
 # Вкладка CrowdSec: агент + баунсер в Docker (LAPI уже стоит)
 
-Четыре шаблона, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота), обновление — `crowdsec_node_update` (`pull + down + up -d`, секреты LAPI не нужны, работает на группе), снос — `crowdsec_unregister` (на хосте LAPI) + `crowdsec_node` с `action=remove` (на ноде). Ручного создания шаблонов не нужно — все приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
+Шесть шаблонов, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота), обновление — `crowdsec_node_update` (`pull + down + up -d`, секреты LAPI не нужны, работает на группе), снос — `crowdsec_unregister` (на хосте LAPI) + `crowdsec_node` с `action=remove` (на ноде), приём ручных нод — `crowdsec_adopt`, переезд — `crowdsec_move`. Ручного создания шаблонов не нужно — все приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
 
 Предусловия на ноде (не ставятся, только проверяются): `docker` (шаблон `docker` — иначе `fail`), `rsyslog` (шаблон `rsyslog` — иначе только warning). LAPI должен отвечать (`cscli lapi status`).
 
@@ -91,3 +91,41 @@
   "crowdsec_remove_confirmed": true
 }
 ```
+
+## `crowdsec_adopt` (принять ручную ноду под управление; LAPI-записи остаются валидны)
+
+Соглашение: `adopt` = причесать на месте. Креды сохраняются (не ротируются), поэтому старые регистрации в LAPI продолжают работать; плюс креды записываются в группу `crowdsec_nodes` (нужны `project_id` + `service_vars`, как в register) — иначе следующий `deploy` упадёт «сначала register».
+
+- `crowdsec_adopt_action: inspect` (только отчёт — безопасно; `migrate` — переезд)
+- `target` — строго один хост; имена контейнеров (дефолты `crowdsec-agent`/`crowdsec-bouncer`)
+- `crowdsec_node_name` (пусто — inventory hostname; под это имя пишутся ключи группы — обязано совпадать с будущими deploy)
+- `crowdsec_old_dir` (пусто — из compose-меток), `crowdsec_dir` (куда, пусто — `/opt/crowdsec`), `crowdsec_mode` (пусто — из running-контейнера)
+- discovery: running Env обоих контейнеров → старый `.env`; `extra_logs` — из старого `acquis.yaml` (filenames минус 3 базовых), `extra_collections` — обнаруженные минус базовые (рендер склеивает 1:1); `TZ` — обнаруженная → `/etc/timezone` → `Etc/UTC`
+- `crowdsec_api_url` группы не перезаписываем: расхождение с обнаруженным — fail (URL общий)
+- migrate: синк группы → stop+rename → рендер стандарта → `up` → `cscli lapi status` → rescue с подъёмом бэкапа
+- тот же каталог как target — fail с подсказкой гнать `deploy`
+
+```json
+{
+  "target": "us6",
+  "crowdsec_adopt_action": "inspect"
+}
+```
+
+```json
+{
+  "target": "us6",
+  "crowdsec_adopt_action": "migrate",
+  "project_id": 1,
+  "crowdsec_old_dir": "/home/anatoliy/crowdsec_node"
+}
+```
+
+## `crowdsec_move` (переезд на другую ноду; LAPI и DNS не трогаем — агенты сами dial-out)
+
+Соглашение: `move` = переезд (`adopt` — на месте). Креды сохраняются 1:1, но ключи группы пишутся под **новое** имя (hostname цели или явное) — будущие deploy прозрачны; в LAPI останутся старые имена агента/баунсера (косметика, лечится ротацией через register).
+
+- `target` — исходная нода (строго один хост); `crowdsec_move_dest` (цель в inventory, обязательно, строго один хост, ≠ источнику)
+- `crowdsec_move_action: inspect` (отчёт+план) / `move`; `crowdsec_move_confirmed: true` — обязательно для `move`
+- `crowdsec_node_name` (пусто — имя целевой ноды), остальные поля — как в adopt (контейнеры/old_dir — источник, `dir`/`mode` — уже цель)
+- порядок: discovery → синк группы под новым именем → поднимаем цель (проверка `cscli lapi status`) → только потом гасим источник (stop+rename, каталоги целы); провал на цели — источник не тронут

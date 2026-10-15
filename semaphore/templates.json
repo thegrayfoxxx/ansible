@@ -257,6 +257,46 @@
       ]
     },
     {
+      "name": "crowdsec_adopt",
+      "view": "CrowdSec",
+      "app": "ansible",
+      "environment": "service_vars",
+      "description": "Принять ручную ноду под управление: inspect (отчёт) / migrate (переезд + запись кредов в группу) (playbooks/crowdsec_adopt.yml)",
+      "playbook": "playbooks/crowdsec_adopt.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Один хост со старой нодой. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "crowdsec_adopt_action", "title": "Action", "description": "inspect — только отчёт что найдено (безопасно); migrate — переезд и синк группы", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "migrate", "value": "migrate"}]},
+        {"name": "crowdsec_agent_container", "title": "Agent container", "description": "Имя контейнера агента (пусто — crowdsec-agent)", "default_value": "crowdsec-agent", "type": "", "required": false},
+        {"name": "crowdsec_bouncer_container", "title": "Bouncer container", "description": "Имя контейнера баунсера (пусто — crowdsec-bouncer)", "default_value": "crowdsec-bouncer", "type": "", "required": false},
+        {"name": "crowdsec_node_name", "title": "Node name", "description": "Пусто — взять из имени хоста (так же резолвит deploy; ключи группы пишутся под это имя)", "type": "", "required": false},
+        {"name": "crowdsec_old_dir", "title": "Old project dir", "description": "Откуда переезжаем. Пусто — автоопределить из compose-меток (нет меток — обязательно явно)", "type": "", "required": false},
+        {"name": "crowdsec_dir", "title": "Project dir", "description": "Куда переезжаем (пусто — /opt/crowdsec)", "default_value": "/opt/crowdsec", "type": "", "required": false},
+        {"name": "crowdsec_mode", "title": "Firewall backend", "description": "Пусто — взять из running-контейнера (иначе iptables/nftables)", "type": "", "required": false},
+        {"name": "project_id", "title": "Project ID", "description": "Цифра в URL проекта: /project/N/ (нужен только для migrate — запись в группу)", "type": "int", "required": false}
+      ]
+    },
+    {
+      "name": "crowdsec_move",
+      "view": "CrowdSec",
+      "app": "ansible",
+      "environment": "service_vars",
+      "description": "Переезд ноды на другой хост с сохранением кредов под новым именем (LAPI не трогаем) (playbooks/crowdsec_move.yml)",
+      "playbook": "playbooks/crowdsec_move.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Исходная нода (откуда переезжаем). Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "crowdsec_move_action", "title": "Action", "description": "inspect — только отчёт и план (безопасно); move — переезд", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "move", "value": "move"}]},
+        {"name": "crowdsec_move_dest", "title": "Destination host", "description": "Целевая нода в inventory (куда переезжаем, например de9). Строго один хост", "type": "", "required": true},
+        {"name": "crowdsec_move_confirmed", "title": "Confirm move", "description": "true — разрешить вывод старой ноды из работы (только для move)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "crowdsec_agent_container", "title": "Agent container", "description": "Имя контейнера агента на источнике (пусто — crowdsec-agent)", "default_value": "crowdsec-agent", "type": "", "required": false},
+        {"name": "crowdsec_bouncer_container", "title": "Bouncer container", "description": "Имя контейнера баунсера на источнике (пусто — crowdsec-bouncer)", "default_value": "crowdsec-bouncer", "type": "", "required": false},
+        {"name": "crowdsec_node_name", "title": "Node name", "description": "Новое имя ноды (пусто — имя целевой ноды; под него пишутся ключи группы)", "type": "", "required": false},
+        {"name": "crowdsec_old_dir", "title": "Old project dir", "description": "Откуда переезжаем (на исходной ноде). Пусто — автоопределить из compose-меток", "type": "", "required": false},
+        {"name": "crowdsec_dir", "title": "Project dir", "description": "Куда переезжаем на целевой ноде (пусто — /opt/crowdsec)", "default_value": "/opt/crowdsec", "type": "", "required": false},
+        {"name": "crowdsec_mode", "title": "Firewall backend", "description": "Пусто — взять из running-контейнера источника (иначе iptables/nftables)", "type": "", "required": false},
+        {"name": "project_id", "title": "Project ID", "description": "Цифра в URL проекта: /project/N/ (нужен только для move — запись в группу)", "type": "int", "required": false}
+      ]
+    },
+    {
       "name": "health",
       "view": "Observability",
       "description": "Сводный read-only статус нод: uptime, диск, docker, fail2ban/crowdsec/remnawave (playbooks/health.yml)",
@@ -382,6 +422,23 @@
         {"name": "nginx_dir", "title": "Project dir", "description": "Куда переезжаем (пусто — /opt/nginx)", "default_value": "/opt/nginx", "type": "", "required": false},
         {"name": "nginx_email", "title": "ACME email override", "description": "Разовый override email (пусто — взять из старого .env; нужен для будущих перевыпусков)", "type": "", "required": false},
         {"name": "nginx_open_ports", "title": "Open 80+443", "description": "true — открыть 80,443/tcp в ufw, если он есть (нет — скип с warning)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "nginx_overwrite_conf", "title": "Overwrite nginx conf", "description": "true — заменить найденный конфиг нашим стоком (иначе сохранить + warning о diff)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
+      "name": "nginx_move",
+      "view": "Nginx",
+      "description": "Переезд заглушки на другой хост с сохранением сертов/учётки (тот же домен; DNS переключить руками) (playbooks/nginx_move.yml)",
+      "playbook": "playbooks/nginx_move.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Исходная нода (откуда переезжаем). Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "nginx_move_action", "title": "Action", "description": "inspect — только отчёт и план (безопасно); move — переезд", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "move", "value": "move"}]},
+        {"name": "nginx_move_dest", "title": "Destination host", "description": "Целевая нода в inventory (куда переезжаем, например de9). Строго один хост", "type": "", "required": true},
+        {"name": "nginx_move_confirmed", "title": "Confirm move", "description": "true — разрешить вывод старой ноды из работы (только для move)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "nginx_web_container", "title": "Nginx container", "description": "Имя nginx-контейнера на источнике (пусто — авто по образу)", "type": "", "required": false},
+        {"name": "nginx_old_dir", "title": "Old project dir", "description": "Откуда переезжаем (на исходной ноде). Пусто — автоопределить из compose-меток", "type": "", "required": false},
+        {"name": "nginx_dir", "title": "Project dir", "description": "Куда переезжаем на целевой ноде (пусто — /opt/nginx)", "default_value": "/opt/nginx", "type": "", "required": false},
+        {"name": "nginx_open_ports", "title": "Open 80+443", "description": "true — открыть 80,443/tcp в ufw на цели, если он есть (нет — скип с warning)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "nginx_overwrite_conf", "title": "Overwrite nginx conf", "description": "true — заменить найденный конфиг нашим стоком (иначе сохранить + warning о diff)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },

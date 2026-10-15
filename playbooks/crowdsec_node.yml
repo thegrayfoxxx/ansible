@@ -125,6 +125,10 @@
       ansible.builtin.set_fact:
         crowdsec_tz_final: "{{ crowdsec_tz if (crowdsec_tz | default('') | length > 0) else (crowdsec_host_tz.stdout.strip() if (crowdsec_host_tz is defined and crowdsec_host_tz.rc is defined and crowdsec_host_tz.rc == 0 and crowdsec_host_tz.stdout | length > 0) else 'Etc/UTC') }}"
 
+    - name: Apply effective timezone
+      ansible.builtin.set_fact:
+        crowdsec_tz: "{{ crowdsec_tz_final }}"
+
     - name: Normalize extra collections and logs
       ansible.builtin.set_fact:
         crowdsec_collections: "{{ crowdsec_base_collections + (crowdsec_extra_collections.replace(',', '\n').splitlines() | map('trim') | select | list if crowdsec_extra_collections is string else crowdsec_extra_collections) }}"
