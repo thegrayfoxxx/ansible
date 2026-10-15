@@ -1,0 +1,487 @@
+---
+- name: Adopt manually installed CrowdSec node under playbook management
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    crowdsec_adopt_action: inspect
+    crowdsec_agent_container: crowdsec-agent
+    crowdsec_bouncer_container: crowdsec-bouncer
+    crowdsec_node_name: ""
+    crowdsec_old_dir: ""
+    project_id: ""
+    crowdsec_mode: ""
+    crowdsec_dir: /opt/crowdsec
+    crowdsec_mode: ""
+    crowdsec_group_name: crowdsec_nodes
+    crowdsec_base_collections:
+      - crowdsecurity/linux
+      - crowdsecurity/sshd
+      - crowdsecurity/iptables
+    crowdsec_host_logs:
+      - /var/log/auth.log
+      - /var/log/syslog
+      - /var/log/kern.log
+  tasks:
+    - name: Validate adopt action value
+      ansible.builtin.fail:
+        msg: "crowdsec_adopt_action must be inspect or migrate, got {{ crowdsec_adopt_action }}"
+      when: crowdsec_adopt_action not in ['inspect', 'migrate']
+
+    - name: Require exactly one node host
+      ansible.builtin.fail:
+        msg: "Adopt addresses one node per run — point target at a single host, got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Resolve node name
+      ansible.builtin.set_fact:
+        crowdsec_resolved_name: "{{ crowdsec_node_name if (crowdsec_node_name | default('') | length > 0) else inventory_hostname }}"
+
+    - name: Validate node name
+      ansible.builtin.fail:
+        msg: "Node name '{{ crowdsec_resolved_name }}' must match ^[a-z0-9-]+$ (and not be local/dashboard/localhost). Future deploys resolve group credentials by this name"
+      when:
+        - crowdsec_resolved_name is not match('^[a-z0-9-]+$')
+          or crowdsec_resolved_name in ['local', 'dashboard', 'localhost']
+
+    - name: Normalize project dir
+      ansible.builtin.set_fact:
+        crowdsec_dir: "{{ (crowdsec_dir | default('') | trim) or '/opt/crowdsec' }}"
+
+    - name: Validate project dir
+      ansible.builtin.fail:
+        msg: "crowdsec_dir must be an absolute path, got '{{ crowdsec_dir }}'"
+      when: not (crowdsec_dir is match('^/.+'))
+
+    - name: Normalize container names
+      ansible.builtin.set_fact:
+        crowdsec_agent_container: "{{ (crowdsec_agent_container | default('') | trim) or 'crowdsec-agent' }}"
+        crowdsec_bouncer_container: "{{ (crowdsec_bouncer_container | default('') | trim) or 'crowdsec-bouncer' }}"
+
+    - name: Validate container names
+      ansible.builtin.fail:
+        msg: "Container names must match ^[a-zA-Z0-9_.-]+$, got agent='{{ crowdsec_agent_container }}' bouncer='{{ crowdsec_bouncer_container }}'"
+      when:
+        - crowdsec_agent_container is not match('^[a-zA-Z0-9_.-]+$')
+          or crowdsec_bouncer_container is not match('^[a-zA-Z0-9_.-]+$')
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: crowdsec_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker on node
+      ansible.builtin.fail:
+        msg: "docker not found. Run the docker template on this host first"
+      when: crowdsec_docker_bin.rc != 0
+
+    - name: Inspect agent container
+      ansible.builtin.command: docker inspect {{ crowdsec_agent_container }}
+      register: crowdsec_agent_raw
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Inspect bouncer container
+      ansible.builtin.command: docker inspect {{ crowdsec_bouncer_container }}
+      register: crowdsec_bouncer_raw
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Require agent container
+      ansible.builtin.fail:
+        msg: "Agent container '{{ crowdsec_agent_container }}' not found on {{ inventory_hostname }}. Set explicit container names"
+      when: crowdsec_agent_raw.rc != 0
+
+    - name: Require bouncer container
+      ansible.builtin.fail:
+        msg: "Bouncer container '{{ crowdsec_bouncer_container }}' not found on {{ inventory_hostname }}. Set explicit container names"
+      when: crowdsec_bouncer_raw.rc != 0
+
+    - name: Parse container metadata
+      ansible.builtin.set_fact:
+        crowdsec_agent: "{{ (crowdsec_agent_raw.stdout | from_json | first) | default({}) }}"
+        crowdsec_bouncer: "{{ (crowdsec_bouncer_raw.stdout | from_json | first) | default({}) }}"
+      no_log: true
+
+    - name: Resolve compose metadata
+      ansible.builtin.set_fact:
+        crowdsec_compose_labels: "{{ crowdsec_agent.Config.Labels | default({}) }}"
+        crowdsec_agent_env: "{{ crowdsec_agent.Config.Env | default([]) }}"
+        crowdsec_bouncer_env: "{{ crowdsec_bouncer.Config.Env | default([]) }}"
+      no_log: true
+
+    - name: Resolve label config file
+      ansible.builtin.set_fact:
+        crowdsec_label_config: "{{ ((crowdsec_compose_labels['com.docker.compose.project.config_files'] | default('')).split(',') | map('trim') | select | list | first) | default('') }}"
+
+    - name: Resolve old project dir
+      ansible.builtin.set_fact:
+        crowdsec_old_dir_final: "{{ (crowdsec_old_dir | default('') | trim) or (crowdsec_compose_labels['com.docker.compose.project.working_dir'] | default('') | trim) or ((crowdsec_label_config | dirname) if (crowdsec_label_config | length > 0) else '') }}"
+
+    - name: Require discovered project dir
+      ansible.builtin.fail:
+        msg: "No compose metadata found for '{{ crowdsec_agent_container }}' (manual docker run?). Set explicit Old project dir"
+      when: crowdsec_old_dir_final | default('') | trim | length == 0
+
+    - name: Validate old project dir
+      ansible.builtin.fail:
+        msg: "Old project dir must be an absolute path, got '{{ crowdsec_old_dir_final }}'"
+      when: not (crowdsec_old_dir_final is match('^/.+'))
+
+    - name: Check old compose file
+      ansible.builtin.stat:
+        path: "{{ crowdsec_old_dir_final }}/compose.yml"
+      register: crowdsec_old_compose
+
+    - name: Check old env file
+      ansible.builtin.stat:
+        path: "{{ crowdsec_old_dir_final }}/.env"
+      register: crowdsec_old_env
+
+    - name: Check old acquis file
+      ansible.builtin.stat:
+        path: "{{ crowdsec_old_dir_final }}/config/acquis.yaml"
+      register: crowdsec_old_acquis
+
+    - name: Extract credentials from running containers
+      ansible.builtin.set_fact:
+        crowdsec_env_username: "{{ (crowdsec_agent_env | select('match', '^AGENT_USERNAME=') | list | first | default('') | regex_replace('^AGENT_USERNAME=', '')) | trim }}"
+        crowdsec_env_password: "{{ (crowdsec_agent_env | select('match', '^AGENT_PASSWORD=') | list | first | default('') | regex_replace('^AGENT_PASSWORD=', '')) | trim }}"
+        crowdsec_env_key: "{{ (crowdsec_bouncer_env | select('match', '^API_KEY=') | list | first | default('') | regex_replace('^API_KEY=', '')) | trim }}"
+        crowdsec_env_url: "{{ (crowdsec_bouncer_env | select('match', '^API_URL=') | list | first | default('') | regex_replace('^API_URL=', '')) | trim }}"
+        crowdsec_env_local_url: "{{ (crowdsec_agent_env | select('match', '^LOCAL_API_URL=') | list | first | default('') | regex_replace('^LOCAL_API_URL=', '')) | trim }}"
+        crowdsec_env_tz: "{{ (crowdsec_agent_env | select('match', '^TZ=') | list | first | default('') | regex_replace('^TZ=', '')) | trim }}"
+        crowdsec_env_mode: "{{ (crowdsec_bouncer_env | select('match', '^MODE=') | list | first | default('') | regex_replace('^MODE=', '')) | trim }}"
+        crowdsec_env_collections: "{{ (crowdsec_agent_env | select('match', '^COLLECTIONS=') | list | first | default('') | regex_replace('^COLLECTIONS=', '')) | trim }}"
+      no_log: true
+
+    - name: Read old env file when container env is incomplete
+      ansible.builtin.slurp:
+        src: "{{ crowdsec_old_dir_final }}/.env"
+      register: crowdsec_old_env_content
+      no_log: true
+      when:
+        - crowdsec_old_env.stat.exists
+        - (crowdsec_env_username | length == 0) or (crowdsec_env_password | length == 0)
+          or (crowdsec_env_key | length == 0) or (crowdsec_env_url | length == 0)
+
+    - name: Extract credentials from old env file
+      ansible.builtin.set_fact:
+        crowdsec_file_username: "{{ ((crowdsec_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^AGENT_USERNAME=') | list | first | default('') | regex_replace('^AGENT_USERNAME=', '') | trim) }}"
+        crowdsec_file_password: "{{ ((crowdsec_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^AGENT_PASSWORD=') | list | first | default('') | regex_replace('^AGENT_PASSWORD=', '') | trim) }}"
+        crowdsec_file_key: "{{ ((crowdsec_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^API_KEY=') | list | first | default('') | regex_replace('^API_KEY=', '') | trim) }}"
+        crowdsec_file_url: "{{ ((crowdsec_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^API_URL=') | list | first | default('') | regex_replace('^API_URL=', '') | trim) }}"
+        crowdsec_file_tz: "{{ ((crowdsec_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^TZ=') | list | first | default('') | regex_replace('^TZ=', '') | trim) }}"
+      no_log: true
+      when: (crowdsec_old_env_content.content | default('')) | length > 0
+
+    - name: Read old acquis file
+      ansible.builtin.slurp:
+        src: "{{ crowdsec_old_dir_final }}/config/acquis.yaml"
+      register: crowdsec_old_acquis_content
+      when: crowdsec_old_acquis.stat.exists
+
+    - name: Resolve node credentials
+      ansible.builtin.set_fact:
+        crowdsec_agent_username: "{{ crowdsec_env_username or (crowdsec_file_username | default('')) }}"
+        crowdsec_agent_password: "{{ crowdsec_env_password or (crowdsec_file_password | default('')) }}"
+        crowdsec_api_key: "{{ crowdsec_env_key or (crowdsec_file_key | default('')) }}"
+        crowdsec_api_url: "{{ crowdsec_env_url or crowdsec_env_local_url or (crowdsec_file_url | default('')) }}"
+        crowdsec_tz: "{{ crowdsec_env_tz or (crowdsec_file_tz | default('')) }}"
+        crowdsec_creds_source: "{{ 'running containers' if (crowdsec_env_username | length > 0 and crowdsec_env_password | length > 0 and crowdsec_env_key | length > 0) else 'compose .env' }}"
+      no_log: true
+
+    - name: Validate discovered credentials
+      ansible.builtin.fail:
+        msg: "Incomplete credentials (need AGENT_USERNAME/AGENT_PASSWORD/API_KEY/API_URL from running env or old .env). Refusing to proceed blind"
+      when:
+        - (crowdsec_agent_username | length == 0) or (crowdsec_agent_password | length == 0)
+          or (crowdsec_api_key | length == 0) or (crowdsec_api_url | length == 0)
+
+    - name: Validate LAPI URL format
+      ansible.builtin.fail:
+        msg: "Discovered LAPI URL must look like https://crowdsec.example.com or http://IP:8080 (reachable from nodes, not localhost), got '{{ crowdsec_api_url }}'"
+      when: not (crowdsec_api_url is match('^https?://[^/\\s]+$'))
+
+    - name: Resolve host timezone
+      ansible.builtin.command: cat /etc/timezone
+      register: crowdsec_host_tz
+      changed_when: false
+      failed_when: false
+      when: crowdsec_tz | default('') | length == 0
+
+    - name: Set effective timezone
+      ansible.builtin.set_fact:
+        crowdsec_tz: "{{ crowdsec_tz if (crowdsec_tz | default('') | length > 0) else (crowdsec_host_tz.stdout.strip() if (crowdsec_host_tz is defined and crowdsec_host_tz.rc is defined and crowdsec_host_tz.rc == 0 and crowdsec_host_tz.stdout | length > 0) else 'Etc/UTC') }}"
+
+    - name: Resolve collections and extra logs
+      ansible.builtin.set_fact:
+        crowdsec_collections: "{{ crowdsec_base_collections + ((crowdsec_env_collections | default('')).split(' ') | map('trim') | select | difference(crowdsec_base_collections) | list) }}"
+        crowdsec_extra_logs_list: "{{ (((crowdsec_old_acquis_content.content | default('') | b64decode | from_yaml).filenames | default([])) | difference(crowdsec_host_logs) | list) if ((crowdsec_old_acquis_content.content | default('')) | length > 0) else [] }}"
+
+    - name: Require extra logs under /var/log
+      ansible.builtin.fail:
+        msg: "Extra log {{ item }} is outside /var/log and would need a manual volume mount. Keep logs under /var/log (e.g. /var/log/nginx/access.log)"
+      loop: "{{ crowdsec_extra_logs_list }}"
+      when: not item.startswith('/var/log/')
+
+    - name: Resolve firewall backend
+      ansible.builtin.set_fact:
+        crowdsec_mode: "{{ crowdsec_mode if (crowdsec_mode | default('') | length > 0) else crowdsec_env_mode }}"
+
+    - name: Validate firewall backend
+      ansible.builtin.fail:
+        msg: "Firewall backend must be iptables or nftables, discovered '{{ crowdsec_env_mode }}'. Set explicit Firewall backend"
+      when: crowdsec_mode not in ['iptables', 'nftables']
+
+    - name: Show discovery summary
+      ansible.builtin.debug:
+        msg: "node={{ crowdsec_resolved_name }} containers={{ crowdsec_agent_container }},{{ crowdsec_bouncer_container }} old_dir={{ crowdsec_old_dir_final }} compose={{ crowdsec_old_compose.stat.exists }} user={{ crowdsec_agent_username }} api={{ crowdsec_api_url }} mode={{ crowdsec_mode }} tz={{ crowdsec_tz }} cols_extra={{ (crowdsec_collections | difference(crowdsec_base_collections) | list) | length }} logs_extra={{ crowdsec_extra_logs_list | length }} creds_from={{ crowdsec_creds_source }} target_dir={{ crowdsec_dir }}"
+
+    - name: Stop at inspect
+      ansible.builtin.meta: end_play
+      when: crowdsec_adopt_action == 'inspect'
+
+    - name: Refuse same-dir adoption
+      ansible.builtin.fail:
+        msg: "Old project already lives in {{ crowdsec_dir }} — nothing to relocate. Re-run crowdsec_node deploy to re-render standard files"
+      when: crowdsec_old_dir_final.rstrip('/') == crowdsec_dir.rstrip('/')
+
+    - name: Require project_id for group sync
+      ansible.builtin.fail:
+        msg: "Set project_id (Semaphore project ID, see URL /project/N/) — adopt syncs credentials into the crowdsec_nodes group"
+      when: (project_id | string) | length == 0
+
+    - name: Timestamp for backup
+      ansible.builtin.command: date +%Y%m%d%H%M%S
+      register: crowdsec_ts
+      changed_when: false
+
+    - name: Resolve backup names
+      ansible.builtin.set_fact:
+        crowdsec_backup_dir: "{{ crowdsec_old_dir_final }}.adopt-bak-{{ crowdsec_ts.stdout | trim }}"
+        crowdsec_backup_agent: "{{ crowdsec_agent_container }}-adopt-bak-{{ crowdsec_ts.stdout | trim }}"
+        crowdsec_backup_bouncer: "{{ crowdsec_bouncer_container }}-adopt-bak-{{ crowdsec_ts.stdout | trim }}"
+
+    - name: Check backup dir is free
+      ansible.builtin.stat:
+        path: "{{ crowdsec_backup_dir }}"
+      register: crowdsec_backup_check
+      when: crowdsec_old_compose.stat.exists
+
+    - name: Refuse occupied backup dir
+      ansible.builtin.fail:
+        msg: "Backup path {{ crowdsec_backup_dir }} already exists. Inspect it manually and re-run"
+      when:
+        - crowdsec_old_compose.stat.exists
+        - crowdsec_backup_check.stat.exists
+
+    - name: Read Semaphore API credentials
+      ansible.builtin.set_fact:
+        semaphore_token: "{{ lookup('env', 'SEMAPHORE_TOKEN') }}"
+        semaphore_base: "{{ lookup('env', 'SEMAPHORE_URL') | default('http://localhost:3000/api', true) }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Require Semaphore API token
+      ansible.builtin.fail:
+        msg: "SEMAPHORE_TOKEN is empty. Attach the service_vars group to this template"
+      when: semaphore_token | length == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Find crowdsec_nodes group
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment?sort=name&order=asc"
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        return_content: true
+      register: semaphore_envs
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Resolve group state
+      ansible.builtin.set_fact:
+        crowdsec_group: "{{ (semaphore_envs.json | selectattr('name', 'equalto', crowdsec_group_name) | list | first) | default({}) }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Create crowdsec_nodes group when missing
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        body_format: json
+        body:
+          project_id: "{{ project_id | int }}"
+          name: "{{ crowdsec_group_name }}"
+        status_code: 201
+        return_content: true
+      register: crowdsec_group_created
+      when: crowdsec_group | length == 0
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Resolve group JSON
+      ansible.builtin.set_fact:
+        crowdsec_group_json: "{{ ((crowdsec_group.json | default('', true)) | trim or '{}') | from_json }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Refuse conflicting LAPI URL in group
+      ansible.builtin.fail:
+        msg: "Group {{ crowdsec_group_name }} already points to a different LAPI URL ({{ crowdsec_group_url }}). Align it manually, then re-run"
+      vars:
+        crowdsec_group_url: "{{ (crowdsec_group_json.crowdsec_api_url | default('') | trim).rstrip('/') }}"
+      when: crowdsec_group_url | length > 0 and crowdsec_group_url != (crowdsec_api_url | trim).rstrip('/')
+      delegate_to: localhost
+      become: false
+
+    - name: Write credentials to crowdsec_nodes group
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment/{{ crowdsec_group_id }}"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        body_format: json
+        body:
+          id: "{{ crowdsec_group_id }}"
+          project_id: "{{ project_id | int }}"
+          name: "{{ crowdsec_group_name }}"
+          json: "{{ (crowdsec_group_json | combine({'crowdsec_api_url': crowdsec_api_url_final}) | combine(crowdsec_new_creds)) | to_json }}"
+          env: "{{ crowdsec_group.env | default('', true) }}"
+          secrets: []
+        status_code: 204
+      vars:
+        crowdsec_group_id: "{{ crowdsec_group.id | default(crowdsec_group_created.json.id) }}"
+        crowdsec_node_key: "{{ crowdsec_resolved_name | lower | regex_replace('-', '_') }}"
+        crowdsec_api_url_final: "{{ crowdsec_group_json.crowdsec_api_url | default(crowdsec_api_url) }}"
+        crowdsec_new_creds:
+          "{{ 'crowdsec_node_' + crowdsec_node_key + '_agent_password' }}": "{{ crowdsec_agent_password }}"
+          "{{ 'crowdsec_node_' + crowdsec_node_key + '_api_key' }}": "{{ crowdsec_api_key }}"
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Adopt CrowdSec stack
+      block:
+        - name: Stop old containers
+          ansible.builtin.command:
+            argv: ["docker", "stop", "{{ item }}"]
+          loop:
+            - "{{ crowdsec_agent_container }}"
+            - "{{ crowdsec_bouncer_container }}"
+          changed_when: true
+
+        - name: Rename old containers aside
+          ansible.builtin.command:
+            argv: ["docker", "rename", "{{ item.from }}", "{{ item.to }}"]
+          loop:
+            - {from: "{{ crowdsec_agent_container }}", to: "{{ crowdsec_backup_agent }}"}
+            - {from: "{{ crowdsec_bouncer_container }}", to: "{{ crowdsec_backup_bouncer }}"}
+          changed_when: true
+
+        - name: Move old project dir aside
+          ansible.builtin.command:
+            argv: ["mv", "{{ crowdsec_old_dir_final }}", "{{ crowdsec_backup_dir }}"]
+          changed_when: true
+          when: crowdsec_old_compose.stat.exists
+
+        - name: Ensure target dirs
+          ansible.builtin.file:
+            path: "{{ crowdsec_dir }}/{{ item }}"
+            state: directory
+            mode: "0755"
+          loop:
+            - ""
+            - config
+
+        - name: Render compose file
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../templates/crowdsec/compose.yml.j2"
+            dest: "{{ crowdsec_dir }}/compose.yml"
+            mode: "0644"
+
+        - name: Render node env file
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../templates/crowdsec/dotenv.j2"
+            dest: "{{ crowdsec_dir }}/.env"
+            mode: "0600"
+
+        - name: Render acquis config
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../templates/crowdsec/acquis.yaml.j2"
+            dest: "{{ crowdsec_dir }}/config/acquis.yaml"
+            mode: "0644"
+
+        - name: Copy bouncer config
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../files/crowdsec/crowdsec-firewall-bouncer.yaml"
+            dest: "{{ crowdsec_dir }}/config/crowdsec-firewall-bouncer.yaml"
+            mode: "0644"
+
+        - name: Deploy adopted stack
+          community.docker.docker_compose_v2:
+            project_src: "{{ crowdsec_dir }}"
+            state: present
+            pull: missing
+          register: crowdsec_deploy
+
+        - name: Check agent answers LAPI
+          ansible.builtin.command: docker exec {{ crowdsec_agent_container }} cscli lapi status
+          register: crowdsec_agent_status
+          changed_when: false
+          retries: 6
+          delay: 10
+          until: crowdsec_agent_status.rc == 0
+
+        - name: Show adopt summary
+          ansible.builtin.debug:
+            msg: "adopted {{ crowdsec_old_dir_final }} -> {{ crowdsec_dir }} node={{ crowdsec_resolved_name }} mode={{ crowdsec_mode }} group={{ crowdsec_group_name }} updated backup_agent={{ crowdsec_backup_agent }} backup_bouncer={{ crowdsec_backup_bouncer }}{{ (' backup_dir=' + crowdsec_backup_dir) if crowdsec_old_compose.stat.exists else '' }} (remove backups manually when stable)"
+      rescue:
+        - name: Take down partial new stack
+          community.docker.docker_compose_v2:
+            project_src: "{{ crowdsec_dir | default('/opt/crowdsec') }}"
+            state: absent
+          failed_when: false
+
+        - name: Check backup dir before restore
+          ansible.builtin.stat:
+            path: "{{ crowdsec_backup_dir | default('/nonexistent-adopt-backup') }}"
+          register: crowdsec_restore_check
+
+        - name: Restore old project dir
+          ansible.builtin.command:
+            argv: ["mv", "{{ crowdsec_backup_dir }}", "{{ crowdsec_old_dir_final | default('/nonexistent-adopt-source') }}"]
+          changed_when: true
+          failed_when: false
+          when: crowdsec_restore_check.stat.exists
+
+        - name: Restore old containers
+          ansible.builtin.command:
+            argv: ["docker", "rename", "{{ item }}", "{{ item | regex_replace('-adopt-bak-[0-9]+$', '') }}"]
+          loop: "{{ [crowdsec_backup_agent | default(''), crowdsec_backup_bouncer | default('')] | select | list }}"
+          changed_when: true
+          failed_when: false
+
+        - name: Start old containers
+          ansible.builtin.command:
+            argv: ["docker", "start", "{{ item }}"]
+          loop: "{{ [crowdsec_agent_container | default('crowdsec-agent'), crowdsec_bouncer_container | default('crowdsec-bouncer')] }}"
+          changed_when: true
+          failed_when: false
+
+        - name: Fail with rollback note
+          ansible.builtin.fail:
+            msg: "Adopt failed ({{ ansible_failed_result.msg | default('see above') }}); rollback attempted — verify old containers manually"

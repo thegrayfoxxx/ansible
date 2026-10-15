@@ -198,8 +198,8 @@
 
     - name: Resolve domain and account
       ansible.builtin.set_fact:
-        nginx_domain_final: "{{ ((nginx_inspect_env | select('match', '^DOMAIN=') | list | first | default('') | regex_replace('^DOMAIN=', '')) | trim) or (((nginx_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^DOMAIN=') | list | first | default('') | regex_replace('^DOMAIN=', '')) | trim) }}"
-        nginx_email_final: "{{ (nginx_email | default('') | trim) or (((nginx_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^EMAIL=') | list | first | default('') | regex_replace('^EMAIL=', '')) | trim) }}"
+        nginx_domain_final: "{{ (nginx_inspect_env | select('match', '^DOMAIN=') | list | first | default('') | regex_replace('^DOMAIN=', '') | trim) or ((nginx_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^DOMAIN=') | list | first | default('') | regex_replace('^DOMAIN=', '') | trim) }}"
+        nginx_email_final: "{{ (nginx_email | default('') | trim) or ((nginx_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^EMAIL=') | list | first | default('') | regex_replace('^EMAIL=', '') | trim) }}"
         nginx_acme_server_final: "{{ (((nginx_old_env_content.content | default('') | b64decode).splitlines() | select('match', '^ACME_SERVER=') | list | first | default('') | regex_replace('^ACME_SERVER=', '')) | trim) or 'https://acme-v02.api.letsencrypt.org/directory' }}"
 
     - name: Require discovered domain
