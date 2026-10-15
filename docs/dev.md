@@ -25,6 +25,7 @@ ansible-playbook --syntax-check playbooks/cleanup.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/rsyslog.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/remnawave_node_add.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/remnawave_node_update.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/nginx_fallback.yml -e '{"target":"all"}'
 ansible-galaxy collection install -r requirements.yml
 ```
 

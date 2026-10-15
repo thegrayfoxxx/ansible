@@ -70,6 +70,7 @@ docs/
   security.md        # init_node, firewall, fail2ban
   crowdsec.md        # register/node/update/unregister
   remnawave.md       # node_add/update + группа remnawave_vars
+  nginx.md           # fallback-заглушка + LE-серт (вкладка Nginx)
   dev.md             # локальная проверка плейбуков
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
 ```
@@ -130,4 +131,5 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 - [docs/security.md](docs/security.md) — init_node, firewall, fail2ban.
 - [docs/crowdsec.md](docs/crowdsec.md) — register/node/update/unregister.
 - [docs/remnawave.md](docs/remnawave.md) — node_add/update + группа `remnawave_vars`.
+- [docs/nginx.md](docs/nginx.md) — Selfsteal-заглушка + LE-серт.
 - [docs/dev.md](docs/dev.md) — локальная проверка плейбуков.

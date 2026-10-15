@@ -1,0 +1,39 @@
+# {{ ansible_managed }}
+# Nginx Selfsteal-заглушка + acme.sh. Xray запускается ОТДЕЛЬНО
+# (хостовая Remnanode / свой docker) и шлёт невалидный трафик в сокет ниже.
+services:
+  fallback-web:
+    image: nginx:alpine
+    container_name: fallback-web
+    network_mode: host
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./nginx/fallback.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./html/index.html:/usr/share/nginx/html/index.html:ro
+      - ./letsencrypt:/etc/letsencrypt:rw
+      - ./webroot:/var/www/webroot:rw
+      - /dev/shm:/dev/shm:rw
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  acme.sh:
+    image: neilpang/acme.sh:latest
+    container_name: fallback-acme
+    command: daemon
+    environment:
+      - ACME_SERVER=${ACME_SERVER}
+    volumes:
+      - ./acme.sh:/acme.sh:rw
+      - ./letsencrypt:/etc/letsencrypt:rw
+      - ./webroot:/var/www/webroot:rw
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped

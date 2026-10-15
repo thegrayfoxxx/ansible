@@ -1,0 +1,82 @@
+# Selfsteal-заглушка: Xray пересылает сюда сырой TLS ClientHello,
+# nginx сам завершает TLS своим LE-сертом (SSL-терминация заглушки).
+# Внешний :443 терминирует Xray (REALITY), этот блок — внутренний stolen-TLS.
+# Шаблон для nginx:alpine: ${DOMAIN} подставится из environment (см. compose).
+# Результат: /etc/nginx/conf.d/default.conf
+#
+# Требования РКН, закрытые этим файлом:
+# - Selfsteal на 443 через unix-сокет (target Xray = /dev/shm/nginx.sock)
+# - HTTP 301 на 80 порту (ниже второй server)
+# - Заглушка: TLS 1.2 + TLS 1.3, HSTS
+
+# --- 443-заглушка за Xray (сокет, НЕ tcp) ---
+# Xray шлёт сюда соединения с PROXY v1 заголовком (realitySettings.xver=1),
+# поэтому listen обязательно с proxy_protocol — иначе обрыв handshake.
+server {
+    listen unix:/dev/shm/nginx.sock ssl proxy_protocol;
+    server_name ${DOMAIN};
+
+    # нога Xray->сокет локальная, доверяем ей реальный IP клиента из PROXY-заголовка
+    set_real_ip_from unix:;
+    real_ip_header proxy_protocol;
+
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;  # как у обычного сайта, без экзотики
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    server_tokens off;
+    access_log off;
+    error_log stderr warn;  # в docker-лог (режется json-file max-size), не в overlay
+
+    default_type text/html;
+    charset utf-8;
+
+    # Любой путь (/, /f/xxxx, spiderX) -> index.html с кодом 200.
+    # Сканер видит правдоподобный сайт, а не пачку 404.
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "public, max-age=3600";
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    }
+
+    # robots/sitemap — живые, 200: выглядим как настоящий сервис
+    location = /robots.txt {
+        add_header Content-Type text/plain;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+        return 200 "User-agent: *\nAllow: /\nSitemap: https://${DOMAIN}/sitemap.xml\n";
+    }
+
+    location = /sitemap.xml {
+        add_header Content-Type application/xml;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+        return 200 '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://${DOMAIN}/</loc></url></urlset>';
+    }
+}
+
+# --- 80 порт: только 301 на https + webroot для ACME http-01 ---
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    server_tokens off;
+    access_log off;
+    error_log stderr warn;  # в docker-лог (режется json-file max-size), не в overlay
+
+    # Let's Encrypt http-01 (пишет acme.sh, nginx отдаёт на :80)
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/webroot;
+        default_type text/plain;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
