@@ -18,9 +18,23 @@
         - ansible_play_hosts_all | length > 1
         - not (fw_confirmed | bool)
 
-    - name: Normalize fw_allow to list (one rule per line, e.g. 22/tcp)
+    - name: Normalize fw_allow to rule list (one rule per line, e.g. 22/tcp or 2096/tcp from 203.0.113.10)
       ansible.builtin.set_fact:
-        fw_allow_list: "{{ fw_allow.splitlines() | map('trim') | select | list if fw_allow is string else fw_allow }}"
+        fw_allow_list: "{{ (fw_allow.splitlines() if fw_allow is string else fw_allow) | map('trim') | map('lower') | select | list }}"
+
+    - name: Validate fw_allow format
+      ansible.builtin.fail:
+        msg: "Each fw_allow line must be PORT[/proto] [from IP], e.g. 22/tcp or 2096/tcp from 203.0.113.10. Got: {{ fw_bad | join(', ') }}"
+      vars:
+        fw_bad: "{{ fw_allow_list | reject('match', '^[0-9]{1,5}(/(tcp|udp))?(\\s+from\\s+[0-9a-f:.]+(/[0-9]{1,3})?)?$') | list }}"
+      when: fw_bad | length > 0
+
+    - name: Validate fw_allow port range
+      ansible.builtin.fail:
+        msg: "fw_allow ports must be 1..65535, got: {{ fw_bad_ports | join(', ') }}"
+      vars:
+        fw_bad_ports: "{{ fw_allow_list | map('regex_replace', '^([0-9]{1,5}).*$', '\\1') | map('int') | reject('in', range(1, 65536)) | list }}"
+      when: fw_bad_ports | length > 0
 
     - name: Ensure UFW is installed
       ansible.builtin.apt:
@@ -34,7 +48,7 @@
         msg: "Refusing to enable UFW without SSH access: add 22/tcp to fw_allow (via Extra vars)"
       when:
         - fw_enable | bool
-        - (fw_allow_list | map('regex_replace', '/.*$', '') | select('equalto', '22') | list | length) == 0
+        - (fw_allow_list | map('regex_replace', '^([0-9]{1,5}).*$', '\\1') | select('equalto', '22') | list | length) == 0
 
     - name: Set default policies
       community.general.ufw:
@@ -48,8 +62,9 @@
     - name: Allow rules
       community.general.ufw:
         rule: allow
-        port: "{{ item.split('/')[0] }}"
-        proto: "{{ item.split('/')[1] | default('tcp') }}"
+        port: "{{ item.split()[0].split('/')[0] }}"
+        proto: "{{ (item.split()[0].split('/')[1]) if ('/' in item.split()[0]) else 'tcp' }}"
+        from_ip: "{{ item.split()[2] if ((item.split() | length == 3) and (item.split()[1] == 'from')) else omit }}"
       loop: "{{ fw_allow_list }}"
 
     - name: Enable UFW
