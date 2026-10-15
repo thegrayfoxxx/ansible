@@ -1,6 +1,6 @@
 # Вкладка CrowdSec: агент + баунсер в Docker (LAPI уже стоит)
 
-Шесть шаблонов, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота), обновление — `crowdsec_node_update` (`pull + down + up -d`, секреты LAPI не нужны, работает на группе), снос — `crowdsec_unregister` (на хосте LAPI) + `crowdsec_node` с `action=remove` (на ноде), приём ручных нод — `crowdsec_adopt`, переезд — `crowdsec_move`. Ручного создания шаблонов не нужно — все приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
+Шесть шаблонов, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота), обновление — `crowdsec_node_update` (`pull + down + up -d`, секреты LAPI не нужны, работает на группе), снос — `crowdsec_unregister` (на хосте LAPI) + `crowdsec_node` с `action=remove` (на ноде), приём ручных нод — `crowdsec_node_adopt`, переезд — `crowdsec_node_move`. Ручного создания шаблонов не нужно — все приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
 
 Предусловия на ноде (не ставятся, только проверяются): `docker` (шаблон `docker` — иначе `fail`), `rsyslog` (шаблон `rsyslog` — иначе только warning). LAPI должен отвечать (`cscli lapi status`).
 
@@ -92,7 +92,7 @@
 }
 ```
 
-## `crowdsec_adopt` (принять ручную ноду под управление; LAPI-записи остаются валидны)
+## `crowdsec_node_adopt` (принять ручную ноду под управление; LAPI-записи остаются валидны)
 
 Соглашение: `adopt` = причесать на месте. Креды сохраняются (не ротируются), поэтому старые регистрации в LAPI продолжают работать; плюс креды записываются в группу `crowdsec_nodes` (нужны `project_id` + `service_vars`, как в register) — иначе следующий `deploy` упадёт «сначала register».
 
@@ -121,7 +121,7 @@
 }
 ```
 
-## `crowdsec_move` (переезд на другую ноду; LAPI и DNS не трогаем — агенты сами dial-out)
+## `crowdsec_node_move` (переезд на другую ноду; LAPI и DNS не трогаем — агенты сами dial-out)
 
 Соглашение: `move` = переезд (`adopt` — на месте). Креды сохраняются 1:1, но ключи группы пишутся под **новое** имя (hostname цели или явное) — будущие deploy прозрачны; в LAPI останутся старые имена агента/баунсера (косметика, лечится ротацией через register).
 

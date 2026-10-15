@@ -13,12 +13,10 @@
     remnawave_inbounds: ""
     remnawave_note: ""
     remnawave_token: ""
-    remnawave_panel_url: ""
     remnawave_open_port: false
     remnawave_allow_from: ""
     remnawave_validate_certs: true
     remnanode_dir: /opt/remnanode
-    remnanode_agent_container: remnanode
     remnawave_uuid_re: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
   tasks:
     - name: Validate action value
@@ -352,7 +350,6 @@
     remnawave_open_port: false
     remnawave_allow_from: ""
     remnanode_dir: /opt/remnanode
-    remnanode_agent_container: remnanode
     remnanode_node_image: remnawave/node:latest
     remnanode_mount_shm: true
     remnanode_mount_logs: true

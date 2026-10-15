@@ -257,12 +257,12 @@
       ]
     },
     {
-      "name": "crowdsec_adopt",
+      "name": "crowdsec_node_adopt",
       "view": "CrowdSec",
       "app": "ansible",
       "environment": "service_vars",
-      "description": "Принять ручную ноду под управление: inspect (отчёт) / migrate (переезд + запись кредов в группу) (playbooks/crowdsec_adopt.yml)",
-      "playbook": "playbooks/crowdsec_adopt.yml",
+      "description": "Принять ручную ноду под управление: inspect (отчёт) / migrate (переезд + запись кредов в группу) (playbooks/crowdsec_node_adopt.yml)",
+      "playbook": "playbooks/crowdsec_node_adopt.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "Один хост со старой нодой. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
         {"name": "crowdsec_adopt_action", "title": "Action", "description": "inspect — только отчёт что найдено (безопасно); migrate — переезд и синк группы", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "migrate", "value": "migrate"}]},
@@ -276,12 +276,12 @@
       ]
     },
     {
-      "name": "crowdsec_move",
+      "name": "crowdsec_node_move",
       "view": "CrowdSec",
       "app": "ansible",
       "environment": "service_vars",
-      "description": "Переезд ноды на другой хост с сохранением кредов под новым именем (LAPI не трогаем) (playbooks/crowdsec_move.yml)",
-      "playbook": "playbooks/crowdsec_move.yml",
+      "description": "Переезд ноды на другой хост с сохранением кредов под новым именем (LAPI не трогаем) (playbooks/crowdsec_node_move.yml)",
+      "playbook": "playbooks/crowdsec_node_move.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "Исходная нода (откуда переезжаем). Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
         {"name": "crowdsec_move_action", "title": "Action", "description": "inspect — только отчёт и план (безопасно); move — переезд", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "move", "value": "move"}]},

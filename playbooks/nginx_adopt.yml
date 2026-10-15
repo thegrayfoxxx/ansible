@@ -13,7 +13,6 @@
     nginx_overwrite_conf: false
     nginx_socket: /dev/shm/nginx.sock
     nginx_new_web_container: fallback-web
-    nginx_new_acme_container: fallback-acme
   tasks:
     - name: Validate adopt action value
       ansible.builtin.fail:
@@ -421,6 +420,17 @@
           ansible.builtin.fail:
             msg: "Adopted container '{{ nginx_new_web_container }}' is not running after up. Check docker logs in {{ nginx_dir }}"
           when: nginx_verify.stdout | default('') | trim | length == 0
+
+        - name: Check adopted acme container is running
+          ansible.builtin.command: docker ps -q --filter name=fallback-acme
+          register: nginx_acme_verify
+          changed_when: false
+          failed_when: false
+
+        - name: Warn when adopted acme container is down
+          ansible.builtin.debug:
+            msg: "acme container 'fallback-acme' is not running after up — renewals will not happen. Check docker logs in {{ nginx_dir }}"
+          when: nginx_acme_verify.stdout | default('') | trim | length == 0
 
         - name: Check adopted port 80 is listening
           ansible.builtin.shell: "ss -tlnp | grep -E ':(80)\\s' || true"
