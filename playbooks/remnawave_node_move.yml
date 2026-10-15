@@ -1,0 +1,407 @@
+---
+- name: Remnawave node move — discover source (same domain, credentials preserved)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    remnawave_move_action: inspect
+    remnanode_move_dest: ""
+    remnanode_move_confirmed: false
+    remnanode_agent_container: remnanode
+    remnanode_old_dir: ""
+  tasks:
+    - name: Validate move action value
+      ansible.builtin.fail:
+        msg: "remnawave_move_action must be inspect or move, got {{ remnawave_move_action }}"
+      when: remnawave_move_action not in ['inspect', 'move']
+
+    - name: Require exactly one source host
+      ansible.builtin.fail:
+        msg: "Move reads from one source node per run — point target at a single source host, got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Require destination host
+      ansible.builtin.fail:
+        msg: "Set remnanode_move_dest to the destination inventory hostname (e.g. de9)"
+      when: remnanode_move_dest | default('') | trim | length == 0
+
+    - name: Require destination different from source
+      ansible.builtin.fail:
+        msg: "Destination '{{ remnanode_move_dest | trim }}' is the source host itself. Move needs two different nodes"
+      when: (remnanode_move_dest | trim) == inventory_hostname
+
+    - name: Require move confirmation
+      ansible.builtin.fail:
+        msg: "Move decommissions the working node {{ inventory_hostname }}. Set remnanode_move_confirmed=true to allow"
+      when:
+        - remnawave_move_action == 'move'
+        - not (remnanode_move_confirmed | bool)
+
+    - name: Normalize agent container name
+      ansible.builtin.set_fact:
+        remnanode_agent_container: "{{ (remnanode_agent_container | default('') | trim) or 'remnanode' }}"
+
+    - name: Validate agent container name
+      ansible.builtin.fail:
+        msg: "Remnanode container name must match ^[a-zA-Z0-9_.-]+$, got '{{ remnanode_agent_container }}'"
+      when: remnanode_agent_container is not match('^[a-zA-Z0-9_.-]+$')
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: remnanode_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker on node
+      ansible.builtin.fail:
+        msg: "docker not found. Run the docker template on this host first"
+      when: remnanode_docker_bin.rc != 0
+
+    - name: Inspect remnanode container
+      ansible.builtin.command: docker inspect {{ remnanode_agent_container }}
+      register: remnanode_inspect_raw
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Require remnanode container
+      ansible.builtin.fail:
+        msg: "Container '{{ remnanode_agent_container }}' not found on {{ inventory_hostname }}. Set explicit Remnanode container"
+      when: remnanode_inspect_raw.rc != 0
+
+    - name: Parse container metadata
+      ansible.builtin.set_fact:
+        remnanode_inspect: "{{ (remnanode_inspect_raw.stdout | from_json | first) | default({}) }}"
+      no_log: true
+
+    - name: Resolve compose metadata
+      ansible.builtin.set_fact:
+        remnanode_compose_labels: "{{ remnanode_inspect.Config.Labels | default({}) }}"
+        remnanode_inspect_env: "{{ remnanode_inspect.Config.Env | default([]) }}"
+      no_log: true
+
+    - name: Resolve label config file
+      ansible.builtin.set_fact:
+        remnanode_label_config: "{{ ((remnanode_compose_labels['com.docker.compose.project.config_files'] | default('')).split(',') | map('trim') | select | list | first) | default('') }}"
+
+    - name: Resolve old project dir
+      ansible.builtin.set_fact:
+        remnanode_old_dir_final: "{{ (remnanode_old_dir | default('') | trim) or (remnanode_compose_labels['com.docker.compose.project.working_dir'] | default('') | trim) or ((remnanode_label_config | dirname) if (remnanode_label_config | length > 0) else '') }}"
+
+    - name: Require discovered project dir
+      ansible.builtin.fail:
+        msg: "No compose metadata found for '{{ remnanode_agent_container }}' (manual docker run?). Set explicit Old project dir, or point Remnanode container at the right one"
+      when: remnanode_old_dir_final | default('') | trim | length == 0
+
+    - name: Validate old project dir
+      ansible.builtin.fail:
+        msg: "Old project dir must be an absolute path, got '{{ remnanode_old_dir_final }}'"
+      when: not (remnanode_old_dir_final is match('^/.+'))
+
+    - name: Check old compose file
+      ansible.builtin.stat:
+        path: "{{ remnanode_old_dir_final }}/compose.yml"
+      register: remnanode_old_compose
+
+    - name: Check old env file
+      ansible.builtin.stat:
+        path: "{{ remnanode_old_dir_final }}/.env"
+      register: remnanode_old_env
+      when: remnanode_old_compose.stat.exists
+
+    - name: Extract credentials from running container
+      ansible.builtin.set_fact:
+        remnanode_env_port: "{{ (remnanode_inspect_env | select('match', '^NODE_PORT=') | list | first | default('') | regex_replace('^NODE_PORT=', '')) | trim }}"
+        remnanode_env_secret: "{{ (remnanode_inspect_env | select('match', '^SECRET_KEY=') | list | first | default('') | regex_replace('^SECRET_KEY=', '')) | trim }}"
+      no_log: true
+
+    - name: Read old env file when container env is incomplete
+      ansible.builtin.slurp:
+        src: "{{ remnanode_old_dir_final }}/.env"
+      register: remnanode_old_env_content
+      no_log: true
+      when:
+        - remnanode_old_env.stat is defined and remnanode_old_env.stat.exists
+        - (remnanode_env_port | length == 0) or (remnanode_env_secret | length == 0)
+
+    - name: Extract credentials from old env file
+      ansible.builtin.set_fact:
+        remnanode_file_port: "{{ ((remnanode_old_env_content.content | b64decode).splitlines() | select('match', '^NODE_PORT=') | list | first | default('') | regex_replace('^NODE_PORT=', '')) | trim }}"
+        remnanode_file_secret: "{{ ((remnanode_old_env_content.content | b64decode).splitlines() | select('match', '^SECRET_KEY=') | list | first | default('') | regex_replace('^SECRET_KEY=', '')) | trim }}"
+      no_log: true
+      when: remnanode_old_env_content is defined and (remnanode_old_env_content.content | default('')) | length > 0
+
+    - name: Resolve node credentials
+      ansible.builtin.set_fact:
+        remnawave_port_final: "{{ remnanode_env_port or (remnanode_file_port | default('')) }}"
+        remnawave_node_secret: "{{ remnanode_env_secret or (remnanode_file_secret | default('')) }}"
+        remnanode_creds_source: "{{ 'running container' if (remnanode_env_port | length > 0 and remnanode_env_secret | length > 0) else 'compose .env' }}"
+      no_log: true
+
+    - name: Validate discovered credentials
+      ansible.builtin.fail:
+        msg: "Found container '{{ remnanode_agent_container }}' but no usable NODE_PORT/SECRET_KEY (checked running env and old .env). Refusing to proceed blind"
+      when:
+        - (remnawave_port_final | int < 1) or (remnawave_port_final | int > 65535)
+          or (remnawave_node_secret | default('') | length == 0)
+
+    - name: Publish credentials for destination play
+      ansible.builtin.set_fact:
+        remnawave_move_creds:
+          port: "{{ remnawave_port_final }}"
+          secret: "{{ remnawave_node_secret }}"
+        remnawave_move_ok: false
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+      no_log: true
+      when: remnawave_move_action == 'move'
+
+    - name: Show discovery summary
+      ansible.builtin.debug:
+        msg: "source={{ inventory_hostname }} container={{ remnanode_agent_container }} old_dir={{ remnanode_old_dir_final }} compose={{ remnanode_old_compose.stat.exists }} port={{ remnawave_port_final }} creds_from={{ remnanode_creds_source }} dest={{ remnanode_move_dest | trim }}"
+
+    - name: Stop at inspect
+      ansible.builtin.meta: end_play
+      when: remnawave_move_action == 'inspect'
+
+- name: Remnawave node move — deploy on destination with preserved credentials
+  hosts: "{{ remnanode_move_dest }}"
+  gather_facts: false
+  become: true
+  vars:
+    remnawave_move_action: inspect
+    remnanode_agent_container: remnanode
+    remnanode_dir: /opt/remnanode
+    remnanode_mount_shm: true
+    remnanode_mount_logs: true
+    remnanode_log_dir: /var/log/remnanode
+    remnanode_log_max_size: 100M
+    remnanode_log_keep: 5
+    remnanode_node_image: remnawave/node:latest
+  tasks:
+    - name: Stop at inspect
+      ansible.builtin.meta: end_play
+      when: remnawave_move_action != 'move'
+
+    - name: Require exactly one destination host
+      ansible.builtin.fail:
+        msg: "Move deploys to one destination node per run — point Remnanode dest at a single inventory hostname, got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Load published credentials
+      ansible.builtin.set_fact:
+        remnawave_port_final: "{{ hostvars['localhost']['remnawave_move_creds']['port'] }}"
+        remnawave_node_secret: "{{ hostvars['localhost']['remnawave_move_creds']['secret'] }}"
+      no_log: true
+
+    - name: Normalize project dir
+      ansible.builtin.set_fact:
+        remnanode_dir: "{{ (remnanode_dir | default('') | trim) or '/opt/remnanode' }}"
+
+    - name: Validate project dir
+      ansible.builtin.fail:
+        msg: "remnanode_dir must be an absolute path, got '{{ remnanode_dir }}'"
+      when: not (remnanode_dir is match('^/.+'))
+
+    - name: Normalize agent container name
+      ansible.builtin.set_fact:
+        remnanode_agent_container: "{{ (remnanode_agent_container | default('') | trim) or 'remnanode' }}"
+
+    - name: Validate agent container name
+      ansible.builtin.fail:
+        msg: "Remnanode container name must match ^[a-zA-Z0-9_.-]+$, got '{{ remnanode_agent_container }}'"
+      when: remnanode_agent_container is not match('^[a-zA-Z0-9_.-]+$')
+
+    - name: Normalize xray log dir
+      ansible.builtin.set_fact:
+        remnanode_log_dir: "{{ (remnanode_log_dir | default('') | trim) or '/var/log/remnanode' }}"
+
+    - name: Validate xray log dir
+      ansible.builtin.fail:
+        msg: "remnanode_log_dir must be an absolute path, got '{{ remnanode_log_dir }}'"
+      when:
+        - remnanode_mount_logs | bool
+        - not (remnanode_log_dir is match('^/.+'))
+
+    - name: Validate xray log rotation values
+      ansible.builtin.fail:
+        msg: "remnanode_log_max_size must be like 100M (number + k/M/G), remnanode_log_keep 1..30, got '{{ remnanode_log_max_size }}' / '{{ remnanode_log_keep }}'"
+      when:
+        - remnanode_mount_logs | bool
+        - not (remnanode_log_max_size | default('') | string | trim is match('(?i)^[0-9]+[kMG]$'))
+          or (remnanode_log_keep | int < 1) or (remnanode_log_keep | int > 30)
+
+    - name: Check Debian family
+      ansible.builtin.stat:
+        path: /etc/debian_version
+      register: remnanode_debian
+
+    - name: Require Debian or Ubuntu
+      ansible.builtin.fail:
+        msg: "Remnawave node needs Debian or Ubuntu"
+      when: not remnanode_debian.stat.exists
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: remnanode_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker on node
+      ansible.builtin.fail:
+        msg: "docker not found. Run the docker template on this host first"
+      when: remnanode_docker_bin.rc != 0
+
+    - name: Check destination container name is free
+      ansible.builtin.command: docker inspect {{ remnanode_agent_container }}
+      register: remnanode_dest_taken
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse occupied destination name
+      ansible.builtin.fail:
+        msg: "Destination already has a container named '{{ remnanode_agent_container }}'. Move needs a clean destination"
+      when: remnanode_dest_taken.rc == 0
+
+    - name: Check destination port is free
+      ansible.builtin.shell: "ss -tlnp | grep -E ':({{ remnawave_port_final }})\\s' || true"
+      args:
+        executable: /bin/bash
+      register: remnanode_dest_port_busy
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse busy destination port
+      ansible.builtin.fail:
+        msg: "Port {{ remnawave_port_final }} is already listening on destination. Move needs it free"
+      when: remnanode_dest_port_busy.stdout | length > 0
+
+    - name: Ensure target dir
+      ansible.builtin.file:
+        path: "{{ remnanode_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render compose file
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/remnawave/compose.yml.j2"
+        dest: "{{ remnanode_dir }}/compose.yml"
+        mode: "0644"
+
+    - name: Render node env file
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/remnawave/dotenv.j2"
+        dest: "{{ remnanode_dir }}/.env"
+        mode: "0600"
+
+    - name: Ensure logrotate is installed
+      ansible.builtin.apt:
+        name: logrotate
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when: remnanode_mount_logs | bool
+
+    - name: Render xray logrotate config
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/remnawave/logrotate.j2"
+        dest: /etc/logrotate.d/remnanode
+        mode: "0644"
+      when: remnanode_mount_logs | bool
+
+    - name: Deploy moved stack
+      block:
+        - name: Up moved stack
+          community.docker.docker_compose_v2:
+            project_src: "{{ remnanode_dir }}"
+            state: present
+            pull: missing
+          register: remnanode_deploy
+
+        - name: Check moved container is running
+          ansible.builtin.command: docker inspect {{ remnanode_agent_container }}
+          register: remnanode_verify
+          changed_when: false
+          failed_when: false
+
+        - name: Require running moved container
+          ansible.builtin.fail:
+            msg: "Moved container '{{ remnanode_agent_container }}' is not running on destination. Check docker logs in {{ remnanode_dir }}"
+          when: "remnanode_verify.rc != 0 or ('\"Status\": \"running\"' not in (remnanode_verify.stdout | default('')))"
+
+        - name: Check moved port is listening
+          ansible.builtin.shell: "ss -tlnp | grep -E ':({{ remnawave_port_final }})\\s' || true"
+          args:
+            executable: /bin/bash
+          register: remnanode_port_listen
+          changed_when: false
+          failed_when: false
+
+        - name: Require listening moved port
+          ansible.builtin.fail:
+            msg: "Port {{ remnawave_port_final }} is not listening on destination. Check docker logs in {{ remnanode_dir }}"
+          when: remnanode_port_listen.stdout | length == 0
+
+        - name: Mark move verified
+          ansible.builtin.set_fact:
+            remnawave_move_ok: true
+          delegate_to: localhost
+          delegate_facts: true
+          run_once: true
+      rescue:
+        - name: Take down partial moved stack
+          community.docker.docker_compose_v2:
+            project_src: "{{ remnanode_dir }}"
+            state: absent
+          failed_when: false
+
+        - name: Fail with source intact note
+          ansible.builtin.fail:
+            msg: "Move failed ({{ ansible_failed_result.msg | default('see above') }}); source node untouched — fix and re-run"
+
+    - name: Show move summary
+      ansible.builtin.debug:
+        msg: "moved to {{ inventory_hostname }}:{{ remnanode_dir }} port={{ remnawave_port_final }} (same domain — repoint DNS to {{ inventory_hostname }}; old node decommissioned next)"
+
+- name: Remnawave node move — decommission source
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    remnawave_move_action: inspect
+    remnanode_agent_container: remnanode
+  tasks:
+    - name: Stop at inspect
+      ansible.builtin.meta: end_play
+      when: remnawave_move_action != 'move'
+
+    - name: Timestamp for backup
+      ansible.builtin.command: date +%Y%m%d%H%M%S
+      register: remnanode_ts
+      changed_when: false
+
+    - name: Stop old container
+      ansible.builtin.command:
+        argv: ["docker", "stop", "{{ remnanode_agent_container }}"]
+      register: remnanode_old_stop
+      changed_when: true
+      failed_when: false
+
+    - name: Require stopped old container
+      ansible.builtin.fail:
+        msg: "Could not stop old container '{{ remnanode_agent_container }}' on source (rc={{ remnanode_old_stop.rc }}). New node is UP with the same identity — stop the old one MANUALLY NOW to avoid flapping: docker stop {{ remnanode_agent_container }}"
+      when: remnanode_old_stop.rc != 0
+
+    - name: Rename old container aside
+      ansible.builtin.command:
+        argv: ["docker", "rename", "{{ remnanode_agent_container }}", "{{ remnanode_agent_container }}-moved-bak-{{ remnanode_ts.stdout | trim }}"]
+      changed_when: true
+
+    - name: Show decommission summary
+      ansible.builtin.debug:
+        msg: "source {{ inventory_hostname }} decommissioned: container renamed to {{ remnanode_agent_container }}-moved-bak-{{ remnanode_ts.stdout | trim }} (rename back + start to roll back), project files left intact (remove manually when stable). Repoint DNS to the new node (mind TTL)"

@@ -1,6 +1,6 @@
 # Вкладка Remnawave: VPN-панель уже стоит; ноды — register/deploy/both через API
 
-Два шаблона: `remnawave_node_add` (два play внутри: register — только API панели, SSH не трогается; deploy — агент в Docker на ноде) и `remnawave_node_update` (`pull + down + up -d` на любом числе нод, панель не нужна). Ручного создания шаблонов не нужно — приезжают через `update_templates`.
+Четыре шаблона: `remnawave_node_add` (два play внутри: register — только API панели, SSH не трогается; deploy — агент в Docker на ноде), `remnawave_node_update` (`pull + down + up -d` на любом числе нод, панель не нужна), `remnawave_node_adopt` (принять ручную ноду под управление на месте) и `remnawave_node_move` (переезд на другую ноду с сохранением кредов). Ручного создания шаблонов не нужно — приезжают через `update_templates`.
 
 Соглашение об именах: `remnawave_*` — API панели, `remnanode_*` — рантайм агента на ноде.
 
@@ -74,3 +74,39 @@
   "remnanode_dir": ""
 }
 ```
+
+## `remnawave_node_adopt` (принять ручную ноду под управление; офлайн, без панели)
+
+Соглашение: `adopt` = причесать на месте (файлы переезжают в `remnanode_dir`, креды сохраняются).
+
+- `remnawave_adopt_action: inspect` (только отчёт что найдено — безопасно; `migrate` — переезд)
+- `target` — строго один хост; `remnanode_agent_container` (пусто — `remnanode`)
+- `remnanode_old_dir` (пусто — автоопределить из compose-меток; нет меток — обязательно явно)
+- `remnanode_dir` + флаги `mount_shm/mount_logs/log_dir/log_max_size/log_keep` — те же, что в deploy
+- discovery: compose-метки → `working_dir`, креды — сначала из running-контейнера (`docker inspect` → `Env`), потом из старого `.env`; секрет в логах не светится
+- migrate: бэкап (переименование контейнера + каталога с timestamp, не удаление) → рендер стандарта → `up` → проверка running+listen; провал — автораollback (поднять бэкап) + fail с командой ручной проверки
+- тот же каталог как target — fail с подсказкой гнать `deploy` (переезжать нечего)
+
+```json
+{
+  "target": "de5",
+  "remnawave_adopt_action": "inspect"
+}
+```
+
+```json
+{
+  "target": "de5",
+  "remnawave_adopt_action": "migrate",
+  "remnanode_old_dir": "/home/anatoliy/remna_node"
+}
+```
+
+## `remnawave_node_move` (переезд на другую ноду; тот же домен, DNS переключить руками)
+
+Соглашение: `move` = переезд (`adopt` — на месте). Креды сохраняются 1:1, в панель не ходим (токены не нужны). Порядок: поднимаем новую → проверяем → только потом гасим старую (ноль даунтайма кроме TTL DNS).
+
+- `target` — исходная нода (строго один хост); `remnanode_move_dest` (цель в inventory, обязательно, строго один хост, ≠ источнику)
+- `remnawave_move_action: inspect` (отчёт+план) / `move`; `remnanode_move_confirmed: true` — обязательно для `move` (сносим рабочую ноду)
+- остальные поля — как в adopt (`container`, `old_dir`, `dir` уже целевой, те же 6 флагов)
+- rescue на цели: провал — новая гасится, источник не тронут; чистка источника (stop+rename, каталог цел) — только после verified новой; повторный прогон безопасен (источника с исходным именем уже нет → discovery упадёт с понятным текстом, а не переедет дважды)
