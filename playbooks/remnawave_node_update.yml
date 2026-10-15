@@ -4,16 +4,16 @@
   gather_facts: false
   become: true
   vars:
-    remnawave_dir: /opt/remnawave
+    remnanode_dir: /opt/remnanode
   tasks:
     - name: Normalize project dir
       ansible.builtin.set_fact:
-        remnawave_dir: "{{ (remnawave_dir | default('') | trim) or '/opt/remnawave' }}"
+        remnanode_dir: "{{ (remnanode_dir | default('') | trim) or '/opt/remnanode' }}"
 
     - name: Validate project dir
       ansible.builtin.fail:
-        msg: "remnawave_dir must be an absolute path, got '{{ remnawave_dir }}'"
-      when: not (remnawave_dir is match('^/.+'))
+        msg: "remnanode_dir must be an absolute path, got '{{ remnanode_dir }}'"
+      when: not (remnanode_dir is match('^/.+'))
 
     - name: Check docker is available
       ansible.builtin.shell: command -v docker
@@ -30,33 +30,33 @@
 
     - name: Check compose file exists
       ansible.builtin.stat:
-        path: "{{ remnawave_dir }}/compose.yml"
+        path: "{{ remnanode_dir }}/compose.yml"
       register: remnawave_compose
 
     - name: Require deployed stack
       ansible.builtin.fail:
-        msg: "No compose.yml in {{ remnawave_dir }}. Run remnawave_node_add with action deploy/both first"
+        msg: "No compose.yml in {{ remnanode_dir }}. Run remnawave_node_add with action deploy/both first"
       when: not remnawave_compose.stat.exists
 
     - name: Pull latest images
       ansible.builtin.command: docker compose pull
       args:
-        chdir: "{{ remnawave_dir }}"
+        chdir: "{{ remnanode_dir }}"
       register: remnawave_pull
       changed_when: "'Downloaded' in (remnawave_pull.stdout + remnawave_pull.stderr)"
 
     - name: Recreate stack (down, volumes kept)
       community.docker.docker_compose_v2:
-        project_src: "{{ remnawave_dir }}"
+        project_src: "{{ remnanode_dir }}"
         state: absent
       register: remnawave_down
 
     - name: Recreate stack (up -d)
       community.docker.docker_compose_v2:
-        project_src: "{{ remnawave_dir }}"
+        project_src: "{{ remnanode_dir }}"
         state: present
       register: remnawave_up
 
     - name: Show update summary
       ansible.builtin.debug:
-        msg: "updated {{ remnawave_dir }} (pull changed={{ remnawave_pull.changed }})"
+        msg: "updated {{ remnanode_dir }} (pull changed={{ remnawave_pull.changed }})"

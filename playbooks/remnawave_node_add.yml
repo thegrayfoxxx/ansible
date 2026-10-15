@@ -17,8 +17,8 @@
     remnawave_open_port: false
     remnawave_allow_from: ""
     remnawave_validate_certs: true
-    remnawave_dir: /opt/remnawave
-    remnawave_agent_container: remnanode
+    remnanode_dir: /opt/remnanode
+    remnanode_agent_container: remnanode
     remnawave_uuid_re: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
   tasks:
     - name: Validate action value
@@ -351,21 +351,34 @@
     remnawave_node_port: ""
     remnawave_open_port: false
     remnawave_allow_from: ""
-    remnawave_dir: /opt/remnawave
-    remnawave_agent_container: remnanode
-    remnawave_node_image: remnawave/node:latest
-    remnawave_mount_shm: true
+    remnanode_dir: /opt/remnanode
+    remnanode_agent_container: remnanode
+    remnanode_node_image: remnawave/node:latest
+    remnanode_mount_shm: true
+    remnanode_mount_logs: true
+    remnanode_log_dir: /var/log/remnanode
   tasks:
     - name: Deploy remnawave node
       block:
         - name: Normalize project dir
           ansible.builtin.set_fact:
-            remnawave_dir: "{{ (remnawave_dir | default('') | trim) or '/opt/remnawave' }}"
+            remnanode_dir: "{{ (remnanode_dir | default('') | trim) or '/opt/remnanode' }}"
 
         - name: Validate project dir
           ansible.builtin.fail:
-            msg: "remnawave_dir must be an absolute path, got '{{ remnawave_dir }}'"
-          when: not (remnawave_dir is match('^/.+'))
+            msg: "remnanode_dir must be an absolute path, got '{{ remnanode_dir }}'"
+          when: not (remnanode_dir is match('^/.+'))
+
+        - name: Normalize xray log dir
+          ansible.builtin.set_fact:
+            remnanode_log_dir: "{{ (remnanode_log_dir | default('') | trim) or '/var/log/remnanode' }}"
+
+        - name: Validate xray log dir
+          ansible.builtin.fail:
+            msg: "remnanode_log_dir must be an absolute path, got '{{ remnanode_log_dir }}'"
+          when:
+            - remnanode_mount_logs | bool
+            - not (remnanode_log_dir is match('^/.+'))
 
         - name: Require resolved node secret
           ansible.builtin.fail:
@@ -410,25 +423,25 @@
 
         - name: Ensure remnawave dir
           ansible.builtin.file:
-            path: "{{ remnawave_dir }}"
+            path: "{{ remnanode_dir }}"
             state: directory
             mode: "0755"
 
         - name: Render compose file
           ansible.builtin.template:
             src: "{{ playbook_dir }}/../templates/remnawave/compose.yml.j2"
-            dest: "{{ remnawave_dir }}/compose.yml"
+            dest: "{{ remnanode_dir }}/compose.yml"
             mode: "0644"
 
         - name: Render node env file
           ansible.builtin.template:
             src: "{{ playbook_dir }}/../templates/remnawave/dotenv.j2"
-            dest: "{{ remnawave_dir }}/.env"
+            dest: "{{ remnanode_dir }}/.env"
             mode: "0600"
 
         - name: Deploy remnawave stack
           community.docker.docker_compose_v2:
-            project_src: "{{ remnawave_dir }}"
+            project_src: "{{ remnanode_dir }}"
             state: present
             pull: missing
           register: remnawave_deploy

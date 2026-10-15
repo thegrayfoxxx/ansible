@@ -4,12 +4,17 @@ services:
   remnanode:
     container_name: remnanode
     hostname: remnanode
-    image: {{ remnawave_node_image }}
+    image: {{ remnanode_node_image }}
     network_mode: host
     restart: always
-{% if remnawave_mount_shm | default(true) | bool %}
+{% if (remnanode_mount_shm | default(true) | bool) or (remnanode_mount_logs | default(true) | bool) %}
     volumes:
+{% if remnanode_mount_shm | default(true) | bool %}
       - /dev/shm:/dev/shm:rw
+{% endif %}
+{% if remnanode_mount_logs | default(true) | bool %}
+      - {{ remnanode_log_dir | default('/var/log/remnanode', true) }}:/var/log/remnanode:rw
+{% endif %}
 {% endif %}
     logging:
       driver: json-file

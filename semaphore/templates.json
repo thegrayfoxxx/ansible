@@ -297,8 +297,10 @@
         {"name": "remnawave_open_port", "title": "Open port in ufw", "description": "true — открыть порт агента в ufw, если он есть (нет — скип с warning; идемпотентно)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnawave_allow_from", "title": "Allow from", "description": "Только с IP панели, например 203.0.113.10 (пусто — отовсюду)", "type": "", "required": false},
         {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnawave_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnawave)", "default_value": "/opt/remnawave", "type": "", "required": false},
-        {"name": "remnawave_mount_shm", "title": "Mount /dev/shm", "description": "true — прокинуть хостовый /dev/shm в контейнер (нужно для Selfsteal-сокета nginx); применяется на deploy", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+        {"name": "remnanode_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnanode)", "default_value": "/opt/remnanode", "type": "", "required": false},
+        {"name": "remnanode_mount_shm", "title": "Mount /dev/shm", "description": "true — прокинуть хостовый /dev/shm в контейнер (нужно для Selfsteal-сокета nginx); применяется на deploy", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnanode_mount_logs", "title": "Mount xray logs", "description": "true — прокинуть каталог логов xray (<host>:/var/log/remnanode); применяется на deploy", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnanode_log_dir", "title": "Xray log dir", "description": "Каталог на ноде под логи xray (пусто — /var/log/remnanode)", "default_value": "/var/log/remnanode", "type": "", "required": false}
       ]
     },
     {
@@ -308,7 +310,7 @@
       "playbook": "playbooks/remnawave_node_update.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true},
-        {"name": "remnawave_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnawave)", "default_value": "/opt/remnawave", "type": "", "required": false}
+        {"name": "remnanode_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnanode)", "default_value": "/opt/remnanode", "type": "", "required": false}
       ]
     },
     {

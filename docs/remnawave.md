@@ -2,6 +2,10 @@
 
 Два шаблона: `remnawave_node_add` (два play внутри: register — только API панели, SSH не трогается; deploy — агент в Docker на ноде) и `remnawave_node_update` (`pull + down + up -d` на любом числе нод, панель не нужна). Ручного создания шаблонов не нужно — приезжают через `update_templates`.
 
+Соглашение об именах: `remnawave_*` — API панели, `remnanode_*` — рантайм агента на ноде.
+
+> ⚠️ BREAKING: дефолтная папка проекта сменилась с `/opt/remnawave` на `/opt/remnanode` (как в доках апстрима), агентские переменные переименованы (`remnawave_dir` → `remnanode_dir` и т.д.). Старые имена в survey игнорируются — обнови сохранённые запуски/расписания. Ноды из `/opt/remnawave` сами не переедут: либо разово передай старый путь в `Project dir`, либо `down` в старом каталоге + deploy.
+
 ## Заполнение группы `remnawave_vars`
 
 Сидинг создаёт группу сам (см. `environments_seed` в `templates.json`), причём сразу с дефолтами — руками дописывается только секрет:
@@ -41,10 +45,12 @@
 - `remnawave_inbounds` (Text, UUID построчно; пусто — все инбаунды профиля; чужие — `fail` с доступными тегами)
 - `remnawave_open_port: false` -> `true` чтобы открыть порт в `ufw`, если он есть (нет — скип с warning; идемпотентно; Enum) + `remnawave_allow_from` (только с IP панели, пусто — отовсюду). `ufw` нет — громкий `fail`. Выключаешь назад — правило сносится руками (одной командой `ufw delete`), свои правила плейбук не трогает
 - `remnawave_token` (Secret, разовый override), `remnawave_validate_certs: true` -> `false` для самоподписанного серта панели
-- `remnawave_dir` (String; папка проекта на ноде, пусто — `/opt/remnawave`)
-- `remnawave_mount_shm: true` -> `false` чтобы не прокидывать хостовый `/dev/shm` в контейнер (нужен для Selfsteal-сокета nginx из `docs/nginx.md`; применяется на deploy; существующим нодам нужен `down` + повторный `deploy`)
+- `remnanode_dir` (String; папка проекта на ноде, пусто — `/opt/remnanode`)
+- `remnanode_mount_shm: true` -> `false` чтобы не прокидывать хостовый `/dev/shm` в контейнер (нужен для Selfsteal-сокета nginx из `docs/nginx.md`; применяется на deploy; существующим нодам нужен `down` + повторный `deploy`)
+- `remnanode_mount_logs: true` -> `false` чтобы не прокидывать каталог логов xray (`<host>:/var/log/remnanode`; применяется на deploy)
+- `remnanode_log_dir` (String; каталог на ноде под логи xray, пусто — `/var/log/remnanode`)
 
-Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт в `remnawave_dir` (дефолт `/opt/remnawave/`) (`compose.yml`, `.env 0600`; логи контейнера `json-file 10m × 3`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
+Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт в `remnanode_dir` (дефолт `/opt/remnanode/`) (`compose.yml`, `.env 0600`; логи контейнера `json-file 10m × 3`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
 
 ```json
 {
@@ -57,11 +63,11 @@
 }
 ```
 
-## `remnawave_node_update` (обновление без панели — достаточно `target` и опционально `remnawave_dir`)
+## `remnawave_node_update` (обновление без панели — достаточно `target` и опционально `remnanode_dir`)
 
 ```json
 {
   "target": "de",
-  "remnawave_dir": ""
+  "remnanode_dir": ""
 }
 ```
