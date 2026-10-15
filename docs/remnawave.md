@@ -49,6 +49,9 @@
 - `remnanode_mount_shm: true` -> `false` чтобы не прокидывать хостовый `/dev/shm` в контейнер (нужен для Selfsteal-сокета nginx из `docs/nginx.md`; применяется на deploy; существующим нодам нужен `down` + повторный `deploy`)
 - `remnanode_mount_logs: true` -> `false` чтобы не прокидывать каталог логов xray (`<host>:/var/log/remnanode`; применяется на deploy)
 - `remnanode_log_dir` (String; каталог на ноде под логи xray, пусто — `/var/log/remnanode`)
+- `remnanode_log_max_size: 100M` (String; ротация по размеру — число + `k`/`M`/`G`)
+- `remnanode_log_keep: 5` (Integer; сколько ротированных файлов хранить, `1..30`)
+- ротация — host-level `logrotate` (`/etc/logrotate.d/remnanode`, `copytruncate` — контейнер не дёргаем); лимиты `json-file` в compose покрывают только stdout контейнера, не файлы в примонтированном каталоге
 
 Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт в `remnanode_dir` (дефолт `/opt/remnanode/`) (`compose.yml`, `.env 0600`; логи контейнера `json-file 10m × 3`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
 

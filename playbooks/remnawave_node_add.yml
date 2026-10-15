@@ -357,6 +357,8 @@
     remnanode_mount_shm: true
     remnanode_mount_logs: true
     remnanode_log_dir: /var/log/remnanode
+    remnanode_log_max_size: 100M
+    remnanode_log_keep: 5
   tasks:
     - name: Deploy remnawave node
       block:
@@ -438,6 +440,29 @@
             src: "{{ playbook_dir }}/../templates/remnawave/dotenv.j2"
             dest: "{{ remnanode_dir }}/.env"
             mode: "0600"
+
+        - name: Validate xray log rotation values
+          ansible.builtin.fail:
+            msg: "remnanode_log_max_size must be like 100M (number + k/M/G), remnanode_log_keep 1..30, got '{{ remnanode_log_max_size }}' / '{{ remnanode_log_keep }}'"
+          when:
+            - remnanode_mount_logs | bool
+            - not (remnanode_log_max_size | default('') | string | trim is match('(?i)^[0-9]+[kMG]$'))
+              or (remnanode_log_keep | int < 1) or (remnanode_log_keep | int > 30)
+
+        - name: Ensure logrotate is installed
+          ansible.builtin.apt:
+            name: logrotate
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+          when: remnanode_mount_logs | bool
+
+        - name: Render xray logrotate config
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../templates/remnawave/logrotate.j2"
+            dest: /etc/logrotate.d/remnanode
+            mode: "0644"
+          when: remnanode_mount_logs | bool
 
         - name: Deploy remnawave stack
           community.docker.docker_compose_v2:
