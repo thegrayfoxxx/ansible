@@ -7,6 +7,10 @@ services:
     image: {{ remnawave_node_image }}
     network_mode: host
     restart: always
+{% if remnawave_mount_shm | default(true) | bool %}
+    volumes:
+      - /dev/shm:/dev/shm:rw
+{% endif %}
     logging:
       driver: json-file
       options:

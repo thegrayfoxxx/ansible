@@ -42,6 +42,7 @@
 - `remnawave_open_port: false` -> `true` чтобы открыть порт в `ufw`, если он есть (нет — скип с warning; идемпотентно; Enum) + `remnawave_allow_from` (только с IP панели, пусто — отовсюду). `ufw` нет — громкий `fail`. Выключаешь назад — правило сносится руками (одной командой `ufw delete`), свои правила плейбук не трогает
 - `remnawave_token` (Secret, разовый override), `remnawave_validate_certs: true` -> `false` для самоподписанного серта панели
 - `remnawave_dir` (String; папка проекта на ноде, пусто — `/opt/remnawave`)
+- `remnawave_mount_shm: true` -> `false` чтобы не прокидывать хостовый `/dev/shm` в контейнер (нужен для Selfsteal-сокета nginx из `docs/nginx.md`; применяется на deploy; существующим нодам нужен `down` + повторный `deploy`)
 
 Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт в `remnawave_dir` (дефолт `/opt/remnawave/`) (`compose.yml`, `.env 0600`; логи контейнера `json-file 10m × 3`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
 

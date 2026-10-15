@@ -354,6 +354,7 @@
     remnawave_dir: /opt/remnawave
     remnawave_agent_container: remnanode
     remnawave_node_image: remnawave/node:latest
+    remnawave_mount_shm: true
   tasks:
     - name: Deploy remnawave node
       block:

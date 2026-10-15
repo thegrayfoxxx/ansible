@@ -297,7 +297,8 @@
         {"name": "remnawave_open_port", "title": "Open port in ufw", "description": "true — открыть порт агента в ufw, если он есть (нет — скип с warning; идемпотентно)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnawave_allow_from", "title": "Allow from", "description": "Только с IP панели, например 203.0.113.10 (пусто — отовсюду)", "type": "", "required": false},
         {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnawave_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnawave)", "default_value": "/opt/remnawave", "type": "", "required": false}
+        {"name": "remnawave_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnawave)", "default_value": "/opt/remnawave", "type": "", "required": false},
+        {"name": "remnawave_mount_shm", "title": "Mount /dev/shm", "description": "true — прокинуть хостовый /dev/shm в контейнер (нужно для Selfsteal-сокета nginx); применяется на deploy", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
     {
