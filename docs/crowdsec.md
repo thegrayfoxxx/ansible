@@ -97,7 +97,7 @@
 Соглашение: `adopt` = причесать на месте. Креды сохраняются (не ротируются), поэтому старые регистрации в LAPI продолжают работать; плюс креды записываются в группу `crowdsec_nodes` (нужны `project_id` + `service_vars`, как в register) — иначе следующий `deploy` упадёт «сначала register».
 
 - `crowdsec_adopt_action: inspect` (только отчёт — безопасно; `migrate` — переезд)
-- `target` — строго один хост; имена контейнеров (дефолты `crowdsec-agent`/`crowdsec-bouncer`)
+- `target` — строго один хост; `crowdsec_agent_container` / `crowdsec_bouncer_container` (имена контейнеров, дефолты `crowdsec-agent`/`crowdsec-bouncer`)
 - `crowdsec_node_name` (пусто — inventory hostname; под это имя пишутся ключи группы — обязано совпадать с будущими deploy)
 - `crowdsec_old_dir` (пусто — из compose-меток), `crowdsec_dir` (куда, пусто — `/opt/crowdsec`), `crowdsec_mode` (пусто — из running-контейнера)
 - discovery: running Env обоих контейнеров → старый `.env`; `extra_logs` — из старого `acquis.yaml` (filenames минус 3 базовых), `extra_collections` — обнаруженные минус базовые (рендер склеивает 1:1); `TZ` — обнаруженная → `/etc/timezone` → `Etc/UTC`
@@ -127,5 +127,5 @@
 
 - `target` — исходная нода (строго один хост); `crowdsec_move_dest` (цель в inventory, обязательно, строго один хост, ≠ источнику)
 - `crowdsec_move_action: inspect` (отчёт+план) / `move`; `crowdsec_move_confirmed: true` — обязательно для `move`
-- `crowdsec_node_name` (пусто — имя целевой ноды), остальные поля — как в adopt (контейнеры/old_dir — источник, `dir`/`mode` — уже цель)
+- `crowdsec_node_name` (пусто — имя целевой ноды), остальные поля — как в adopt (`crowdsec_agent_container`/`crowdsec_bouncer_container` и `old_dir` — источник, `dir`/`mode` — уже цель)
 - порядок: discovery → синк группы под новым именем → поднимаем цель (проверка `cscli lapi status`) → только потом гасим источник (stop+rename, каталоги целы); провал на цели — источник не тронут
