@@ -311,6 +311,22 @@
       ]
     },
     {
+      "name": "nginx_fallback",
+      "view": "Nginx",
+      "description": "Nginx Selfsteal-заглушка + выпуск LE-серта (playbooks/nginx_fallback.yml)",
+      "playbook": "playbooks/nginx_fallback.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "nginx_domain", "title": "Domain", "description": "Домен заглушки, например de1.example.com (без https:// и слэшей)", "type": "", "required": true},
+        {"name": "nginx_email", "title": "ACME email", "description": "Обязателен для первого выпуска серта (потом можно пустым)", "type": "", "required": false},
+        {"name": "nginx_html", "title": "index.html", "description": "Свой HTML заглушки целиком (файл из репо не берём)", "type": "text", "required": true},
+        {"name": "nginx_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/nginx)", "default_value": "/opt/nginx", "type": "", "required": false},
+        {"name": "nginx_staging", "title": "LE staging", "description": "true — staging LE для обкатки без рейт-лимитов (потом перепрогнать с false для боевого серта)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "nginx_force_issue", "title": "Force reissue", "description": "true — перевыпустить принудительно (жрёт лимиты LE: 5 дубликатов в неделю; переход staging→prod чинится сам, без флага)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "nginx_open_ports", "title": "Open 80+443", "description": "true — открыть 80,443/tcp в ufw, если он есть (нет — скип с warning)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
       "name": "update_templates",
       "view": "Service",
       "app": "python",

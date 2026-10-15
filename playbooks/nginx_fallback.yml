@@ -1,0 +1,275 @@
+---
+- name: Deploy nginx fallback (Selfsteal stub + LE certificate)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    nginx_domain: ""
+    nginx_email: ""
+    nginx_html: ""
+    nginx_dir: /opt/nginx
+    nginx_staging: false
+    nginx_force_issue: false
+    nginx_open_ports: false
+    nginx_socket: /dev/shm/nginx.sock
+    nginx_web_container: fallback-web
+    nginx_acme_container: fallback-acme
+  tasks:
+    - name: Normalize project dir
+      ansible.builtin.set_fact:
+        nginx_dir: "{{ (nginx_dir | default('') | trim) or '/opt/nginx' }}"
+
+    - name: Validate project dir
+      ansible.builtin.fail:
+        msg: "nginx_dir must be an absolute path, got '{{ nginx_dir }}'"
+      when: not (nginx_dir is match('^/.+'))
+
+    - name: Validate domain value
+      ansible.builtin.fail:
+        msg: "nginx_domain must be a plain hostname like de1.example.com (no scheme, slashes or spaces), got '{{ nginx_domain }}'"
+      when: nginx_domain | default('') | trim | length == 0
+        or not (nginx_domain | trim is match('^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$'))
+
+    - name: Require fallback HTML
+      ansible.builtin.fail:
+        msg: "nginx_html is empty. Paste your own index.html into the survey field"
+      when: nginx_html | default('') | trim | length == 0
+
+    - name: Check Debian family
+      ansible.builtin.stat:
+        path: /etc/debian_version
+      register: nginx_debian
+
+    - name: Require Debian or Ubuntu
+      ansible.builtin.fail:
+        msg: "Nginx fallback needs Debian or Ubuntu"
+      when: not nginx_debian.stat.exists
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: nginx_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker on node
+      ansible.builtin.fail:
+        msg: "docker not found. Run the docker template on this host first"
+      when: nginx_docker_bin.rc != 0
+
+    - name: Check own web container is running
+      ansible.builtin.command: docker ps -q --filter name=fallback-web
+      register: nginx_own_web
+      changed_when: false
+      failed_when: false
+
+    - name: Check port 80 is free for ACME http-01
+      ansible.builtin.shell: "ss -tlnp | grep -E ':(80)\\s' || true"
+      args:
+        executable: /bin/bash
+      register: nginx_port_busy
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse busy port 80
+      ansible.builtin.fail:
+        msg: "Port 80 is already listening on this host ({{ nginx_port_busy.stdout | trim }}). ACME http-01 needs it free"
+      when:
+        - nginx_own_web.stdout | default('') | trim | length == 0
+        - nginx_port_busy.stdout | length > 0
+
+    - name: Ensure fallback dirs
+      ansible.builtin.file:
+        path: "{{ nginx_dir }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - ""
+        - nginx
+        - html
+        - webroot
+        - acme.sh
+        - letsencrypt
+        - "letsencrypt/live/{{ nginx_domain | trim }}"
+
+    - name: Render compose file
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/nginx/compose.yml.j2"
+        dest: "{{ nginx_dir }}/compose.yml"
+        mode: "0644"
+
+    - name: Render fallback env file
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/nginx/dotenv.j2"
+        dest: "{{ nginx_dir }}/.env"
+        mode: "0644"
+      vars:
+        nginx_acme_server: "{{ 'https://acme-staging-v02.api.letsencrypt.org/directory' if (nginx_staging | bool) else 'https://acme-v02.api.letsencrypt.org/directory' }}"
+
+    - name: Copy nginx fallback config
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../files/nginx/fallback.conf.template"
+        dest: "{{ nginx_dir }}/nginx/fallback.conf.template"
+        mode: "0644"
+
+    - name: Write fallback index page
+      ansible.builtin.copy:
+        content: "{{ nginx_html }}"
+        dest: "{{ nginx_dir }}/html/index.html"
+        mode: "0644"
+
+    - name: Check LE certificate files
+      ansible.builtin.stat:
+        path: "{{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}/{{ item }}"
+      loop:
+        - fullchain.pem
+        - privkey.pem
+      register: nginx_cert_stat
+
+    - name: Resolve certificate state
+      ansible.builtin.set_fact:
+        nginx_cert_missing: "{{ (nginx_cert_stat.results | selectattr('stat.exists') | list | length) != 2 }}"
+
+    - name: Check certificate issuer
+      ansible.builtin.command: openssl x509 -noout -issuer -in {{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}/fullchain.pem
+      register: nginx_cert_issuer
+      changed_when: false
+      failed_when: false
+      when: not (nginx_cert_missing | bool)
+
+    - name: Resolve issue need
+      ansible.builtin.set_fact:
+        nginx_cert_is_staging: "{{ 'staging' in (nginx_cert_issuer.stdout | default('') | lower) }}"
+        nginx_issue_wanted: "{{ (nginx_cert_missing | bool) or (nginx_force_issue | bool) or (not (nginx_staging | bool) and ('staging' in (nginx_cert_issuer.stdout | default('') | lower))) }}"
+
+    - name: Require email for certificate issue
+      ansible.builtin.fail:
+        msg: "nginx_email is required to issue the first certificate (LE account). Fill it in survey"
+      when:
+        - nginx_issue_wanted | bool
+        - nginx_email | default('') | trim | length == 0
+
+    - name: Check openssl is available for temp certificate
+      ansible.builtin.shell: command -v openssl
+      args:
+        executable: /bin/bash
+      register: nginx_openssl_bin
+      changed_when: false
+      failed_when: false
+      when: nginx_cert_missing | bool
+
+    - name: Require openssl for temp certificate
+      ansible.builtin.fail:
+        msg: "openssl not found but a temporary self-signed certificate is needed to boot nginx before the first LE issue"
+      when:
+        - nginx_cert_missing | bool
+        - nginx_openssl_bin.rc | default(1) | int != 0
+
+    - name: Create temporary self-signed certificate
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - req
+          - -x509
+          - -nodes
+          - -days
+          - "2"
+          - -newkey
+          - rsa:2048
+          - -keyout
+          - privkey.pem
+          - -out
+          - fullchain.pem
+          - -subj
+          - "/CN={{ nginx_domain | trim }}"
+      args:
+        chdir: "{{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}"
+      changed_when: true
+      when: nginx_cert_missing | bool
+
+    - name: Deploy fallback stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ nginx_dir }}"
+        state: present
+        pull: missing
+      register: nginx_deploy
+
+    - name: Wait for nginx socket
+      ansible.builtin.stat:
+        path: "{{ nginx_socket }}"
+      register: nginx_sock
+      until: nginx_sock.stat.exists
+      retries: 12
+      delay: 5
+
+    - name: Allow xray to use the socket
+      ansible.builtin.file:
+        path: "{{ nginx_socket }}"
+        mode: "0666"
+
+    - name: Issue LE certificate
+      ansible.builtin.command:
+        argv: "{{ ['docker', 'exec', nginx_acme_container, 'acme.sh', '--issue', '-d', (nginx_domain | trim), '--webroot', '/var/www/webroot', '--accountemail', (nginx_email | trim)] + (['--server', 'letsencrypt_test'] if (nginx_staging | bool) else ['--server', 'letsencrypt']) }}"
+      register: nginx_issue
+      changed_when: true
+      when: nginx_issue_wanted | bool
+
+    - name: Install LE certificate for nginx
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ nginx_acme_container }}"
+          - acme.sh
+          - --install-cert
+          - -d
+          - "{{ nginx_domain | trim }}"
+          - --key-file
+          - "/etc/letsencrypt/live/{{ nginx_domain | trim }}/privkey.pem"
+          - --fullchain-file
+          - "/etc/letsencrypt/live/{{ nginx_domain | trim }}/fullchain.pem"
+      register: nginx_install
+      changed_when: true
+      when: nginx_issue_wanted | bool
+
+    - name: Reload nginx with new certificate
+      ansible.builtin.command: docker exec {{ nginx_web_container }} nginx -s reload
+      changed_when: true
+      when: nginx_issue_wanted | bool
+
+    - name: Validate nginx config
+      ansible.builtin.command: docker exec {{ nginx_web_container }} nginx -t
+      changed_when: false
+
+    - name: Check ufw is available for auto open
+      ansible.builtin.shell: command -v ufw
+      args:
+        executable: /bin/bash
+      register: nginx_ufw_bin
+      changed_when: false
+      failed_when: false
+      when: nginx_open_ports | bool
+
+    - name: Warn when ufw is missing for auto open
+      ansible.builtin.debug:
+        msg: "ufw not found — ports 80,443 NOT opened. Install ufw (base/firewall templates) or open them manually"
+      when:
+        - nginx_open_ports | bool
+        - nginx_ufw_bin.rc | default(1) | int != 0
+
+    - name: Open web ports in ufw
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "80"
+        - "443"
+      when:
+        - nginx_open_ports | bool
+        - nginx_ufw_bin.rc | default(1) | int == 0
+
+    - name: Show deploy summary
+      ansible.builtin.debug:
+        msg: "domain={{ nginx_domain | trim }} dir={{ nginx_dir }} cert={{ 'issued' if (nginx_issue is defined and nginx_issue.changed | default(false)) else ((('existing (staging)' if (nginx_cert_is_staging | bool) else 'existing') if not (nginx_cert_missing | bool) else 'missing')) }}{{ ' (staging requested — re-run with staging=false for a trusted cert)' if (nginx_staging | bool) else '' }} socket={{ nginx_socket }} firewall={{ 'manual' if not (nginx_open_ports | bool) else ('open' if (nginx_ufw_bin.rc | default(1) | int == 0) else 'skipped (no ufw)') }} (port 443 goes live after Xray install)"
