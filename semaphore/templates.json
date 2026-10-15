@@ -370,6 +370,22 @@
       ]
     },
     {
+      "name": "nginx_adopt",
+      "view": "Nginx",
+      "description": "Принять ручную nginx-заглушку под управление: inspect (отчёт) / migrate (переезд, конфиг/серты/учётка сохраняются) (playbooks/nginx_adopt.yml)",
+      "playbook": "playbooks/nginx_adopt.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Один хост со старой заглушкой. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "nginx_adopt_action", "title": "Action", "description": "inspect — только отчёт что найдено (безопасно); migrate — переезд под стандарт", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "migrate", "value": "migrate"}]},
+        {"name": "nginx_web_container", "title": "Nginx container", "description": "Имя nginx-контейнера. Пусто — автоопределить по образу nginx (должен быть ровно один)", "type": "", "required": false},
+        {"name": "nginx_old_dir", "title": "Old project dir", "description": "Откуда переезжаем. Пусто — автоопределить из compose-меток (нет меток — обязательно явно)", "type": "", "required": false},
+        {"name": "nginx_dir", "title": "Project dir", "description": "Куда переезжаем (пусто — /opt/nginx)", "default_value": "/opt/nginx", "type": "", "required": false},
+        {"name": "nginx_email", "title": "ACME email override", "description": "Разовый override email (пусто — взять из старого .env; нужен для будущих перевыпусков)", "type": "", "required": false},
+        {"name": "nginx_open_ports", "title": "Open 80+443", "description": "true — открыть 80,443/tcp в ufw, если он есть (нет — скип с warning)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "nginx_overwrite_conf", "title": "Overwrite nginx conf", "description": "true — заменить найденный конфиг нашим стоком (иначе сохранить + warning о diff)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
       "name": "update_templates",
       "view": "Service",
       "app": "python",

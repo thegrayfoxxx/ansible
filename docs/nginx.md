@@ -47,3 +47,32 @@
   "nginx_html": "<!DOCTYPE html>..."
 }
 ```
+
+## `nginx_adopt` (принять ручную заглушку под управление; панель/панели не нужны)
+
+Соглашение: файлы ищем по маунтам running-контейнеров (раскладка источника может быть любой), новый лейаут всегда стандартный.
+
+- `nginx_adopt_action: inspect` (только отчёт — безопасно; `migrate` — переезд)
+- `target` — строго один хост; `nginx_web_container` (пусто — авто по образу `nginx:`, должен быть ровно один)
+- `nginx_old_dir` (пусто — из compose-меток; нет меток — обязательно явно)
+- `nginx_dir` (куда, пусто — `/opt/nginx`), `nginx_email` (override; пусто — из старого `.env`, для будущих перевыпусков обязателен)
+- `nginx_open_ports` (как в deploy), `nginx_overwrite_conf: false` -> `true` чтобы заменить найденный конфиг стоком (иначе сохранить + warning о diff)
+- переезжает: `index.html` (файл или каталог-источник — оба), `letsencrypt/`, acme-учётка (`/acme.sh`-маунт; нет — warning, продлений не будет до перевыпуска), конфиг (см. флаг); `webroot` — свежий пустой
+- только bind-маунты (v1); именованные вольюмы/неизвестные destination — понятный fail
+- migrate: stop+rename обоих контейнеров → копии → `up` → проверки (`nginx -t`, running, `:80` слушается, сокет, серты на месте) → rescue с подъёмом бэкапа
+- старый каталог — в бэкап с timestamp (не удаление), контейнеры переименованы (не снесены)
+
+```json
+{
+  "target": "de5",
+  "nginx_adopt_action": "inspect"
+}
+```
+
+```json
+{
+  "target": "de5",
+  "nginx_adopt_action": "migrate",
+  "nginx_old_dir": "/home/anatoliy/fallback"
+}
+```
