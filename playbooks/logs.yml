@@ -52,6 +52,21 @@
       ansible.builtin.set_fact:
         log_raw_lines: "{{ log_journal_out.stdout_lines | default([]) if log_source == 'journal' else log_file_out.stdout_lines | default([]) }}"
 
+    - name: Check log_grep regex compiles
+      ansible.builtin.command:
+        argv: ["python3", "-c", "import re,sys; re.compile(sys.argv[1])", "{{ log_grep }}"]
+      register: log_grep_check
+      changed_when: false
+      failed_when: false
+      when: log_grep | length > 0
+
+    - name: Fail on invalid log_grep regex
+      ansible.builtin.fail:
+        msg: "log_grep must be a valid Python regex, got {{ log_grep }}"
+      when:
+        - log_grep | length > 0
+        - log_grep_check.rc != 0
+
     - name: Filter log lines
       ansible.builtin.set_fact:
         log_lines_out: "{{ log_raw_lines | select('search', log_grep) | list if log_grep | length > 0 else log_raw_lines }}"

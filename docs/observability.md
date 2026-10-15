@@ -8,7 +8,7 @@
 - `log_priority: info` (только journal: уровень и срочнее; Enum)
 - `log_since: "-1h"` (только journal: `-30min`, `today`, `2026-10-01`)
 - `log_lines: 200` (Integer, guard `1..2000`)
-- `log_grep: ""` (String, regex-фильтр, например `error|fail`)
+- `log_grep: ""` (String, валидный Python regex-фильтр, например `error|fail`)
 - `log_kernel: false` -> `true` для ring buffer ядра `-k` (только journal; Enum)
 
 ```json

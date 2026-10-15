@@ -20,7 +20,7 @@
 
     - name: Normalize fw_allow to rule list (one rule per line, e.g. 22/tcp or 2096/tcp from 203.0.113.10)
       ansible.builtin.set_fact:
-        fw_allow_list: "{{ (fw_allow.splitlines() if fw_allow is string else fw_allow) | map('trim') | map('lower') | select | list }}"
+        fw_allow_list: "{{ ((fw_allow | default([], true)).replace(',', '\n').splitlines() if (fw_allow | default([], true)) is string else (fw_allow | default([], true))) | map('trim') | map('lower') | select | list }}"
 
     - name: Validate fw_allow format
       ansible.builtin.fail:

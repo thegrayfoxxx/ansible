@@ -131,8 +131,8 @@
 
     - name: Normalize extra collections and logs
       ansible.builtin.set_fact:
-        crowdsec_collections: "{{ crowdsec_base_collections + (crowdsec_extra_collections.replace(',', '\n').splitlines() | map('trim') | select | list if crowdsec_extra_collections is string else crowdsec_extra_collections) }}"
-        crowdsec_extra_logs_list: "{{ crowdsec_extra_logs.replace(',', '\n').splitlines() | map('trim') | select | list if crowdsec_extra_logs is string else crowdsec_extra_logs }}"
+        crowdsec_collections: "{{ crowdsec_base_collections + ((crowdsec_extra_collections | default([], true)).replace(',', '\n').splitlines() | map('trim') | select | list if (crowdsec_extra_collections | default([], true)) is string else (crowdsec_extra_collections | default([], true))) }}"
+        crowdsec_extra_logs_list: "{{ (crowdsec_extra_logs | default([], true)).replace(',', '\n').splitlines() | map('trim') | select | list if (crowdsec_extra_logs | default([], true)) is string else (crowdsec_extra_logs | default([], true)) }}"
 
     - name: Require extra logs under /var/log
       ansible.builtin.fail:

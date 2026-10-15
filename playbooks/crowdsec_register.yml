@@ -11,6 +11,10 @@
     crowdsec_lapi_container: crowdsec-lapi
     crowdsec_group_name: crowdsec_nodes
   tasks:
+    - name: Normalize LAPI container name
+      ansible.builtin.set_fact:
+        crowdsec_lapi_container: "{{ (crowdsec_lapi_container | default('') | trim) or 'crowdsec-lapi' }}"
+
     - name: Require exactly one LAPI host
       ansible.builtin.fail:
         msg: "Point target/Limit at exactly one LAPI host, got {{ ansible_play_hosts_all | length }}"
@@ -23,7 +27,7 @@
 
     - name: Normalize node names to list
       ansible.builtin.set_fact:
-        crowdsec_names_list: "{{ crowdsec_node_names.replace(',', '\n').splitlines() | map('trim') | select | list if crowdsec_node_names is string else crowdsec_node_names }}"
+        crowdsec_names_list: "{{ (crowdsec_node_names | default([], true)).replace(',', '\n').splitlines() | map('trim') | select | list if (crowdsec_node_names | default([], true)) is string else (crowdsec_node_names | default([], true)) }}"
 
     - name: Require single name source
       ansible.builtin.fail:

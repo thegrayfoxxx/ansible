@@ -26,7 +26,7 @@
 
     - name: Normalize node names to list
       ansible.builtin.set_fact:
-        crowdsec_names_list: "{{ crowdsec_node_names.replace(',', '\n').splitlines() | map('trim') | select | list if crowdsec_node_names is string else crowdsec_node_names }}"
+        crowdsec_names_list: "{{ (crowdsec_node_names | default([], true)).replace(',', '\n').splitlines() | map('trim') | select | list if (crowdsec_node_names | default([], true)) is string else (crowdsec_node_names | default([], true)) }}"
 
     - name: Require single name source
       ansible.builtin.fail:

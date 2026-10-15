@@ -13,7 +13,7 @@
   tasks:
     - name: Normalize base_packages to list
       ansible.builtin.set_fact:
-        base_packages_list: "{{ base_packages.replace(',', '\n').splitlines() | map('trim') | select | list if base_packages is string else base_packages }}"
+        base_packages_list: "{{ (base_packages | default([], true)).replace(',', '\n').splitlines() | map('trim') | select | list if (base_packages | default([], true)) is string else (base_packages | default([], true)) }}"
 
     - name: Set timezone
       community.general.timezone:

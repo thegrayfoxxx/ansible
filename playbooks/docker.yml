@@ -29,7 +29,7 @@
 
     - name: Normalize docker_users to list
       ansible.builtin.set_fact:
-        docker_users_list: "{{ docker_users.replace(',', '\n').splitlines() | map('trim') | select | list if docker_users is string else docker_users }}"
+        docker_users_list: "{{ (docker_users | default([], true)).replace(',', '\n').splitlines() | map('trim') | select | list if (docker_users | default([], true)) is string else (docker_users | default([], true)) }}"
 
     - name: Remove conflicting packages
       ansible.builtin.apt:

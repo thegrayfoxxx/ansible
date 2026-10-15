@@ -10,6 +10,7 @@
 - `crowdsec_node_names` (Text, обязательно; по одному `^[a-z0-9-]+$` на строку; повтор имени = ротация секретов; `local/dashboard/localhost` запрещены)
 - `crowdsec_from_group` (String; например `de` — взять имена-алиасы из группы inventory вместо ручного списка; с `crowdsec_node_names` вместе нельзя — только один источник)
 - `crowdsec_api_url` (String; пусто — взять текущий из группы, обязателен при первой регистрации; поле не для этого прогона — register ходит через `docker exec`, URL складируется в группу для деплоев нод)
+- `crowdsec_lapi_container` (String; пусто — `crowdsec-lapi`)
 - не запускай два register параллельно — записи в группу идут read-modify-write, второй затрет первого
 
 ```json

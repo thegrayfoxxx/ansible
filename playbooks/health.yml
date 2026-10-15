@@ -60,7 +60,7 @@
         health_mem_pct: "{{ ((health_mem_u | int / health_mem_t | int * 100) | round | int) if (health_mem_t | int > 0) else -1 }}"
         health_mem: "{{ '%s/%sMB(%s%%%s)' % (health_mem_u, health_mem_t, health_mem_pct, '(!)' if (health_mem_pct | int > 90) else '') if (health_mem_t | int > 0) else 'n/a' }}"
         health_disk_raw: "{{ ((health_df.stdout_lines | last).split()[4]) if (health_df.stdout_lines | default([]) | length > 1) else '' }}"
-        health_disk: "{{ (health_disk_raw + '(!)' if (health_disk_raw | regex_replace('%', '') | int > 80) else health_disk_raw) if (health_disk_raw | length > 0) else 'n/a' }}"
+        health_disk: "{{ (health_disk_raw + '(!)' if (health_disk_raw | regex_replace('%', '') | int > 80) else health_disk_raw) if ((health_disk_raw | length > 0) and (health_disk_raw | regex_replace('%', '') is match('^[0-9]+$'))) else 'n/a' }}"
         health_n: "{{ health_ps.stdout_lines | default([]) | length if (health_docker.rc == 0) else 'n/a' }}"
         health_f2b_state: "{{ 'active' if (health_f2b.stdout | default('') | trim == 'active') else ('missing' if 'could not be found' in (health_f2b.stderr | default('')) else 'inactive') }}"
         health_cs_state: "{{ 'n/a' if (health_docker.rc != 0) else ('ok' if (health_cs.rc | default(1) | int == 0) else ('na' if 'No such container' in ((health_cs.stdout | default('')) + (health_cs.stderr | default(''))) else 'fail')) }}"

@@ -175,7 +175,9 @@
     - name: Resolve acme state source
       ansible.builtin.set_fact:
         nginx_acme_src: "{{ (((nginx_acme_inspect_raw.stdout | from_json | first) | default({})).Config.Mounts | default([]) | selectattr('Destination', 'equalto', '/acme.sh') | list | first | default({})).Source | default('') }}"
-      when: nginx_acme_found | bool
+      when:
+        - nginx_acme_found | bool
+        - nginx_acme_inspect_raw.rc | default(1) | int == 0
 
     - name: Warn when acme state is not portable
       ansible.builtin.debug:
