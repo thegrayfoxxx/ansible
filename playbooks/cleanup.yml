@@ -6,7 +6,7 @@
   vars:
     journal_max_age: 14d
     journal_max_size: 500M
-    docker_prune: true
+    docker_prune: false
     docker_prune_volumes: false
     docker_prune_until: ""
     apt_clean: true
@@ -33,6 +33,18 @@
         autoremove: true
         autoclean: "{{ apt_clean | bool }}"
       when: apt_clean | bool
+
+    - name: Validate journal_max_age format
+      ansible.builtin.fail:
+        msg: "journal_max_age must be a systemd time span like 14d, got {{ journal_max_age }}"
+      when:
+        - not (journal_max_age is regex('^[0-9]+\\s*(s|sec|secs|m|min|mins|h|hr|hrs|d|day|days|w|week|weeks|M|month|months|y|year|years)s?$'))
+
+    - name: Validate journal_max_size format
+      ansible.builtin.fail:
+        msg: "journal_max_size must be bytes like 500M, got {{ journal_max_size }}"
+      when:
+        - not (journal_max_size is regex('^[0-9]+[BKMGTP]?$'))
 
     - name: Vacuum systemd journal by time
       ansible.builtin.command: "journalctl --vacuum-time={{ journal_max_age }}"

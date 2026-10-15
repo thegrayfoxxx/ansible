@@ -8,11 +8,33 @@
     script_args: ""
     script_env: {}
     script_become: true
+    script_confirmed: false
   tasks:
     - name: Validate script_src is set
       ansible.builtin.fail:
         msg: "Set script_src as repo-root path, e.g. scripts/hello.sh (via Extra vars)"
       when: script_src | length == 0
+
+    - name: Require confirmation for fleet script run
+      ansible.builtin.fail:
+        msg: "Running script on {{ ansible_play_hosts_all | length }} hosts at once needs script_confirmed=true. Set it in survey (or narrow target/Limit to one host)"
+      when:
+        - ansible_play_hosts_all | length > 1
+        - not (script_confirmed | bool)
+
+    - name: Validate script_src path
+      ansible.builtin.fail:
+        msg: "script_src must be a repo-root path under scripts/, e.g. scripts/hello.sh, got {{ script_src }}"
+      when:
+        - not (script_src is regex('^scripts/.+')) or ('..' in script_src)
+
+    - name: Validate script_env is a JSON object
+      ansible.builtin.fail:
+        msg: "script_env must be a JSON object like {\"FOO\": \"1\"}, got {{ script_env }}"
+      when:
+        - script_env is string
+        - script_env | length > 0
+        - not (script_env | trim is regex('^\\{.*\\}$'))
 
     - name: Normalize script_env to dict
       ansible.builtin.set_fact:

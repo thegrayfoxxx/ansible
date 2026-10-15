@@ -11,11 +11,27 @@
     cmd_become: true
     cmd_tail: 0
     allow_fail: false
+    cmd_confirmed: false
   tasks:
     - name: Validate cmd is set
       ansible.builtin.fail:
         msg: "Set cmd, e.g. df -h (via Extra vars)"
       when: cmd | length == 0
+
+    - name: Require confirmation for fleet command
+      ansible.builtin.fail:
+        msg: "Running command on {{ ansible_play_hosts_all | length }} hosts at once needs cmd_confirmed=true. Set it in survey (or narrow target/Limit to one host)"
+      when:
+        - ansible_play_hosts_all | length > 1
+        - not (cmd_confirmed | bool)
+
+    - name: Validate cmd_env is a JSON object
+      ansible.builtin.fail:
+        msg: "cmd_env must be a JSON object like {\"FOO\": \"1\"}, got {{ cmd_env }}"
+      when:
+        - cmd_env is string
+        - cmd_env | length > 0
+        - not (cmd_env | trim is regex('^\\{.*\\}$'))
 
     - name: Normalize cmd_env to dict
       ansible.builtin.set_fact:

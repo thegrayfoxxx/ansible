@@ -58,7 +58,8 @@
         {"name": "cmd_env", "title": "Env JSON", "description": "JSON-объект, например {\"FOO\": \"1\"}", "type": "text", "required": false},
         {"name": "cmd_become", "title": "Use sudo", "description": "false чтобы запустить без sudo", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "cmd_tail", "title": "Tail lines", "description": "Показать только последние N строк (например 20; 0 — всё)", "default_value": "0", "type": "int", "required": false},
-        {"name": "allow_fail", "title": "Allow fail", "description": "true чтобы не фейлить хост при rc != 0", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+        {"name": "allow_fail", "title": "Allow fail", "description": "true чтобы не фейлить хост при rc != 0", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "cmd_confirmed", "title": "Confirm fleet", "description": "true — разрешить запуск сразу на нескольких хостах (иначе только один хост)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
     {
@@ -71,7 +72,8 @@
         {"name": "script_src", "title": "Script path", "description": "Путь от корня репо, например scripts/hello.sh", "type": "", "required": true},
         {"name": "script_args", "title": "Script args", "description": "Аргументы скрипта, например --foo bar", "type": "", "required": false},
         {"name": "script_env", "title": "Env JSON", "description": "JSON-объект, например {\"FOO\": \"1\"}", "type": "text", "required": false},
-        {"name": "script_become", "title": "Use sudo", "description": "false чтобы запустить без sudo", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+        {"name": "script_become", "title": "Use sudo", "description": "false чтобы запустить без sudo", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "script_confirmed", "title": "Confirm fleet", "description": "true — разрешить запуск сразу на нескольких хостах (иначе только один хост)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
     {
@@ -130,7 +132,7 @@
         {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true},
         {"name": "journal_max_age", "title": "Journal max age", "description": "Хранить журнал, например 14d", "default_value": "14d", "type": "", "required": false},
         {"name": "journal_max_size", "title": "Journal max size", "description": "Лимит размера журнала, например 500M", "default_value": "500M", "type": "", "required": false},
-        {"name": "docker_prune", "title": "Docker prune", "description": "false — пропустить docker prune (скипается если докера нет)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "docker_prune", "title": "Docker prune", "description": "true — чистить docker (сносит неиспользуемые образы/сети); false — пропустить (скипается если докера нет)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "docker_prune_volumes", "title": "Prune volumes", "description": "true — чистить и docker volumes (опасно)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "docker_prune_until", "title": "Prune older than", "description": "prune только старше N, например 72h. Пусто — без фильтра", "type": "", "required": false},
         {"name": "apt_clean", "title": "APT clean", "description": "false — пропустить autoremove/autoclean", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},

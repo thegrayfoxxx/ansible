@@ -29,10 +29,11 @@ ICMP с ноды до панели (перед deploy remnawave):
 
 ## `playbooks/run_script.yml`
 
-- `script_src: scripts/hello.sh` (String; обязательно, путь от корня репо, резолвится через `playbook_dir`)
+- `script_src: scripts/hello.sh` (String; обязательно, путь от корня репо строго внутри `scripts/`, резолвится через `playbook_dir`)
 - `script_args: ""` (String, опционально)
 - `script_env` (Text с JSON-объектом, опционально; например `{"FOO": "1"}`)
 - `script_become: true` -> `false` чтобы запустить без sudo (Enum)
+- `script_confirmed: false` -> `true` чтобы разрешить запуск сразу на нескольких хостах (Enum)
 
 Запуск скрипта через Semaphore Extra vars:
 
@@ -64,6 +65,7 @@ ICMP с ноды до панели (перед deploy remnawave):
 - `cmd_become: true` -> `false` чтобы запустить без sudo (Enum)
 - `cmd_tail: 0` (Integer, опционально, показать только последние N строк stdout/stderr)
 - `allow_fail: false` -> `true` чтобы не фейлить хост при rc != 0 (rc виден в выводе; Enum)
+- `cmd_confirmed: false` -> `true` чтобы разрешить запуск сразу на нескольких хостах (Enum)
 
 Запуск команды через Semaphore Extra vars:
 
