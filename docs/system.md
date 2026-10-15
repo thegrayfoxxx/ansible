@@ -38,6 +38,19 @@
 }
 ```
 
+## `playbooks/ipv6.yml` (sysctl, без ребута для применения запрета)
+
+- `ipv6_state: disabled` / `enabled` (Enum, обязательно) — пишет `/etc/sysctl.d/99-ansible-ipv6.conf` (`all/default/lo.disable_ipv6`)
+- `ipv6_confirmed: false` -> `true` чтобы менять сразу на нескольких хостах (Enum)
+- гард: отказ при подключении по IPv6 (иначе отрубишь себе SSH); уже поднятые интерфейсы держат адреса до ребута — полное снятие/возврат IPv6 может потребовать ребут (шаблон `reboot`)
+
+```json
+{
+  "target": "vps-prod-01",
+  "ipv6_state": "disabled"
+}
+```
+
 ## `playbooks/update.yml`
 
 - `apt_upgrade: dist` (или `safe`)
@@ -50,7 +63,7 @@
 ## `playbooks/cleanup.yml`
 
 - `journal_max_age: 14d` (String), `journal_max_size: 500M` (String)
-- `docker_prune: true` (скипается если докера нет; Enum)
+- `docker_prune: false` -> `true` чтобы чистить docker (сносит неиспользуемые образы/сети; скипается если докера нет; Enum)
 - `docker_prune_volumes: false` -> `true` чтобы чистить и volumes (опасно; Enum)
 - `docker_prune_until: ""` (String, например `72h` — prune только старше; пусто — без фильтра)
 - `apt_clean: true` (Enum)

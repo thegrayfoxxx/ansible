@@ -1,0 +1,263 @@
+---
+- name: Node diagnostics (own probes + pinned upstream)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    diag_suite: core
+    diag_iperf_server: ""
+    diag_panel_url: ""
+    diag_full: false
+    diag_confirmed: false
+    diag_tmp: /tmp/ansible-diagnostics
+    # Pinned upstream: branch URL + sha256. Upstream moves -> checksum fails
+    # loudly (fail-closed); repin procedure in docs/diagnostics.md.
+    diag_pin_censorcheck_url: https://github.com/vernette/censorcheck/raw/master/censorcheck.sh
+    diag_pin_censorcheck_sha: sha256:a3b8316efd9de84d40e803678254069b9798e4502369d9a9a5b004eec4e87547
+    diag_pin_tlab_censor_url: https://censorcheck.tlab.pw
+    diag_pin_tlab_censor_sha: sha256:6cce44c3c76d1870f235776799d4e56fb4b1b08ba876b2b6cc99ea51256cb480
+    diag_pin_ipcheck_url: https://IP.Check.Place
+    diag_pin_ipcheck_sha: sha256:b30df5a3c2204276c54e99dcc5080b46f8a627667730aee7de63b109b8ecaecf
+    diag_pin_yabs_url: https://yabs.sh
+    diag_pin_yabs_sha: sha256:f783214d0dcaba52779bed60a8652dad3101189cf7aff5120114aaa19795773a
+    diag_pin_benchsh_url: https://bench.sh
+    diag_pin_benchsh_sha: sha256:fbc7d7ec27f59939ba798f456ed3d31931c6d3d4604a63e6d563b19a4974ae04
+    diag_pin_speedtest_ru_url: https://github.com/itdoginfo/russian-iperf3-servers/raw/main/speedtest.sh
+    diag_pin_speedtest_ru_sha: sha256:068d37703beab0ec7e44a24ed45f6e911af51511ea6476a85add7250fab3d3dc
+    diag_pin_tlab_bench_url: https://bench.tlab.pw
+    diag_pin_tlab_bench_sha: sha256:a02ff383bdb96dea984cb4f2feea77caac383070d4bbd37b088f3ebd0ac38853
+    diag_want_censor: "{{ diag_suite in ['censor', 'all'] }}"
+    diag_want_streaming: "{{ diag_suite in ['streaming', 'all'] }}"
+    diag_want_bench: "{{ diag_suite in ['bench_full', 'all'] }}"
+    diag_want_netru: "{{ diag_suite in ['net_ru', 'all'] }}"
+  tasks:
+    - name: Validate diag_suite value
+      ansible.builtin.fail:
+        msg: "diag_suite must be core/censor/streaming/bench_full/net_ru/all, got {{ diag_suite }}"
+      when: diag_suite not in ['core', 'censor', 'streaming', 'bench_full', 'net_ru', 'all']
+
+    - name: Require confirmation for heavy fleet run
+      ansible.builtin.fail:
+        msg: "Suite {{ diag_suite }} on {{ ansible_play_hosts_all | length }} hosts at once needs diag_confirmed=true (heavy load + external API quotas). Set it in survey (or narrow target/Limit to one host)"
+      when:
+        - diag_suite in ['bench_full', 'all']
+        - ansible_play_hosts_all | length > 1
+        - not (diag_confirmed | bool)
+
+    - name: Install base probe tools
+      ansible.builtin.apt:
+        name:
+          - curl
+          - openssl
+          - dnsutils
+          - sysbench
+          - fio
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install iperf tools for net_ru
+      ansible.builtin.apt:
+        name:
+          - iperf3
+          - jq
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when: diag_want_netru | bool or (diag_iperf_server | length > 0)
+
+    - name: Run own diagnostics script
+      ansible.builtin.script: >-
+        {{ playbook_dir }}/../scripts/diagnostics.sh
+        {{ ('--iperf-server ' + diag_iperf_server) if (diag_iperf_server | length > 0) else '' }}
+        {{ ('--panel-url ' + diag_panel_url) if (diag_panel_url | length > 0) else '' }}
+        {{ '--full' if (diag_full | bool) else '' }}
+      args:
+        executable: /bin/bash
+      register: diag_core_out
+      changed_when: false
+
+    - name: Show own diagnostics output
+      ansible.builtin.debug:
+        var: diag_core_out.stdout_lines
+
+    - name: Prepare upstream download dir
+      ansible.builtin.file:
+        path: "{{ diag_tmp }}"
+        state: directory
+        mode: "0755"
+      when: diag_suite != 'core'
+
+    - name: Download censorcheck (pinned)
+      ansible.builtin.get_url:
+        url: "{{ diag_pin_censorcheck_url }}"
+        dest: "{{ diag_tmp }}/censorcheck.sh"
+        mode: "0755"
+        checksum: "{{ diag_pin_censorcheck_sha }}"
+      when: diag_want_censor | bool
+
+    - name: Run censorcheck geoblock
+      ansible.builtin.command: "{{ diag_tmp }}/censorcheck.sh --mode geoblock"
+      register: diag_censor_geo
+      changed_when: false
+      when: diag_want_censor | bool
+
+    - name: Show censorcheck geoblock output
+      ansible.builtin.debug:
+        var: diag_censor_geo.stdout_lines
+      when: diag_want_censor | bool
+
+    - name: Run censorcheck dpi
+      ansible.builtin.command: "{{ diag_tmp }}/censorcheck.sh --mode dpi"
+      register: diag_censor_dpi
+      changed_when: false
+      when: diag_want_censor | bool
+
+    - name: Show censorcheck dpi output
+      ansible.builtin.debug:
+        var: diag_censor_dpi.stdout_lines
+      when: diag_want_censor | bool
+
+    - name: Download tlab censorcheck (pinned)
+      ansible.builtin.get_url:
+        url: "{{ diag_pin_tlab_censor_url }}"
+        dest: "{{ diag_tmp }}/tlab-censor.sh"
+        mode: "0755"
+        checksum: "{{ diag_pin_tlab_censor_sha }}"
+      when: diag_want_censor | bool
+
+    - name: Run tlab censorcheck
+      ansible.builtin.command: "{{ diag_tmp }}/tlab-censor.sh"
+      register: diag_tlab_censor
+      changed_when: false
+      when: diag_want_censor | bool
+
+    - name: Show tlab censorcheck output
+      ansible.builtin.debug:
+        var: diag_tlab_censor.stdout_lines
+      when: diag_want_censor | bool
+
+    - name: Download IPCheck (pinned)
+      ansible.builtin.get_url:
+        url: "{{ diag_pin_ipcheck_url }}"
+        dest: "{{ diag_tmp }}/ipcheck.sh"
+        mode: "0755"
+        checksum: "{{ diag_pin_ipcheck_sha }}"
+      when: diag_want_streaming | bool
+
+    - name: Run IPCheck streaming quality
+      ansible.builtin.shell: "bash {{ diag_tmp }}/ipcheck.sh -E -n </dev/null"
+      args:
+        executable: /bin/bash
+      register: diag_ipcheck
+      changed_when: false
+      async: 1200
+      poll: 30
+      when: diag_want_streaming | bool
+
+    - name: Show IPCheck output
+      ansible.builtin.debug:
+        var: diag_ipcheck.stdout_lines
+      when: diag_want_streaming | bool
+
+    - name: Download YABS (pinned)
+      ansible.builtin.get_url:
+        url: "{{ diag_pin_yabs_url }}"
+        dest: "{{ diag_tmp }}/yabs.sh"
+        mode: "0755"
+        checksum: "{{ diag_pin_yabs_sha }}"
+      when: diag_want_bench | bool
+
+    - name: Run YABS benchmark
+      ansible.builtin.shell: "bash {{ diag_tmp }}/yabs.sh -4"
+      args:
+        executable: /bin/bash
+      register: diag_yabs
+      changed_when: false
+      async: 3600
+      poll: 30
+      when: diag_want_bench | bool
+
+    - name: Show YABS output
+      ansible.builtin.debug:
+        var: diag_yabs.stdout_lines
+      when: diag_want_bench | bool
+
+    - name: Download bench.sh (pinned)
+      ansible.builtin.get_url:
+        url: "{{ diag_pin_benchsh_url }}"
+        dest: "{{ diag_tmp }}/bench-sh.sh"
+        mode: "0755"
+        checksum: "{{ diag_pin_benchsh_sha }}"
+      when: diag_want_bench | bool
+
+    - name: Run bench.sh
+      ansible.builtin.shell: "bash {{ diag_tmp }}/bench-sh.sh"
+      args:
+        executable: /bin/bash
+      register: diag_benchsh
+      changed_when: false
+      async: 1800
+      poll: 30
+      when: diag_want_bench | bool
+
+    - name: Show bench.sh output
+      ansible.builtin.debug:
+        var: diag_benchsh.stdout_lines
+      when: diag_want_bench | bool
+
+    - name: Download RU speedtest (pinned)
+      ansible.builtin.get_url:
+        url: "{{ diag_pin_speedtest_ru_url }}"
+        dest: "{{ diag_tmp }}/speedtest-ru.sh"
+        mode: "0755"
+        checksum: "{{ diag_pin_speedtest_ru_sha }}"
+      when: diag_want_netru | bool
+
+    - name: Run RU speedtest
+      ansible.builtin.shell: "bash {{ diag_tmp }}/speedtest-ru.sh"
+      args:
+        executable: /bin/bash
+      register: diag_speedtest_ru
+      changed_when: false
+      async: 1200
+      poll: 30
+      when: diag_want_netru | bool
+
+    - name: Show RU speedtest output
+      ansible.builtin.debug:
+        var: diag_speedtest_ru.stdout_lines
+      when: diag_want_netru | bool
+
+    - name: Download tlab bench (pinned)
+      ansible.builtin.get_url:
+        url: "{{ diag_pin_tlab_bench_url }}"
+        dest: "{{ diag_tmp }}/tlab-bench.sh"
+        mode: "0755"
+        checksum: "{{ diag_pin_tlab_bench_sha }}"
+      when: diag_want_netru | bool
+
+    - name: Run tlab bench (rate-limited upstream, skips on rerun)
+      ansible.builtin.shell: "bash {{ diag_tmp }}/tlab-bench.sh"
+      args:
+        executable: /bin/bash
+      register: diag_tlab_bench
+      changed_when: false
+      failed_when: false
+      async: 1200
+      poll: 30
+      when: diag_want_netru | bool
+
+    - name: Show tlab bench output
+      ansible.builtin.debug:
+        msg: "rc={{ diag_tlab_bench.rc }} (rc=1 usually means upstream 5-min rate limit, safe to ignore)"
+      when: diag_want_netru | bool
+
+    - name: Show tlab bench stdout
+      ansible.builtin.debug:
+        var: diag_tlab_bench.stdout_lines
+      when: diag_want_netru | bool
+
+    - name: Summarize diagnostics run
+      ansible.builtin.debug:
+        msg: "suite={{ diag_suite }} core_rc={{ diag_core_out.rc }} target={{ inventory_hostname }} (full output above)"

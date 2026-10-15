@@ -1,0 +1,46 @@
+---
+- name: Manage IPv6 on/off via sysctl
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    ipv6_state: ""
+    ipv6_confirmed: false
+  tasks:
+    - name: Validate ipv6_state value
+      ansible.builtin.fail:
+        msg: "ipv6_state must be enabled/disabled, got {{ ipv6_state }}"
+      when: ipv6_state not in ['enabled', 'disabled']
+
+    - name: Refuse to touch IPv6 over an IPv6 connection
+      ansible.builtin.fail:
+        msg: "ansible_host {{ ansible_host }} looks like IPv6 — changing IPv6 here would cut your own SSH session. Connect over IPv4 first"
+      when: ansible_host is regex('.*:.*')
+
+    - name: Require confirmation for fleet IPv6 change
+      ansible.builtin.fail:
+        msg: "Changing IPv6 on {{ ansible_play_hosts_all | length }} hosts at once needs ipv6_confirmed=true. Set it in survey (or narrow target/Limit to one host)"
+      when:
+        - ansible_play_hosts_all | length > 1
+        - not (ipv6_confirmed | bool)
+
+    - name: Show current IPv6 sysctl state
+      ansible.builtin.command: sysctl -n net.ipv6.conf.all.disable_ipv6
+      register: ipv6_before
+      changed_when: false
+      failed_when: false
+
+    - name: Set IPv6 sysctl keys
+      ansible.posix.sysctl:
+        name: "{{ item }}"
+        value: "{{ '1' if (ipv6_state == 'disabled') else '0' }}"
+        sysctl_file: /etc/sysctl.d/99-ansible-ipv6.conf
+        reload: true
+      loop:
+        - net.ipv6.conf.all.disable_ipv6
+        - net.ipv6.conf.default.disable_ipv6
+        - net.ipv6.conf.lo.disable_ipv6
+
+    - name: Show resulting IPv6 state
+      ansible.builtin.debug:
+        msg: "ipv6_state={{ ipv6_state }} (was disable_ipv6={{ ipv6_before.stdout | default('unknown') }}). Note: already-up interfaces keep addresses until reboot/iface restart; re-enabling may also need a reboot to take full effect"

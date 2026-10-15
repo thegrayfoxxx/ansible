@@ -32,6 +32,8 @@ ansible-playbook --syntax-check playbooks/remnawave_node_move.yml -e '{"target":
 ansible-playbook --syntax-check playbooks/nginx_fallback.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/nginx_adopt.yml -e '{"target":"all"}'
 ansible-playbook --syntax-check playbooks/nginx_move.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/diagnostics.yml -e '{"target":"all"}'
+ansible-playbook --syntax-check playbooks/ipv6.yml -e '{"target":"all"}'
 ansible-galaxy collection install -r requirements.yml
 ```
 

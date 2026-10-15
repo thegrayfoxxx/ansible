@@ -53,6 +53,7 @@ compose.yml          # semaphore:v2.19.12 + sqlite для чужого
 playbooks/           # плоские плейбуки, все требуют явный target
 scripts/
   hello.sh               # пример shell-задачи
+  diagnostics.sh         # свои пробы ноды (facts/DNS/DPI/speed, без внешних тянучек)
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
 templates/
   crowdsec/          # j2 для ноды: compose.yml, .env, acquis.yaml
@@ -65,8 +66,9 @@ docs/
   QUICKSTART.md      # полный гайд на 10 минут: compose + сидинг шаблонов
   semaphore-ui.md    # подключение Semaphore: проект, репозиторий, токен, inventory
   run.md             # ping, run_cmd, run_script (вкладка Run)
-  observability.md   # logs, health, rsyslog
-  system.md          # base, docker, bbr, update, cleanup, reboot
+  observability.md   # logs, health, diagnostics, rsyslog
+  diagnostics.md     # гибридная диагностика: свои пробы + pinned upstream
+  system.md          # base, docker, bbr, ipv6, update, cleanup, reboot
   security.md        # init_node, firewall, fail2ban
   crowdsec.md        # register/node/update/unregister
   remnawave.md       # node_add/update + группа remnawave_vars
@@ -126,8 +128,8 @@ Bool'ы (`use_shell`, `allow_fail`, `skip_sshd`...) — Enum со значени
 - [docs/QUICKSTART.md](docs/QUICKSTART.md) — гайд на 10 минут: стенд + сидинг + тестовый ping.
 - [docs/semaphore-ui.md](docs/semaphore-ui.md) — чеклист подключения.
 - [docs/run.md](docs/run.md) — ping, run_cmd, run_script.
-- [docs/observability.md](docs/observability.md) — logs, health, rsyslog.
-- [docs/system.md](docs/system.md) — base, docker, bbr, update, cleanup, reboot.
+- [docs/observability.md](docs/observability.md) — logs, health, diagnostics, rsyslog.
+- [docs/system.md](docs/system.md) — base, docker, bbr, ipv6, update, cleanup, reboot.
 - [docs/security.md](docs/security.md) — init_node, firewall, fail2ban.
 - [docs/crowdsec.md](docs/crowdsec.md) — register/node/update/unregister.
 - [docs/remnawave.md](docs/remnawave.md) — node_add/update + группа `remnawave_vars`.

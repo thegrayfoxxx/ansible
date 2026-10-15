@@ -110,6 +110,17 @@
       ]
     },
     {
+      "name": "ipv6",
+      "view": "System",
+      "description": "IPv6 вкл/выкл через sysctl (с гардом от самозабанивания) (playbooks/ipv6.yml)",
+      "playbook": "playbooks/ipv6.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "ipv6_state", "title": "IPv6 state", "description": "disabled — выключить, enabled — включить (полный эффект может потребовать ребут)", "type": "enum", "required": true, "values": [{"name": "enabled", "value": "enabled"}, {"name": "disabled", "value": "disabled"}]},
+        {"name": "ipv6_confirmed", "title": "Confirm fleet", "description": "true — разрешить смену сразу на нескольких хостах (иначе только один хост)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
       "name": "update",
       "view": "System",
       "description": "apt update + upgrade, опционально reboot (playbooks/update.yml)",
@@ -306,6 +317,20 @@
       "playbook": "playbooks/health.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true}
+      ]
+    },
+    {
+      "name": "diagnostics",
+      "view": "Observability",
+      "description": "Диагностика ноды: свои пробы (facts/DNS/DPI/speed) + pinned upstream (playbooks/diagnostics.yml)",
+      "playbook": "playbooks/diagnostics.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "diag_suite", "title": "Suite", "description": "core — только свои пробы; censor/streaming/bench_full/net_ru — + upstream; all — всё", "default_value": "core", "type": "enum", "required": false, "values": [{"name": "core", "value": "core"}, {"name": "censor", "value": "censor"}, {"name": "streaming", "value": "streaming"}, {"name": "bench_full", "value": "bench_full"}, {"name": "net_ru", "value": "net_ru"}, {"name": "all", "value": "all"}]},
+        {"name": "diag_iperf_server", "title": "iPerf server", "description": "Куда мерить iperf3/ping своим скриптом, например IP панели. Пусто — пропустить", "type": "", "required": false},
+        {"name": "diag_panel_url", "title": "Panel URL", "description": "HTTP-проверка панели своим скриптом. Пусто — пропустить", "type": "", "required": false},
+        {"name": "diag_full", "title": "Long benches", "description": "true — длинные fio/iperf/sysbench (~30с вместо ~10с)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "diag_confirmed", "title": "Confirm heavy fleet", "description": "true — разрешить bench_full/all сразу на нескольких хостах (иначе только один хост)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
     {
