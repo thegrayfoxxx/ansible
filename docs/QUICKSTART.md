@@ -193,12 +193,12 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 ```text
 [update] ping (id=1, playbooks/ping.yml)
 ...
-done: created=29 updated=0 unchanged=0 dry_run=False
+done: created=29 updated=0 unchanged=0 would_create=0 would_update=0 dry_run=False
 ```
 
 ![запуск update_templates](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/10-run-bootstrap.gif)
 
-(при первом запуске — все `created`, при повторных — все `updated`).
+(при первом запуске — все `created`, при повторных без изменений — все `unchanged`; `would_create/would_update` — только при `--dry-run`).
 В `Task Templates` теперь все шаблоны из `semaphore/templates.json`
 (например `ping` и `run_cmd`, плюс служебный `update_templates`) —
 у всех inventory `prod_inventory`, репозиторий `ansible`, группа `prod_vars`.
@@ -286,6 +286,6 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
   соединений уедут в git. Принцип этого репо: inventory и секреты живут
   в UI, в git их нет.
 - **sqlite vs postgres?** В `compose.yml` — sqlite: один контейнер,
-  годится для homelab и демо. Бекап — копией volume `semaphore-data`
+  годится для homelab и демо. Бекап — копией volume `semaphore_data`
   при остановленном контейнере. Для продакшна переключитесь на postgres —
   шаблоны и скрипт менять не нужно.

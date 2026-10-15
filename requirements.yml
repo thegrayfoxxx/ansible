@@ -1,5 +1,10 @@
 ---
 collections:
+  # Pinned for reproducible installs (checked 2026-10-15, latest at the time).
+  # Bump deliberately: update pins here, then test-run ping/base/docker templates.
   - name: community.general
+    version: "13.5.0"
   - name: ansible.posix
+    version: "2.2.2"
   - name: community.docker
+    version: "5.4.0"

@@ -83,13 +83,17 @@ def api_request(method, url, token, payload=None):
 def api_get_list(base, project_id, token, resource):
     url = f"{base}/project/{project_id}/{resource}?sort=name&order=asc"
     _, data = api_request("GET", url, token)
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        raise RuntimeError(f"GET {url} -> expected JSON list, got {type(data).__name__}")
+    return data
 
 
 def api_get_views(base, project_id, token):
     url = f"{base}/project/{project_id}/views"
     _, data = api_request("GET", url, token)
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        raise RuntimeError(f"GET {url} -> expected JSON list, got {type(data).__name__}")
+    return data
 
 
 def ensure_view(base, project_id, token, views, title, dry_run):
@@ -201,6 +205,51 @@ def build_payload(project_id, tpl, ids):
     return payload
 
 
+def payload_matches(current, payload):
+    """True when the existing template already equals the wanted payload.
+
+    API nulls are treated as empty string/list so a missing optional field
+    does not force an update on every run.
+    """
+    for key, want in payload.items():
+        got = current.get(key)
+        if got is None and isinstance(want, str):
+            got = ""
+        elif got is None and isinstance(want, list):
+            got = []
+        if got != want:
+            return False
+    return True
+
+
+def validate_spec(wanted):
+    """Fail fast on malformed templates.json entries (before any API PUT)."""
+    seen = set()
+    for tpl in wanted:
+        if not isinstance(tpl, dict):
+            raise RuntimeError("each template must be an object")
+        name = tpl.get("name")
+        if not name or not isinstance(name, str):
+            raise RuntimeError("each template must have a non-empty string `name`")
+        if name in seen:
+            raise RuntimeError(f'duplicate template name "{name}" in templates.json')
+        seen.add(name)
+        if not tpl.get("playbook") or not isinstance(tpl.get("playbook"), str):
+            raise RuntimeError(f'template "{name}" must have a non-empty string `playbook`')
+        survey = tpl.get("survey_vars", [])
+        if not isinstance(survey, list):
+            raise RuntimeError(f'template "{name}": `survey_vars` must be a list')
+        survey_seen = set()
+        for item in survey:
+            if not isinstance(item, dict) or not item.get("name"):
+                raise RuntimeError(f'template "{name}": each survey_var must have a `name`')
+            if item["name"] in survey_seen:
+                raise RuntimeError(f'template "{name}": duplicate survey_var "{item["name"]}"')
+            survey_seen.add(item["name"])
+            if item.get("type") == "enum" and not item.get("values"):
+                raise RuntimeError(f'template "{name}": enum survey_var "{item["name"]}" must have `values`')
+
+
 def main():
     kv = parse_kv_args(sys.argv[1:])
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -230,12 +279,21 @@ def main():
         print("ERROR: project_id is required (survey var `project_id` or SEMAPHORE_PROJECT_ID env)", file=sys.stderr)
         return 1
 
-    with open(args.templates, encoding="utf-8") as fh:
-        spec = json.load(fh)
+    try:
+        with open(args.templates, encoding="utf-8") as fh:
+            spec = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"ERROR: cannot read templates {args.templates}: {exc}", file=sys.stderr)
+        return 1
     defaults = spec.get("defaults", {})
     wanted = spec.get("templates", [])
     if not wanted:
         print(f"ERROR: no templates in {args.templates}", file=sys.stderr)
+        return 1
+    try:
+        validate_spec(wanted)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     env_seeds = spec.get("environments_seed", {})
     if not isinstance(env_seeds, dict):
@@ -262,7 +320,7 @@ def main():
         return 1
     existing_by_name = {t.get("name"): t for t in existing}
 
-    created, updated, unchanged = 0, 0, 0
+    created, updated, unchanged, would_create, would_update = 0, 0, 0, 0, 0
     for tpl in wanted:
         name = tpl["name"]
         try:
@@ -285,22 +343,34 @@ def main():
         current = existing_by_name.get(name)
         try:
             if current is None:
-                print(f"[create] {name} ({tpl['playbook']})")
-                if not args.dry_run:
+                if args.dry_run:
+                    print(f"[would create] {name} ({tpl['playbook']})")
+                    would_create += 1
+                else:
+                    print(f"[create] {name} ({tpl['playbook']})")
                     api_request("POST", f"{base}/project/{project_id}/templates", token, payload)
-                created += 1
+                    created += 1
             else:
-                print(f"[update] {name} (id={current['id']}, {tpl['playbook']})")
-                if not args.dry_run:
+                if "id" not in current:
+                    raise RuntimeError(f'Template "{name}" has no id')
+                payload["id"] = current["id"]
+                if payload_matches(current, payload):
+                    print(f"[unchanged] {name} (id={current['id']})")
+                    unchanged += 1
+                elif args.dry_run:
+                    print(f"[would update] {name} (id={current['id']}, {tpl['playbook']})")
+                    would_update += 1
+                else:
+                    print(f"[update] {name} (id={current['id']}, {tpl['playbook']})")
                     # PUT требует id в body, равный id в URL (иначе 400).
-                    payload["id"] = current["id"]
                     api_request("PUT", f"{base}/project/{project_id}/templates/{current['id']}", token, payload)
-                updated += 1
+                    updated += 1
         except RuntimeError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
 
-    print(f"done: created={created} updated={updated} unchanged={unchanged} dry_run={args.dry_run}")
+    print(f"done: created={created} updated={updated} unchanged={unchanged} "
+          f"would_create={would_create} would_update={would_update} dry_run={args.dry_run}")
     return 0
 
 
