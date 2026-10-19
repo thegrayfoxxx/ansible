@@ -132,8 +132,8 @@
 
     - name: Resolve node credentials
       ansible.builtin.set_fact:
-        remnawave_port_final: "{{ remnanode_env_port or (remnanode_file_port | default('')) }}"
-        remnawave_node_secret: "{{ remnanode_env_secret or (remnanode_file_secret | default('')) }}"
+        remnanode_port_final: "{{ remnanode_env_port or (remnanode_file_port | default('')) }}"
+        remnanode_node_secret: "{{ remnanode_env_secret or (remnanode_file_secret | default('')) }}"
         remnanode_creds_source: "{{ 'running container' if (remnanode_env_port | length > 0 and remnanode_env_secret | length > 0) else 'compose .env' }}"
       no_log: true
 
@@ -141,8 +141,8 @@
       ansible.builtin.fail:
         msg: "Found container '{{ remnanode_agent_container }}' but no usable NODE_PORT/SECRET_KEY (checked running env and old .env). Refusing to proceed blind"
       when:
-        - (remnawave_port_final | int < 1) or (remnawave_port_final | int > 65535)
-          or (remnawave_node_secret | default('') | length == 0)
+        - (remnanode_port_final | int < 1) or (remnanode_port_final | int > 65535)
+          or (remnanode_node_secret | default('') | length == 0)
 
     - name: Check ufw is available
       ansible.builtin.shell: command -v ufw
@@ -165,24 +165,24 @@
 
     - name: Resolve port firewall state
       ansible.builtin.set_fact:
-        remnanode_port_fw: "{{ 'na' if (remnanode_ufw_state != 'active') else ('allowed' if ((remnanode_ufw_status.stdout_lines | default([]) | select('search', '^' + remnawave_port_final + '/') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed') }}"
+        remnanode_port_fw: "{{ 'na' if (remnanode_ufw_state != 'active') else ('allowed' if ((remnanode_ufw_status.stdout_lines | default([]) | select('search', '^' + remnanode_port_final + '/') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed') }}"
 
     - name: Warn when ufw blocks the port
       ansible.builtin.debug:
-        msg: "ufw is active but port {{ remnawave_port_final }} is not allowed — panel may not reach this node. Open it via the firewall template ({{ remnawave_port_final }}/tcp [from PANEL_IP])"
+        msg: "ufw is active but port {{ remnanode_port_final }} is not allowed — panel may not reach this node. Open it via the firewall template ({{ remnanode_port_final }}/tcp [from PANEL_IP])"
       when: remnanode_port_fw == 'closed'
 
     - name: Show discovery summary
       ansible.builtin.debug:
-        msg: "container={{ remnanode_agent_container }} old_dir={{ remnanode_old_dir_final }} compose={{ remnanode_old_compose.stat.exists }} port={{ remnawave_port_final }} creds_from={{ remnanode_creds_source }} target_dir={{ remnanode_dir }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"
+        msg: "container={{ remnanode_agent_container }} old_dir={{ remnanode_old_dir_final }} compose={{ remnanode_old_compose.stat.exists }} port={{ remnanode_port_final }} creds_from={{ remnanode_creds_source }} target_dir={{ remnanode_dir }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} shm={{ '/dev/shm' in (remnanode_inspect.Mounts | default([]) | map(attribute='Destination') | list) }}"
 
     - name: Stop at inspect
       ansible.builtin.meta: end_play
-      when: remnawave_adopt_action == 'inspect'
+      when: remnanode_adopt_action == 'inspect'
 
     - name: Refuse same-dir adoption
       ansible.builtin.fail:
-        msg: "Old project already lives in {{ remnanode_dir }} — nothing to relocate. Re-run remnawave_node_add deploy to re-render standard files"
+        msg: "Old project already lives in {{ remnanode_dir }} — nothing to relocate. Re-run remnanode_node_add deploy to re-render standard files"
       when: remnanode_old_dir_final.rstrip('/') == remnanode_dir.rstrip('/')
 
     - name: Timestamp for backup
