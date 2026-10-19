@@ -279,28 +279,32 @@
           register: remnanode_verify
           changed_when: false
           failed_when: false
+          until: >-
+            remnanode_verify.rc == 0 and
+            '"Status": "running"' in (remnanode_verify.stdout | default(''))
+          retries: 5
+          delay: 2
 
-        - name: Require running adopted container
+        - name: Fail when adopted container is not running
           ansible.builtin.fail:
             msg: "Adopted container '{{ remnanode_agent_container }}' is not running after up. Check docker logs in {{ remnanode_dir }}"
-          when: "remnanode_verify.rc != 0 or ('\"Status\": \"running\"' not in (remnanode_verify.stdout | default('')))"
+          when: >-
+            remnanode_verify.rc != 0 or
+            '"Status": "running"' not in (remnanode_verify.stdout | default(''))
 
-        - name: Check adopted port is listening
-          ansible.builtin.shell: "ss -tlnp | grep -E ':({{ remnawave_port_final }})\\s' || true"
-          args:
-            executable: /bin/bash
-          register: remnanode_port_listen
-          changed_when: false
-          failed_when: false
-
-        - name: Require listening adopted port
-          ansible.builtin.fail:
-            msg: "Port {{ remnawave_port_final }} is not listening after up. Check docker logs in {{ remnanode_dir }}"
-          when: remnanode_port_listen.stdout | length == 0
+        - name: Wait for adopted port to listen
+          ansible.builtin.wait_for:
+            port: "{{ remnanode_port_final }}"
+            state: started
+            timeout: 15
+            delay: 2
+          register: remnanode_port_wait
+          retries: 3
+          delay: 3
 
         - name: Show adopt summary
           ansible.builtin.debug:
-            msg: "adopted {{ remnanode_old_dir_final }} -> {{ remnanode_dir }} port={{ remnawave_port_final }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} backup_container={{ remnanode_backup_container }}{{ (' backup_dir=' + remnanode_backup_dir) if remnanode_old_compose.stat.exists else '' }} (remove backups manually when stable)"
+            msg: "adopted {{ remnanode_old_dir_final }} -> {{ remnanode_dir }} port={{ remnanode_port_final }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} backup_container={{ remnanode_backup_container }}{{ (' backup_dir=' + remnanode_backup_dir) if remnanode_old_compose.stat.exists else '' }} (remove backups manually when stable)"
       rescue:
         - name: Take down partial new stack
           community.docker.docker_compose_v2:
