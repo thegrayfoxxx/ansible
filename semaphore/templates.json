@@ -167,6 +167,18 @@
       ]
     },
     {
+      "name": "set_hostname",
+      "view": "System",
+      "description": "Имя машины (hostname): пусто — взять из target/inventory; нормализация /etc/hosts с бэкапом (playbooks/set_hostname.yml)",
+      "playbook": "playbooks/set_hostname.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Один хост — имя с него; группа — каждому его inventory-имя. ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "set_hostname_name", "title": "Hostname", "description": "Пусто — взять из target/inventory. Латиница/цифры/дефис (a-z0-9-), до 63 символов", "type": "", "required": false},
+        {"name": "set_hostname_domain", "title": "FQDN domain", "description": "Пусто — без домена (127.0.1.1 host). Задан — 127.0.1.1 host.domain host", "type": "", "required": false},
+        {"name": "set_hostname_restart_rsyslog", "title": "Restart rsyslog", "description": "true — перезапустить rsyslog после смены (свежие логи с новым именем)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
       "name": "init_node",
       "view": "Security",
       "description": "Инит новой ноды: ключи + sshd. Первый прогон строго с Limit на одну тестовую ноду (playbooks/init_node.yml)",

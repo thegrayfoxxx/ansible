@@ -1,0 +1,195 @@
+---
+- name: Set node hostname (empty -> target/inventory name)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    set_hostname_name: ""
+    set_hostname_domain: ""
+    set_hostname_restart_rsyslog: true
+  tasks:
+    - name: Normalize hostname value (empty -> inventory hostname)
+      ansible.builtin.set_fact:
+        set_hostname_final: "{{ ((set_hostname_name | default('') | trim | lower) or (inventory_hostname | string)) | trim | lower }}"
+        set_hostname_domain_final: "{{ (set_hostname_domain | default('') | trim | lower) | regex_replace('[.]$', '') }}"
+
+    - name: Normalize fqdn value
+      ansible.builtin.set_fact:
+        set_hostname_fqdn: "{{ (set_hostname_final ~ '.' ~ set_hostname_domain_final) if (set_hostname_domain_final | length > 0) else '' }}"
+
+    - name: Validate hostname label
+      ansible.builtin.fail:
+        msg: "hostname must be a single RFC1123 label (a-z 0-9 '-', max 63), got '{{ set_hostname_final }}'. Inventory names with dots/pattern chars are not hostname-safe — set explicit Hostname"
+      when: set_hostname_final is not match('^[a-z0-9][a-z0-9-]{0,62}$')
+
+    - name: Refuse localhost as hostname
+      ansible.builtin.fail:
+        msg: "refusing to set hostname to 'localhost' — it would break name resolution semantics"
+      when: set_hostname_final == 'localhost'
+
+    - name: Validate fqdn value
+      ansible.builtin.fail:
+        msg: "domain must be dotted labels a-z 0-9 '-', e.g. example.com, got '{{ set_hostname_domain_final }}'"
+      when:
+        - set_hostname_domain_final | length > 0
+        - set_hostname_domain_final is not match('^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?([.][a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$')
+
+    - name: Check /etc/hosts exists
+      ansible.builtin.stat:
+        path: /etc/hosts
+      register: set_hosts_stat
+
+    - name: Require /etc/hosts
+      ansible.builtin.fail:
+        msg: "/etc/hosts not found on {{ inventory_hostname }} — refusing to continue blind"
+      when: not set_hosts_stat.stat.exists
+
+    - name: Read current /etc/hosts
+      ansible.builtin.slurp:
+        src: /etc/hosts
+      register: set_hosts_raw
+
+    - name: Decode /etc/hosts
+      ansible.builtin.set_fact:
+        set_hosts_content: "{{ set_hosts_raw.content | b64decode }}"
+        set_hosts_lines: "{{ (set_hosts_raw.content | b64decode).splitlines() }}"
+
+    - name: Require localhost mappings in /etc/hosts
+      ansible.builtin.fail:
+        msg: "/etc/hosts has no recognizable localhost self-mapping (127.0.0.1 localhost or ::1 localhost) — refusing to edit, inspect manually"
+      when:
+        - set_hosts_content is not search('127[.]0[.]0[.]1.+localhost')
+        - set_hosts_content is not search('::1.+localhost')
+
+    - name: Read current hostname (raw)
+      ansible.builtin.command: hostname
+      register: set_hostname_old_raw_cmd
+      changed_when: false
+
+    - name: Read current hostname (short)
+      ansible.builtin.command: hostname -s
+      register: set_hostname_old_short_cmd
+      changed_when: false
+
+    - name: Read current hostname (fqdn, may fail)
+      ansible.builtin.command: hostname -f
+      register: set_hostname_old_fqdn_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Resolve old hostname tokens
+      ansible.builtin.set_fact:
+        set_hostname_old_raw: "{{ set_hostname_old_raw_cmd.stdout | trim | lower }}"
+        set_hostname_old_short: "{{ set_hostname_old_short_cmd.stdout | trim | lower }}"
+        set_hostname_old_fqdn: "{{ (set_hostname_old_fqdn_cmd.stdout | trim | lower) if (set_hostname_old_fqdn_cmd.rc == 0) else '' }}"
+
+    - name: Guard old hostname is not localhost
+      ansible.builtin.fail:
+        msg: "current hostname is 'localhost' ({{ set_hostname_old_raw }}) — figure out this node manually first"
+      when:
+        - set_hostname_old_raw == 'localhost' or set_hostname_old_short == 'localhost'
+
+    - name: Compute self-entry drop list
+      ansible.builtin.set_fact:
+        set_hostname_drop: "{{ [set_hostname_old_raw, set_hostname_old_short, set_hostname_old_fqdn, set_hostname_final, set_hostname_fqdn] | select | unique | list }}"
+
+    - name: Compute canonical self-entry line
+      ansible.builtin.set_fact:
+        set_hosts_self_line: "{{ '127.0.1.1' ~ ((' ' ~ set_hostname_fqdn) if (set_hostname_fqdn | length > 0) else '') ~ (' ' ~ set_hostname_final) }}"
+
+    - name: Assemble normalized /etc/hosts content
+      ansible.builtin.set_fact:
+        set_hosts_final: >-
+          {%- set out = [] -%}
+          {%- set done = [] -%}
+          {%- for line in set_hosts_lines -%}
+          {%- set fields_lower = (line | trim).split() | map('lower') | list -%}
+          {%- if (set_hostname_drop | intersect(fields_lower)) | length == 0 -%}
+          {%- set _ = out.append(line) -%}
+          {%- if done | length == 0 and fields_lower | length > 0 and fields_lower[0] == '127.0.0.1' and 'localhost' in fields_lower -%}
+          {%- set _ = out.append(set_hosts_self_line) -%}
+          {%- set _ = done.append(1) -%}
+          {%- endif -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {%- if done | length == 0 -%}
+          {%- set _ = out.append(set_hosts_self_line) -%}
+          {%- endif -%}
+          {{ out | join('\n') ~ '\n' }}
+
+    - name: Detect /etc/hosts change
+      ansible.builtin.set_fact:
+        set_hosts_changed: "{{ set_hosts_final != set_hosts_content }}"
+        set_hosts_ts: ""
+
+    - name: Timestamp for hosts backup
+      ansible.builtin.command: date +%Y%m%d%H%M%S
+      register: set_hosts_ts_cmd
+      changed_when: false
+      when: set_hosts_changed | bool
+
+    - name: Resolve backup timestamp
+      ansible.builtin.set_fact:
+        set_hosts_ts: "{{ set_hosts_ts_cmd.stdout | trim }}"
+        set_hosts_backup_path: "{{ '/etc/hosts.bak-' ~ (set_hosts_ts_cmd.stdout | trim) if (set_hosts_changed | bool) else '' }}"
+
+    - name: Backup current /etc/hosts before edit
+      ansible.builtin.copy:
+        content: "{{ set_hosts_content }}"
+        dest: /etc/hosts.bak-{{ set_hosts_ts }}
+        mode: "0644"
+      when: set_hosts_changed | bool
+
+    - name: Write normalized /etc/hosts
+      ansible.builtin.copy:
+        content: "{{ set_hosts_final }}"
+        dest: /etc/hosts
+        mode: "0644"
+      when: set_hosts_changed | bool
+
+    - name: Apply hostname (kernel + /etc/hostname)
+      ansible.builtin.hostname:
+        name: "{{ set_hostname_final }}"
+      register: set_hostname_apply
+
+    - name: Check rsyslog installed
+      ansible.builtin.stat:
+        path: /etc/rsyslog.conf
+      register: set_rsyslog_stat
+
+    - name: Restart rsyslog so it re-reads the new hostname
+      ansible.builtin.service:
+        name: rsyslog
+        state: restarted
+      register: set_rsyslog_restart
+      when:
+        - set_hostname_restart_rsyslog | bool
+        - set_rsyslog_stat.stat.exists
+
+    - name: Verify hostname applied (short)
+      ansible.builtin.command: hostname
+      register: set_hostname_now_cmd
+      changed_when: false
+
+    - name: Verify self-entry resolves to loopback
+      ansible.builtin.command: "getent hosts {{ set_hostname_fqdn if (set_hostname_fqdn | length > 0) else set_hostname_final }}"
+      register: set_resolve_cmd
+      changed_when: false
+
+    - name: Assert new hostname is live
+      ansible.builtin.assert:
+        that:
+          - set_hostname_now_cmd.stdout | trim | lower == set_hostname_final
+          - set_resolve_cmd.stdout_lines | length > 0
+          - ((set_resolve_cmd.stdout_lines | first).split() | first) is match('^127[.]')
+        fail_msg: "hostname reports '{{ set_hostname_now_cmd.stdout | trim }}', resolution: {{ set_resolve_cmd.stdout | default('(empty)') }}"
+
+    - name: Show result summary
+      ansible.builtin.debug:
+        msg: >-
+          hostname: {{ set_hostname_old_raw | default('?') }} -> {{ set_hostname_final }};
+          fqdn: {{ set_hostname_fqdn if (set_hostname_fqdn | length > 0) else '(none - short name only)' }};
+          hosts file: {{ ('rewritten, backup ' ~ set_hosts_backup_path) if (set_hosts_changed | bool) else 'already canonical' }};
+          rsyslog: {{ 'restarted' if (set_rsyslog_restart is defined) and (not set_rsyslog_restart is skipped) else 'not restarted' }};
+          kernel + /etc/hostname: {{ 'updated' if (set_hostname_apply is changed) else 'unchanged' }};
+          re-run this template after a provider-side reinstall (it flips back to vmXXXX)
