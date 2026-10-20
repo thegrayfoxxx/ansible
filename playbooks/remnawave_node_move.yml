@@ -180,7 +180,7 @@
 
     - name: Resolve port firewall state
       ansible.builtin.set_fact:
-        remnanode_port_fw: "{{ 'na' if (remnanode_ufw_state != 'active') else ('allowed' if ((remnanode_ufw_status.stdout_lines | default([]) | select('search', '^' + remnawave_port_final + '/') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed') }}"
+        remnanode_port_fw: "{{ 'na' if (remnanode_ufw_state != 'active') else ('allowed' if ((remnanode_ufw_status.stdout_lines | default([]) | select('search', '^' + remnawave_port_final + '(/tcp)?( |$)') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed') }}"
 
     - name: Warn when ufw blocks the port
       ansible.builtin.debug:
@@ -396,7 +396,7 @@
 
         - name: Resolve port firewall state
           ansible.builtin.set_fact:
-            remnanode_port_fw: "{{ 'na' if (remnanode_ufw_state != 'active') else ('allowed' if ((remnanode_ufw_status.stdout_lines | default([]) | select('search', '^' + remnawave_port_final + '/') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed') }}"
+            remnanode_port_fw: "{{ 'na' if (remnanode_ufw_state != 'active') else ('allowed' if ((remnanode_ufw_status.stdout_lines | default([]) | select('search', '^' + remnawave_port_final + '(/tcp)?( |$)') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed') }}"
 
         - name: Warn when ufw blocks the port
           ansible.builtin.debug:

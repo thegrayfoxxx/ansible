@@ -234,7 +234,7 @@
 
     - name: Resolve web ports firewall state
       ansible.builtin.set_fact:
-        nginx_ports_fw: "{{ nginx_ports_fw | default({}) | combine({item: ('na' if (nginx_ufw_state != 'active') else ('allowed' if ((nginx_ufw_status.stdout_lines | default([]) | select('search', '^' + item + '/') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed'))}) }}"
+        nginx_ports_fw: "{{ nginx_ports_fw | default({}) | combine({item: ('na' if (nginx_ufw_state != 'active') else ('allowed' if ((nginx_ufw_status.stdout_lines | default([]) | select('search', '^' + item + '(/tcp)?( |$)') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed'))}) }}"
       loop:
         - "80"
         - "443"
