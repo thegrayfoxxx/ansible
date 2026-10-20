@@ -14,6 +14,7 @@
 
 ## `playbooks/set_hostname.yml`
 
+- `set_hostname_action: apply` (Enum; inspect — только отчёт: итоговый /etc/hosts + вердикт, ничего не пишет)
 - `set_hostname_name: ""` (String; пусто — взять имя из target/inventory: один хост — имя хоста, группа — каждому по его inventory-имени)
 - `set_hostname_domain: ""` (String; пусто — без FQDN, `127.0.1.1 host`; задан — `127.0.1.1 host.example.com host`)
 - `set_hostname_restart_rsyslog: true` (Enum) — чтобы свежие логи пошли с новым именем

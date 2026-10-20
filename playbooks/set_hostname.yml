@@ -4,10 +4,15 @@
   gather_facts: false
   become: true
   vars:
+    set_hostname_action: apply
     set_hostname_name: ""
     set_hostname_domain: ""
     set_hostname_restart_rsyslog: true
   tasks:
+    - name: Validate action value
+      ansible.builtin.fail:
+        msg: "set_hostname_action must be inspect or apply, got {{ set_hostname_action }}"
+      when: set_hostname_action not in ['inspect', 'apply']
     - name: Normalize hostname value (empty -> inventory hostname)
       ansible.builtin.set_fact:
         set_hostname_final: "{{ ((set_hostname_name | default('') | trim | lower) or (inventory_hostname | string)) | trim | lower }}"
@@ -121,6 +126,19 @@
       ansible.builtin.set_fact:
         set_hosts_changed: "{{ set_hosts_final != set_hosts_content }}"
         set_hosts_ts: ""
+
+    - name: Show inspect summary
+      ansible.builtin.debug:
+        msg: >-
+          INSPECT (nothing written): hostname {{ set_hostname_old_raw | default('?') }} -> {{ set_hostname_final }};
+          fqdn {{ set_hostname_fqdn if (set_hostname_fqdn | length > 0) else '(none — short only)' }};
+          hosts file: {{ 'would rewrite' if (set_hosts_changed | bool) else 'already canonical' }};
+          resulting /etc/hosts:
+          {{ set_hosts_final }}
+
+    - name: Stop at inspect
+      ansible.builtin.meta: end_play
+      when: set_hostname_action == 'inspect'
 
     - name: Timestamp for hosts backup
       ansible.builtin.command: date +%Y%m%d%H%M%S
