@@ -178,7 +178,7 @@
 
     - name: Stop at inspect
       ansible.builtin.meta: end_play
-      when: remnanode_adopt_action == 'inspect'
+      when: remnawave_adopt_action == 'inspect'
 
     - name: Refuse same-dir adoption
       ansible.builtin.fail:
