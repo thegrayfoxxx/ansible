@@ -379,10 +379,16 @@
             - remnanode_mount_logs | bool
             - not (remnanode_log_dir is match('^/.+'))
 
+        - name: Resolve node port and secret from registration step
+          ansible.builtin.set_fact:
+            remnanode_port_final: "{{ remnawave_port_final }}"
+            remnanode_node_secret: "{{ remnawave_node_secret }}"
+          no_log: true
+
         - name: Require resolved node secret
           ansible.builtin.fail:
             msg: "Node secret not resolved (internal). Re-run; if persists, check keygen step output"
-          when: remnawave_node_secret | default('') | length == 0
+          when: remnanode_node_secret | default('') | length == 0
 
         - name: Check Debian family
           ansible.builtin.stat:
@@ -408,7 +414,7 @@
           when: remnawave_docker_bin.rc != 0
 
         - name: Check node port is free
-          ansible.builtin.shell: "ss -tlnp | grep -E ':({{ remnawave_port_final }})\\s' || true"
+          ansible.builtin.shell: "ss -tlnp | grep -E ':({{ remnanode_port_final }})\\s' || true"
           args:
             executable: /bin/bash
           register: remnawave_port_busy
@@ -417,7 +423,7 @@
 
         - name: Refuse busy node port
           ansible.builtin.fail:
-            msg: "Port {{ remnawave_port_final }} is already listening on this host. Set explicit remnawave_node_port and re-run"
+            msg: "Port {{ remnanode_port_final }} is already listening on this host. Set explicit remnawave_node_port and re-run"
           when: remnawave_port_busy.stdout | length > 0
 
         - name: Ensure remnawave dir
@@ -479,7 +485,7 @@
 
         - name: Warn when ufw is missing for auto open
           ansible.builtin.debug:
-            msg: "ufw not found — port {{ remnawave_port_final }} NOT opened. Install ufw (base/firewall templates) or open it manually; panel may fail to reach this node"
+            msg: "ufw not found — port {{ remnanode_port_final }} NOT opened. Install ufw (base/firewall templates) or open it manually; panel may fail to reach this node"
           when:
             - remnawave_open_port | bool
             - remnawave_ufw_bin.rc | default(1) | int != 0
@@ -487,7 +493,7 @@
         - name: Open node port in ufw
           community.general.ufw:
             rule: allow
-            port: "{{ remnawave_port_final }}"
+            port: "{{ remnanode_port_final }}"
             proto: tcp
             from_ip: "{{ remnawave_allow_from if (remnawave_allow_from | default('') | length > 0) else omit }}"
           when:
@@ -513,7 +519,7 @@
 
         - name: Show deploy summary
           ansible.builtin.debug:
-            msg: "node={{ remnawave_node_name }} connected={{ remnawave_node_state.json.response.isConnected | default('unknown') }} port={{ remnawave_port_final }} firewall={{ 'manual' if not (remnawave_open_port | bool) else ('open' if (remnawave_ufw_bin.rc | default(1) | int == 0) else 'skipped (no ufw)') }}"
+            msg: "node={{ remnawave_node_name }} connected={{ remnawave_node_state.json.response.isConnected | default('unknown') }} port={{ remnanode_port_final }} firewall={{ 'manual' if not (remnawave_open_port | bool) else ('open' if (remnawave_ufw_bin.rc | default(1) | int == 0) else 'skipped (no ufw)') }}"
       when: remnawave_action in ['both', 'deploy']
       rescue:
         - name: Roll back panel entry created this run
