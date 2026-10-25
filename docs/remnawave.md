@@ -138,13 +138,13 @@
 
 ## `remnawave_node_config` — host-конфиг существующего стека
 
-`action=show` — только отчёт (безопасно). `action=apply` — применить изменения. Работает только с уже развёрнутым стеком: нет `compose.yml` или контейнера — `fail` с подсказкой про `deploy`.
+`action=show` — только отчёт (безопасно). `action=apply` — применить изменения. Работает только с уже развёрнутым стеком: нет `compose.yml` или контейнера — `fail` с подсказкой про `deploy`. Стек должен лежать в `remnanode_dir`; если он в другом каталоге — сначала `remnawave_node_move scope=local`.
 
 `config` — единственный day-2 владелец xray. Он **никогда** не меняет образ, порт и `SECRET_KEY`: текущий образ берётся из контейнера, креды только читаются и проверяются.
 
 Поля:
 
-- `target` — строго один хост; `remnanode_dir` (пусто — `/opt/remnanode`), `remnanode_old_dir`, `remnanode_agent_container`.
+- `target` — строго один хост; `remnanode_dir` (пусто — `/opt/remnanode`), `remnanode_agent_container`.
 - `remnanode_mount_shm`, `remnanode_mount_logs`: `keep` (дефолт) — оставить как есть; `true`/`false` — включить/выключить.
 - `remnanode_log_dir`, `remnanode_log_max_size`, `remnanode_log_keep`: `keep` (дефолт) или пусто — оставить текущее; явное значение — изменить. Примеры: `/var/log/remnanode` или `/opt/xray-logs`, `100M`/`50M`/`1G`, `5`/`10` (`1..30`). Если текущего значения нет, используются `/var/log/remnanode`, `100M`, `5`.
 - `remnanode_xray_mode`: `keep` (дефолт) — не трогать xray; `image` — снять кастомный mount и вернуться на xray из образа; `version` — поставить выбранную версию.
