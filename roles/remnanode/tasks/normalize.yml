@@ -19,7 +19,10 @@
 
 - name: Normalize xray log dir
   ansible.builtin.set_fact:
-    remnanode_log_dir: "{{ (remnanode_log_dir | default('') | trim) or '/var/log/remnanode' }}"
+    remnanode_log_dir: >-
+      {{ (remnanode_log_dir | default('', true) | string | trim)
+         if ((remnanode_log_dir | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
+         else '/var/log/remnanode' }}
 
 - name: Validate xray log dir
   ansible.builtin.fail:
@@ -30,8 +33,14 @@
 
 - name: Normalize xray log settings
   ansible.builtin.set_fact:
-    remnanode_log_max_size: "{{ (remnanode_log_max_size | default('', true) | string | trim) or '100M' }}"
-    remnanode_log_keep: "{{ (remnanode_log_keep | default('', true) | string | trim) or '5' }}"
+    remnanode_log_max_size: >-
+      {{ (remnanode_log_max_size | default('', true) | string | trim)
+         if ((remnanode_log_max_size | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
+         else '100M' }}
+    remnanode_log_keep: >-
+      {{ (remnanode_log_keep | default('', true) | string | trim)
+         if ((remnanode_log_keep | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
+         else '5' }}
 
 - name: Validate xray mode
   ansible.builtin.fail:

@@ -133,7 +133,7 @@
 
 - `remnanode_mount_shm: true` — прокинуть хостовый `/dev/shm` в контейнер (нужен для Selfsteal-сокета nginx из `docs/nginx.md`).
 - `remnanode_mount_logs: true` — прокинуть каталог логов xray (`<host>:<remnanode_log_dir>` → `/var/log/remnanode`).
-- `remnanode_log_dir` (пусто — `/var/log/remnanode`), `remnanode_log_max_size: 100M` (число + `k`/`M`/`G`), `remnanode_log_keep: 5` (`1..30`).
+- `remnanode_log_dir` (пусто — `/var/log/remnanode`; например `/opt/xray-logs`), `remnanode_log_max_size: 100M` (например `50M`, `100M`, `1G`; число + `k`/`M`/`G`), `remnanode_log_keep: 5` (`1..30`, например `5` или `10`).
 - Ротация — host-level `logrotate` (`/etc/logrotate.d/remnanode`, `copytruncate` — контейнер не дёргаем). Лимиты `json-file` в compose покрывают только stdout контейнера, не файлы в примонтированном каталоге.
 
 ## `remnawave_node_config` — host-конфиг существующего стека
@@ -146,13 +146,13 @@
 
 - `target` — строго один хост; `remnanode_dir` (пусто — `/opt/remnanode`), `remnanode_old_dir`, `remnanode_agent_container`.
 - `remnanode_mount_shm`, `remnanode_mount_logs`: `keep` (дефолт) — оставить как есть; `true`/`false` — включить/выключить.
-- `remnanode_log_dir`, `remnanode_log_max_size`, `remnanode_log_keep`: пусто — оставить текущее (для нового лог-каталога/размера/количества — явное значение).
+- `remnanode_log_dir`, `remnanode_log_max_size`, `remnanode_log_keep`: `keep` (дефолт) или пусто — оставить текущее; явное значение — изменить. Примеры: `/var/log/remnanode` или `/opt/xray-logs`, `100M`/`50M`/`1G`, `5`/`10` (`1..30`). Если текущего значения нет, используются `/var/log/remnanode`, `100M`, `5`.
 - `remnanode_xray_mode`: `keep` (дефолт) — не трогать xray; `image` — снять кастомный mount и вернуться на xray из образа; `version` — поставить выбранную версию.
 - `remnanode_xray_version` — только для `version`.
 
 Поведение:
 
-- пустые/`keep` поля трактуются как «оставить текущее»;
+- `keep` (дефолт) и пустые поля трактуются как «оставить текущее»;
 - если менять нечего — `No config changes` и выход без рестарта;
 - изменения монтирований/логов/xray пересобирают контейнер; смена только logrotate может обойтись без рестарта, но проверка running/listen всё равно выполняется;
 - `ufw` только отображается (`remnanode_ufw_state`, `remnanode_port_fw` + warning при закрытом порте) — правила меняет шаблон `firewall`;
@@ -174,6 +174,18 @@
   "remnanode_log_keep": 10,
   "remnanode_xray_mode": "version",
   "remnanode_xray_version": "26.10.21"
+}
+```
+
+Оставить логи как есть (значения по умолчанию):
+
+```json
+{
+  "target": "de1",
+  "remnawave_config_action": "apply",
+  "remnanode_log_dir": "keep",
+  "remnanode_log_max_size": "keep",
+  "remnanode_log_keep": "keep"
 }
 ```
 

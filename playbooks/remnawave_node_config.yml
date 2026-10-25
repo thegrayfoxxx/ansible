@@ -10,9 +10,10 @@
     remnanode_agent_container: remnanode
     remnanode_mount_shm: ""
     remnanode_mount_logs: ""
-    remnanode_log_dir: ""
-    remnanode_log_max_size: ""
-    remnanode_log_keep: ""
+    # keep — preserve the current host value; an explicit value changes it.
+    remnanode_log_dir: keep
+    remnanode_log_max_size: keep
+    remnanode_log_keep: keep
     remnanode_xray_mode: ""
     remnanode_xray_version: ""
     remnanode_validate_xray: false
@@ -88,16 +89,19 @@
       ansible.builtin.set_fact:
         remnanode_log_dir: >-
           {{ (remnanode_cfg_input_log_dir | default('', true) | string | trim)
-             or (remnanode_log_dir_current if ((remnanode_mount_logs | bool) and (remnanode_existing_mount_logs | bool) and (remnanode_log_dir_current | length > 0)) else '')
-             or '/var/log/remnanode' }}
+             if ((remnanode_cfg_input_log_dir | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
+             else ((remnanode_log_dir_current
+                    if ((remnanode_mount_logs | bool) and (remnanode_existing_mount_logs | bool) and ((remnanode_log_dir_current | default('', true) | length) > 0))
+                    else '')
+                   or '/var/log/remnanode') }}
         remnanode_log_max_size: >-
           {{ (remnanode_cfg_input_log_max_size | default('', true) | string | trim)
-             or (remnanode_log_max_size_current | default('', true))
-             or '100M' }}
+             if ((remnanode_cfg_input_log_max_size | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
+             else ((remnanode_log_max_size_current | default('', true) | string | trim) or '100M') }}
         remnanode_log_keep: >-
           {{ (remnanode_cfg_input_log_keep | default('', true) | string | trim)
-             or (remnanode_log_keep_current | default('', true))
-             or '5' }}
+             if ((remnanode_cfg_input_log_keep | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
+             else ((remnanode_log_keep_current | default('', true) | string | trim) or '5') }}
 
     - name: Resolve desired mount flags
       ansible.builtin.set_fact:
