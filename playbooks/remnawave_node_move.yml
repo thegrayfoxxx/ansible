@@ -230,6 +230,11 @@
                 remnanode_log_dir: "{{ remnanode_move_payload.log_dir }}"
                 remnanode_log_max_size: "{{ remnanode_move_payload.log_max_size }}"
                 remnanode_log_keep: "{{ remnanode_move_payload.log_keep }}"
+                remnanode_mount_shm_effective: "{{ remnanode_move_payload.mount_shm | bool }}"
+                remnanode_mount_logs_effective: "{{ remnanode_move_payload.mount_logs | bool }}"
+                remnanode_log_dir_effective: "{{ remnanode_move_payload.log_dir }}"
+                remnanode_log_max_size_effective: "{{ remnanode_move_payload.log_max_size }}"
+                remnanode_log_keep_effective: "{{ remnanode_move_payload.log_keep }}"
                 remnanode_port_final: "{{ remnanode_move_payload.port }}"
                 remnanode_node_secret: "{{ remnanode_move_payload.secret }}"
                 remnanode_xray_mode: keep
@@ -475,6 +480,11 @@
             remnanode_log_dir: "{{ remnanode_move_payload.log_dir }}"
             remnanode_log_max_size: "{{ remnanode_move_payload.log_max_size }}"
             remnanode_log_keep: "{{ remnanode_move_payload.log_keep }}"
+            remnanode_mount_shm_effective: "{{ remnanode_move_payload.mount_shm | bool }}"
+            remnanode_mount_logs_effective: "{{ remnanode_move_payload.mount_logs | bool }}"
+            remnanode_log_dir_effective: "{{ remnanode_move_payload.log_dir }}"
+            remnanode_log_max_size_effective: "{{ remnanode_move_payload.log_max_size }}"
+            remnanode_log_keep_effective: "{{ remnanode_move_payload.log_keep }}"
             remnanode_port_final: "{{ remnanode_move_payload.port }}"
             remnanode_node_secret: "{{ remnanode_move_payload.secret }}"
             remnanode_xray_mode: keep

@@ -10,6 +10,17 @@ remnanode_log_dir: /var/log/remnanode
 remnanode_log_max_size: 100M
 remnanode_log_keep: 5
 
+# Effective values are what render/templates consume. remnawave_node_config
+# sets them after resolving keep/current against discovered host state, and
+# move refreshes them from the preserved payload. This is needed because
+# Semaphore survey values arrive as extra vars and cannot be overridden by
+# set_fact on the original remnanode_* variables.
+remnanode_mount_shm_effective: "{{ remnanode_mount_shm }}"
+remnanode_mount_logs_effective: "{{ remnanode_mount_logs }}"
+remnanode_log_dir_effective: "{{ remnanode_log_dir }}"
+remnanode_log_max_size_effective: "{{ remnanode_log_max_size }}"
+remnanode_log_keep_effective: "{{ remnanode_log_keep }}"
+
 # keep    — preserve the current custom xray (if any), otherwise use image xray
 # image   — remove the custom mount and use xray from the image
 # version — install the selected XTLS/Xray-core release and mount it

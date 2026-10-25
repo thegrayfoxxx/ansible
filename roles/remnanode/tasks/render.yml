@@ -7,10 +7,10 @@
 
 - name: Ensure xray log dir
   ansible.builtin.file:
-    path: "{{ remnanode_log_dir }}"
+    path: "{{ remnanode_log_dir_effective }}"
     state: directory
     mode: "0755"
-  when: remnanode_mount_logs | bool
+  when: remnanode_mount_logs_effective | bool
 
 - name: Render compose file
   ansible.builtin.template:
@@ -30,17 +30,17 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
-  when: remnanode_mount_logs | bool
+  when: remnanode_mount_logs_effective | bool
 
 - name: Render xray logrotate config
   ansible.builtin.template:
     src: "{{ role_path }}/../../templates/remnawave/logrotate.j2"
     dest: /etc/logrotate.d/remnanode
     mode: "0644"
-  when: remnanode_mount_logs | bool
+  when: remnanode_mount_logs_effective | bool
 
 - name: Remove xray logrotate config when logs are not mounted
   ansible.builtin.file:
     path: /etc/logrotate.d/remnanode
     state: absent
-  when: not (remnanode_mount_logs | bool)
+  when: not (remnanode_mount_logs_effective | bool)

@@ -19,27 +19,25 @@
 
 - name: Normalize xray log dir
   ansible.builtin.set_fact:
-    remnanode_log_dir: >-
-      {{ (remnanode_log_dir | default('', true) | string | trim)
-         if ((remnanode_log_dir | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
+    remnanode_log_dir_effective: >-
+      {{ (remnanode_log_dir_effective | default(remnanode_log_dir | default('', true), true) | string | trim)
+         if ((remnanode_log_dir_effective | default(remnanode_log_dir | default('', true), true) | string | trim | lower) not in ['', 'keep', 'current'])
          else '/var/log/remnanode' }}
 
 - name: Validate xray log dir
   ansible.builtin.fail:
-    msg: "remnanode_log_dir must be an absolute path, got '{{ remnanode_log_dir }}'"
-  when:
-    - (remnanode_mount_logs | default(false) | bool) or (remnanode_log_dir | default('') | trim | length > 0)
-    - not (remnanode_log_dir is match('^/.+'))
+    msg: "remnanode_log_dir must be an absolute path, got '{{ remnanode_log_dir_effective }}'"
+  when: not (remnanode_log_dir_effective is match('^/.+'))
 
 - name: Normalize xray log settings
   ansible.builtin.set_fact:
-    remnanode_log_max_size: >-
-      {{ (remnanode_log_max_size | default('', true) | string | trim)
-         if ((remnanode_log_max_size | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
+    remnanode_log_max_size_effective: >-
+      {{ (remnanode_log_max_size_effective | default(remnanode_log_max_size | default('', true), true) | string | trim)
+         if ((remnanode_log_max_size_effective | default(remnanode_log_max_size | default('', true), true) | string | trim | lower) not in ['', 'keep', 'current'])
          else '100M' }}
-    remnanode_log_keep: >-
-      {{ (remnanode_log_keep | default('', true) | string | trim)
-         if ((remnanode_log_keep | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
+    remnanode_log_keep_effective: >-
+      {{ (remnanode_log_keep_effective | default(remnanode_log_keep | default('', true), true) | string | trim)
+         if ((remnanode_log_keep_effective | default(remnanode_log_keep | default('', true), true) | string | trim | lower) not in ['', 'keep', 'current'])
          else '5' }}
 
 - name: Validate xray mode
@@ -75,14 +73,14 @@
 
 - name: Validate xray log max size
   ansible.builtin.fail:
-    msg: "remnanode_log_max_size must be like 100M (number + k/M/G), got '{{ remnanode_log_max_size }}'"
+    msg: "remnanode_log_max_size must be like 100M (number + k/M/G), got '{{ remnanode_log_max_size_effective }}'"
   when:
-    - remnanode_log_max_size | default('') | string | trim | length > 0
-    - not (remnanode_log_max_size | default('') | string | trim is match('(?i)^[0-9]+[kMG]$'))
+    - remnanode_log_max_size_effective | default('') | string | trim | length > 0
+    - not (remnanode_log_max_size_effective | default('') | string | trim is match('(?i)^[0-9]+[kMG]$'))
 
 - name: Validate xray log keep count
   ansible.builtin.fail:
-    msg: "remnanode_log_keep must be 1..30, got '{{ remnanode_log_keep }}'"
+    msg: "remnanode_log_keep must be 1..30, got '{{ remnanode_log_keep_effective }}'"
   when:
-    - remnanode_log_keep | default('') | string | trim | length > 0
-    - (remnanode_log_keep | int < 1) or (remnanode_log_keep | int > 30)
+    - remnanode_log_keep_effective | default('') | string | trim | length > 0
+    - (remnanode_log_keep_effective | int < 1) or (remnanode_log_keep_effective | int > 30)

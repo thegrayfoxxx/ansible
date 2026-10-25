@@ -2,10 +2,10 @@
 # Remnawave xray logs on the node. Rendered by Ansible — do not edit by hand.
 # Change size/keep with remnawave_node_config action=apply.
 # NOTE: docker json-file limits cover only container stdout, not these files.
-{{ remnanode_log_dir }}/*.log {
+{{ remnanode_log_dir_effective }}/*.log {
     su root root
-    size {{ remnanode_log_max_size }}
-    rotate {{ remnanode_log_keep | int }}
+    size {{ remnanode_log_max_size_effective }}
+    rotate {{ remnanode_log_keep_effective | int }}
     compress
     delaycompress
     copytruncate

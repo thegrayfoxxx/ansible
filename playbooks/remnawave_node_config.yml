@@ -74,11 +74,11 @@
 
     - name: Resolve desired mount and xray values
       ansible.builtin.set_fact:
-        remnanode_mount_shm: >-
+        remnanode_mount_shm_effective: >-
           {{ remnanode_existing_mount_shm | bool
              if ((remnanode_cfg_input_shm | default('', true) | string | trim | lower) in ['', 'keep', 'current'])
              else (remnanode_cfg_input_shm | bool) }}
-        remnanode_mount_logs: >-
+        remnanode_mount_logs_effective: >-
           {{ remnanode_existing_mount_logs | bool
              if ((remnanode_cfg_input_logs | default('', true) | string | trim | lower) in ['', 'keep', 'current'])
              else (remnanode_cfg_input_logs | bool) }}
@@ -87,26 +87,26 @@
 
     - name: Resolve desired log values
       ansible.builtin.set_fact:
-        remnanode_log_dir: >-
+        remnanode_log_dir_effective: >-
           {{ (remnanode_cfg_input_log_dir | default('', true) | string | trim)
              if ((remnanode_cfg_input_log_dir | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
              else ((remnanode_log_dir_current
-                    if ((remnanode_mount_logs | bool) and (remnanode_existing_mount_logs | bool) and ((remnanode_log_dir_current | default('', true) | length) > 0))
+                    if ((remnanode_mount_logs_effective | bool) and (remnanode_existing_mount_logs | bool) and ((remnanode_log_dir_current | default('', true) | length) > 0))
                     else '')
                    or '/var/log/remnanode') }}
-        remnanode_log_max_size: >-
+        remnanode_log_max_size_effective: >-
           {{ (remnanode_cfg_input_log_max_size | default('', true) | string | trim)
              if ((remnanode_cfg_input_log_max_size | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
              else ((remnanode_log_max_size_current | default('', true) | string | trim) or '100M') }}
-        remnanode_log_keep: >-
+        remnanode_log_keep_effective: >-
           {{ (remnanode_cfg_input_log_keep | default('', true) | string | trim)
              if ((remnanode_cfg_input_log_keep | default('', true) | string | trim | lower) not in ['', 'keep', 'current'])
              else ((remnanode_log_keep_current | default('', true) | string | trim) or '5') }}
 
     - name: Resolve desired mount flags
       ansible.builtin.set_fact:
-        remnanode_mount_shm: "{{ remnanode_mount_shm | bool }}"
-        remnanode_mount_logs: "{{ remnanode_mount_logs | bool }}"
+        remnanode_mount_shm_effective: "{{ remnanode_mount_shm_effective | bool }}"
+        remnanode_mount_logs_effective: "{{ remnanode_mount_logs_effective | bool }}"
 
     - name: Validate resolved config
       ansible.builtin.set_fact:
@@ -119,17 +119,17 @@
 
     - name: Compute config changes
       ansible.builtin.set_fact:
-        remnanode_cfg_shm_changed: "{{ (remnanode_mount_shm | bool) != (remnanode_existing_mount_shm | bool) }}"
-        remnanode_cfg_logs_changed: "{{ (remnanode_mount_logs | bool) != (remnanode_existing_mount_logs | bool) }}"
+        remnanode_cfg_shm_changed: "{{ (remnanode_mount_shm_effective | bool) != (remnanode_existing_mount_shm | bool) }}"
+        remnanode_cfg_logs_changed: "{{ (remnanode_mount_logs_effective | bool) != (remnanode_existing_mount_logs | bool) }}"
         remnanode_cfg_log_dir_changed: >-
-          {{ (remnanode_mount_logs | bool)
-             and ((remnanode_log_dir_current | default('', true) | regex_replace('/+$', '')) != (remnanode_log_dir | regex_replace('/+$', ''))) }}
+          {{ (remnanode_mount_logs_effective | bool)
+             and ((remnanode_log_dir_current | default('', true) | regex_replace('/+$', '')) != (remnanode_log_dir_effective | regex_replace('/+$', ''))) }}
         remnanode_cfg_logrotate_changed: >-
-          {{ (not (remnanode_mount_logs | bool) and (remnanode_logrotate_exists | bool))
-             or ((remnanode_mount_logs | bool)
+          {{ (not (remnanode_mount_logs_effective | bool) and (remnanode_logrotate_exists | bool))
+             or ((remnanode_mount_logs_effective | bool)
                  and ((not (remnanode_logrotate_exists | bool))
-                      or (remnanode_log_max_size_current | default('') != remnanode_log_max_size)
-                      or ((remnanode_log_keep_current | default('') | string) != (remnanode_log_keep | string)))) }}
+                      or (remnanode_log_max_size_current | default('') != remnanode_log_max_size_effective)
+                      or ((remnanode_log_keep_current | default('') | string) != (remnanode_log_keep_effective | string)))) }}
 
     - name: Show current config
       when: remnawave_config_action == 'show'
@@ -202,4 +202,4 @@
 
     - name: Show apply summary
       ansible.builtin.debug:
-        msg: "applied host={{ inventory_hostname }} dir={{ remnanode_dir }} shm={{ remnanode_mount_shm }} logs={{ remnanode_mount_logs }} log_dir={{ remnanode_log_dir }} log_size={{ remnanode_log_max_size }} log_keep={{ remnanode_log_keep }} xray={{ remnanode_xray_summary }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"
+        msg: "applied host={{ inventory_hostname }} dir={{ remnanode_dir }} shm={{ remnanode_mount_shm_effective }} logs={{ remnanode_mount_logs_effective }} log_dir={{ remnanode_log_dir_effective }} log_size={{ remnanode_log_max_size_effective }} log_keep={{ remnanode_log_keep_effective }} xray={{ remnanode_xray_summary }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"
