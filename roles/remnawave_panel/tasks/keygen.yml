@@ -1,0 +1,31 @@
+---
+- name: Fetch node secret key
+  ansible.builtin.uri:
+    url: "{{ remnawave_panel_base }}/api/keygen"
+    headers:
+      Authorization: "Bearer {{ remnawave_token_final }}"
+      Accept: application/json
+    return_content: true
+    timeout: 30
+    validate_certs: "{{ remnawave_validate_certs | bool }}"
+  register: remnawave_secret_resp
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Validate node secret key
+  ansible.builtin.fail:
+    msg: "Panel returned empty or invalid node SECRET_KEY"
+  when:
+    - (remnawave_secret_resp.json.response.secretKey | default('') | length == 0)
+      or ((remnawave_secret_resp.json.response.secretKey | b64decode | from_json).nodeCertPem is not defined)
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Store node secret key
+  ansible.builtin.set_fact:
+    remnawave_node_secret: "{{ remnawave_secret_resp.json.response.secretKey }}"
+  delegate_to: localhost
+  become: false
+  no_log: true

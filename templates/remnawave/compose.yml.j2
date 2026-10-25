@@ -1,8 +1,11 @@
 # {{ ansible_managed }}
-# Remnawave node agent. Rendered by Ansible — do not edit by hand, re-run the remnawave_node_add template.
+# Remnawave node agent. Rendered by Ansible — do not edit by hand.
+# Change it with remnawave_node_deploy (first install / force), remnawave_node_config
+# (mounts, logs, xray) or remnawave_node_move (relocation). remnawave_node_update
+# only pulls the image.
 services:
   remnanode:
-    container_name: remnanode
+    container_name: {{ remnanode_agent_container }}
     hostname: remnanode
     image: {{ remnanode_node_image }}
     network_mode: host

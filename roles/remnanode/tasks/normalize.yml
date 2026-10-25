@@ -1,0 +1,79 @@
+---
+- name: Normalize project dir
+  ansible.builtin.set_fact:
+    remnanode_dir: "{{ (remnanode_dir | default('') | trim) or '/opt/remnanode' }}"
+
+- name: Validate project dir
+  ansible.builtin.fail:
+    msg: "remnanode_dir must be an absolute path, got '{{ remnanode_dir }}'"
+  when: not (remnanode_dir is match('^/.+'))
+
+- name: Normalize agent container name
+  ansible.builtin.set_fact:
+    remnanode_agent_container: "{{ (remnanode_agent_container | default('') | trim) or 'remnanode' }}"
+
+- name: Validate agent container name
+  ansible.builtin.fail:
+    msg: "Remnanode container name must match ^[a-zA-Z0-9_.-]+$, got '{{ remnanode_agent_container }}'"
+  when: remnanode_agent_container is not match('^[a-zA-Z0-9_.-]+$')
+
+- name: Normalize xray log dir
+  ansible.builtin.set_fact:
+    remnanode_log_dir: "{{ (remnanode_log_dir | default('') | trim) or '/var/log/remnanode' }}"
+
+- name: Validate xray log dir
+  ansible.builtin.fail:
+    msg: "remnanode_log_dir must be an absolute path, got '{{ remnanode_log_dir }}'"
+  when:
+    - (remnanode_mount_logs | default(false) | bool) or (remnanode_log_dir | default('') | trim | length > 0)
+    - not (remnanode_log_dir is match('^/.+'))
+
+- name: Normalize xray log settings
+  ansible.builtin.set_fact:
+    remnanode_log_max_size: "{{ (remnanode_log_max_size | default('', true) | string | trim) or '100M' }}"
+    remnanode_log_keep: "{{ (remnanode_log_keep | default('', true) | string | trim) or '5' }}"
+
+- name: Validate xray mode
+  ansible.builtin.fail:
+    msg: "remnanode_xray_mode must be keep, image or version, got '{{ remnanode_xray_mode }}'"
+  when:
+    - remnanode_validate_xray | default(true) | bool
+    - remnanode_xray_mode not in ['', 'keep', 'image', 'version']
+
+- name: Require xray version for mode=version
+  ansible.builtin.fail:
+    msg: "remnanode_xray_version is required when remnanode_xray_mode=version"
+  when:
+    - remnanode_validate_xray | default(true) | bool
+    - remnanode_xray_mode == 'version'
+    - remnanode_xray_version_norm | length == 0
+
+- name: Refuse xray version outside mode=version
+  ansible.builtin.fail:
+    msg: "remnanode_xray_version is set but remnanode_xray_mode={{ remnanode_xray_mode }}. Use mode=version to install a version, or clear the version"
+  when:
+    - remnanode_validate_xray | default(true) | bool
+    - remnanode_xray_mode in ['', 'keep', 'image']
+    - remnanode_xray_version | default('', true) | string | trim | length > 0
+
+- name: Validate xray version format
+  ansible.builtin.fail:
+    msg: "remnanode_xray_version must look like 26.10.21 or v26.10.21, got '{{ remnanode_xray_version }}'"
+  when:
+    - remnanode_validate_xray | default(true) | bool
+    - remnanode_xray_version_norm | length > 0
+    - not (remnanode_xray_version_norm is match('^[0-9]+\.[0-9]+\.[0-9]+$'))
+
+- name: Validate xray log max size
+  ansible.builtin.fail:
+    msg: "remnanode_log_max_size must be like 100M (number + k/M/G), got '{{ remnanode_log_max_size }}'"
+  when:
+    - remnanode_log_max_size | default('') | string | trim | length > 0
+    - not (remnanode_log_max_size | default('') | string | trim is match('(?i)^[0-9]+[kMG]$'))
+
+- name: Validate xray log keep count
+  ansible.builtin.fail:
+    msg: "remnanode_log_keep must be 1..30, got '{{ remnanode_log_keep }}'"
+  when:
+    - remnanode_log_keep | default('') | string | trim | length > 0
+    - (remnanode_log_keep | int < 1) or (remnanode_log_keep | int > 30)

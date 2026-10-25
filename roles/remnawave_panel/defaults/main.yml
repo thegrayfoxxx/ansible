@@ -1,0 +1,15 @@
+---
+remnawave_token: ""
+remnawave_validate_certs: true
+remnawave_uuid_re: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+remnawave_panel_base: ""
+remnawave_token_final: ""
+remnawave_nodes: []
+remnawave_existing: {}
+remnawave_node_matches: []
+remnawave_node_uuid: ""
+remnawave_node_secret: ""
+remnawave_node_connected: false
+remnawave_node_deleted: false
+remnawave_health_retries: 12
+remnawave_health_delay: 10

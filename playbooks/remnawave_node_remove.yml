@@ -1,0 +1,240 @@
+---
+- name: Remnawave node remove (panel / host / both)
+  hosts: "{{ target | default('localhost', true) }}"
+  gather_facts: false
+  become: false
+  vars:
+    remnawave_remove_action: inspect
+    remnawave_remove_scope: both
+    remnawave_remove_confirm: false
+    remnawave_remove_purge: false
+    remnawave_node_name: ""
+    remnawave_token: ""
+    remnawave_validate_certs: true
+    remnanode_dir: /opt/remnanode
+    remnanode_old_dir: ""
+    remnanode_agent_container: remnanode
+  tasks:
+    - name: Validate remove action
+      ansible.builtin.fail:
+        msg: "remnawave_remove_action must be inspect or remove, got '{{ remnawave_remove_action }}'"
+      when: remnawave_remove_action not in ['inspect', 'remove']
+
+    - name: Validate remove scope
+      ansible.builtin.fail:
+        msg: "remnawave_remove_scope must be panel, host or both, got '{{ remnawave_remove_scope }}'"
+      when: remnawave_remove_scope not in ['panel', 'host', 'both']
+
+    - name: Require confirmation for remove
+      ansible.builtin.fail:
+        msg: "Removal is destructive. Set remnawave_remove_confirm=true to allow action=remove"
+      when:
+        - remnawave_remove_action == 'remove'
+        - not (remnawave_remove_confirm | bool)
+
+    - name: Require exactly one target host
+      ansible.builtin.fail:
+        msg: "Remove addresses one host per run — point target at a single host (or leave it empty for scope=panel), got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Require target for host removal
+      ansible.builtin.fail:
+        msg: "Set target to the node host for scope=host or scope=both. For a panel-only removal use scope=panel and leave target empty"
+      when:
+        - remnawave_remove_scope in ['host', 'both']
+        - target | default('', true) | trim | length == 0
+
+    - name: Require node name for panel removal
+      ansible.builtin.fail:
+        msg: "Set remnawave_node_name to the exact panel node name for scope=panel or scope=both"
+      when:
+        - remnawave_remove_scope in ['panel', 'both']
+        - remnawave_node_name | default('', true) | trim | length == 0
+
+    - name: Inspect host state
+      when: remnawave_remove_scope in ['host', 'both']
+      become: true
+      block:
+        - name: Normalize node settings
+          ansible.builtin.include_role:
+            name: remnanode
+            tasks_from: normalize
+
+        - name: Discover host state
+          ansible.builtin.include_role:
+            name: remnanode
+            tasks_from: discover
+
+        - name: Read credentials for display
+          ansible.builtin.set_fact:
+            remnanode_require_credentials: false
+
+        - name: Discover credentials
+          ansible.builtin.include_role:
+            name: remnanode
+            tasks_from: credentials
+
+        - name: Check firewall state
+          ansible.builtin.include_role:
+            name: remnanode
+            tasks_from: ufw_check
+
+        - name: Resolve host removal state
+          ansible.builtin.set_fact:
+            remnanode_remove_stack_present: "{{ (remnanode_target_compose_exists | bool) or (remnanode_old_compose_exists | bool) or (remnanode_container_exists | bool) }}"
+            remnanode_remove_compose_dir: >-
+              {{ (remnanode_old_dir_discovered if ((remnanode_container_exists | bool)
+                                                   and (remnanode_old_dir_discovered | default('', true) | length > 0)
+                                                   and (remnanode_old_compose_exists | bool))
+                  else (remnanode_dir if (remnanode_target_compose_exists | bool)
+                        else (remnanode_old_dir_final if (remnanode_old_compose_exists | bool) else ''))) }}
+
+    - name: Inspect panel state
+      when: remnawave_remove_scope in ['panel', 'both']
+      block:
+        - name: Resolve panel credentials
+          ansible.builtin.include_role:
+            name: remnawave_panel
+            tasks_from: auth
+
+        - name: Fetch panel nodes
+          ansible.builtin.include_role:
+            name: remnawave_panel
+            tasks_from: nodes
+
+        - name: Refuse ambiguous panel node name
+          ansible.builtin.fail:
+            msg: "Panel has {{ remnawave_node_matches | default([]) | length }} nodes named '{{ remnawave_node_name }}'. Remove duplicates in panel UI first"
+          when: (remnawave_node_matches | default([]) | length) > 1
+
+        - name: Resolve panel node presence
+          ansible.builtin.set_fact:
+            remnawave_remove_panel_present: "{{ remnawave_existing | length > 0 }}"
+
+    - name: Show remove inspection
+      when: remnawave_remove_action == 'inspect'
+      block:
+        - name: Show inspect summary
+          ansible.builtin.debug:
+            msg: >-
+              {{ [
+                'scope=' + remnawave_remove_scope + ' action=inspect host=' + inventory_hostname,
+                ('container=' + remnanode_agent_container + ' exists=' + (remnanode_container_exists | default(false) | string) + ' running=' + (remnanode_container_running | default(false) | string) + ' dir=' + (remnanode_old_dir_final | default('?', true)) + ' compose=' + (remnanode_remove_compose_dir | default('(none)', true) | string) + ' port=' + (remnanode_port_final | default('?', true) | string) + ' creds_from=' + (remnanode_creds_source | default('n/a', true) | string) + ' purge=' + (remnawave_remove_purge | string)) if (remnawave_remove_scope in ['host', 'both']) else 'host=not touched',
+                ('panel_node=' + remnawave_node_name + ' found=' + (remnawave_remove_panel_present | default(false) | string) + ((' uuid=' + remnawave_existing.uuid | default('', true)) if (remnawave_remove_panel_present | default(false) | bool) else '')) if (remnawave_remove_scope in ['panel', 'both']) else 'panel=not touched',
+                ('WARNING: panel removal disconnects and drops the users bound to this node') if (remnawave_remove_scope in ['panel', 'both'] and (remnawave_remove_panel_present | default(false) | bool)) else '',
+                ('WARNING: ufw rules are not touched; remove the node port rule manually if needed') if (remnawave_remove_scope in ['host', 'both'] and (remnanode_port_fw | default('') == 'allowed')) else ''
+              ] | select | list }}
+
+        - name: Stop after inspect
+          ansible.builtin.meta: end_play
+
+    - name: Stop stack on host
+      when: remnawave_remove_scope in ['host', 'both']
+      become: true
+      block:
+        - name: Stop and remove compose stack
+          community.docker.docker_compose_v2:
+            project_src: "{{ remnanode_remove_compose_dir }}"
+            state: absent
+          when: remnanode_remove_compose_dir | default('') | length > 0
+
+        - name: Stop container after compose removal
+          ansible.builtin.command:
+            argv: ["docker", "stop", "{{ remnanode_agent_container }}"]
+          changed_when: true
+          failed_when: false
+          when: remnanode_container_exists | bool
+
+        - name: Force-remove leftover container
+          ansible.builtin.command:
+            argv: ["docker", "rm", "-f", "{{ remnanode_agent_container }}"]
+          changed_when: true
+          failed_when: false
+          when: remnanode_container_exists | bool
+
+        - name: Verify container is gone
+          ansible.builtin.command: docker inspect {{ remnanode_agent_container }}
+          register: remnanode_remove_container_check
+          changed_when: false
+          failed_when: false
+          no_log: true
+
+        - name: Require container removal before panel delete
+          ansible.builtin.fail:
+            msg: >-
+              Container '{{ remnanode_agent_container }}' is still on {{ inventory_hostname }}
+              ({{ remnanode_remove_container_check.stderr | default('docker inspect returned unexpected output') | trim }}).
+              Panel entry was not deleted; remove the container manually and re-run
+          when: >-
+            (remnanode_remove_container_check.rc | default(1) == 0)
+            or not ((remnanode_remove_container_check.stderr | default('') | lower) is search('no such object|no such container'))
+
+        - name: Record host removal
+          ansible.builtin.set_fact:
+            remnanode_host_removed: true
+
+    - name: Remove panel entry
+      when: remnawave_remove_scope in ['panel', 'both']
+      block:
+        - name: Delete panel node
+          ansible.builtin.include_role:
+            name: remnawave_panel
+            tasks_from: delete
+          when: remnawave_remove_panel_present | default(false) | bool
+
+        - name: Note absent panel node
+          ansible.builtin.debug:
+            msg: "Panel node '{{ remnawave_node_name }}' is already absent"
+          when: not (remnawave_remove_panel_present | default(false) | bool)
+
+    - name: Purge host files
+      when:
+        - remnawave_remove_scope in ['host', 'both']
+        - remnawave_remove_purge | bool
+        - remnanode_remove_stack_present | default(false) | bool
+      become: true
+      block:
+        - name: Resolve purge dir
+          ansible.builtin.set_fact:
+            remnanode_purge_dir: >-
+              {{ (remnanode_remove_compose_dir | default('', true) | trim)
+                 or (remnanode_old_dir_final | default('', true) | trim)
+                 or (remnanode_dir | default('/opt/remnanode', true) | trim) }}
+
+        - name: Validate purge dir
+          ansible.builtin.fail:
+            msg: "Refusing to purge unsafe path '{{ remnanode_purge_dir }}'. Set remnanode_dir to the project dir"
+          when: >-
+            (remnanode_purge_dir | length == 0)
+            or (not (remnanode_purge_dir is match('^/.+')))
+            or ('..' in remnanode_purge_dir)
+            or ((remnanode_purge_dir | regex_replace('/+$', '').split('/') | length) < 3)
+
+        - name: Remove logrotate config
+          ansible.builtin.file:
+            path: /etc/logrotate.d/remnanode
+            state: absent
+
+        - name: Remove project dir
+          ansible.builtin.file:
+            path: "{{ remnanode_purge_dir | regex_replace('/+$', '') }}"
+            state: absent
+
+    - name: Warn about remaining ufw rule
+      ansible.builtin.debug:
+        msg: "ufw rule for node port {{ remnanode_port_final }} was not removed. Remove it manually if the node is gone: ufw delete allow {{ remnanode_port_final }}/tcp"
+      when:
+        - remnawave_remove_scope in ['host', 'both']
+        - remnanode_port_final | default('') | string | length > 0
+        - remnanode_port_fw | default('') == 'allowed'
+
+    - name: Show removal summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ [
+            'action=remove scope=' + remnawave_remove_scope,
+            ('host=' + inventory_hostname + ' stack_removed=true') if (remnawave_remove_scope in ['host', 'both']) else 'host=not touched',
+            ('panel_node=' + remnawave_node_name + ' removed=' + ((remnawave_node_deleted | default(false)) | string)) if (remnawave_remove_scope in ['panel', 'both']) else 'panel=not touched',
+            ('purged=' + (remnawave_remove_purge | string)) if (remnawave_remove_scope in ['host', 'both']) else '',
+            'NOTE: xray logs under the log dir and ufw rules are not deleted automatically'
+          ] | select | list }}

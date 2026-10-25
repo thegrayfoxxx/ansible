@@ -1,0 +1,28 @@
+---
+- name: Require node UUID for panel removal
+  ansible.builtin.fail:
+    msg: "Node UUID is unknown — cannot remove the panel entry"
+  when: remnawave_node_uuid | default('') | trim | length == 0
+  delegate_to: localhost
+  become: false
+
+- name: Remove panel node
+  ansible.builtin.uri:
+    url: "{{ remnawave_panel_base }}/api/nodes/{{ remnawave_node_uuid }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ remnawave_token_final }}"
+      Accept: application/json
+    status_code: [204, 404]
+    timeout: 30
+    validate_certs: "{{ remnawave_validate_certs | bool }}"
+  register: remnawave_node_delete
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Record panel removal
+  ansible.builtin.set_fact:
+    remnawave_node_deleted: "{{ remnawave_node_delete.status | default(0) == 204 }}"
+  delegate_to: localhost
+  become: false

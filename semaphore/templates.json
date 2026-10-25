@@ -362,30 +362,68 @@
       "view": "Remnawave",
       "app": "ansible",
       "environment": "remnawave_vars",
-      "description": "Remnawave нода: register/deploy/both + автодеплой агента (playbooks/remnawave_node_add.yml)",
+      "description": "Remnawave нода: только регистрация в панели по API, SSH/деплой не трогаются (playbooks/remnawave_node_add.yml)",
       "playbook": "playbooks/remnawave_node_add.yml",
       "survey_vars": [
-        {"name": "remnawave_action", "title": "Action", "description": "both — регистрация + деплой одним прогоном (register/deploy — по отдельности)", "default_value": "both", "type": "enum", "required": false, "values": [{"name": "register", "value": "register"}, {"name": "deploy", "value": "deploy"}, {"name": "both", "value": "both"}]},
-        {"name": "target", "title": "Target", "description": "Один хост ноды (в register-режиме значение игнорируется). ⚠️ Проверь охват перед Run", "type": "", "required": true},
         {"name": "remnawave_node_name", "title": "Node name", "description": "Имя ноды в панели, 3..30 символов (например de1-vpn)", "type": "", "required": true},
         {"name": "remnawave_node_address", "title": "Node address", "description": "Адрес ноды, достижимый со стороны панели (IP или DNS)", "type": "", "required": true},
-        {"name": "remnawave_node_port", "title": "Node port", "description": "Порт агента (пусто — случайный 1024..65535; явно — конкретный)", "type": "int", "required": false},
+        {"name": "remnawave_node_port", "title": "Node port", "description": "Порт агента (пусто — случайный 1024..65535; явно — конкретный). Deploy возьмёт его из панели", "type": "int", "required": false},
         {"name": "remnawave_country", "title": "Country", "description": "Код страны ISO, например DE", "default_value": "XX", "type": "", "required": false},
         {"name": "remnawave_config_profile", "title": "Config profile", "description": "UUID/имя конфиг-профиля (пусто — авто по default)", "type": "", "required": false},
         {"name": "remnawave_inbounds", "title": "Inbounds", "description": "Text: UUID инбаундов, по одному на строку (пусто — все инбаунды профиля)", "type": "text", "required": false},
         {"name": "remnawave_note", "title": "Note", "description": "Заметка, до 255 символов", "type": "", "required": false},
         {"name": "remnawave_token", "title": "API token override", "description": "Разовый override токена (пусто — секрет REMNAWAVE_TOKEN из группы)", "type": "secret", "required": false},
-        {"name": "remnawave_open_port", "title": "Open port in ufw", "description": "true — открыть порт агента в ufw, если он есть (нет — скип с warning; идемпотентно)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnawave_allow_from", "title": "Allow from", "description": "Только с IP панели, например 203.0.113.10 (пусто — отовсюду)", "type": "", "required": false},
+        {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
+      "name": "remnawave_node_deploy",
+      "view": "Remnawave",
+      "app": "ansible",
+      "environment": "remnawave_vars",
+      "description": "Remnawave нода: установка стека на хосте. Существующий стек требует Force=true (playbooks/remnawave_node_deploy.yml)",
+      "playbook": "playbooks/remnawave_node_deploy.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Один хост ноды. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "remnawave_node_name", "title": "Node name", "description": "Имя ноды в панели. Нужно только для первой установки без .env; при существующем .env можно пусто", "type": "", "required": false},
+        {"name": "remnawave_token", "title": "API token override", "description": "Разовый override токена (пусто — секрет REMNAWAVE_TOKEN из группы)", "type": "secret", "required": false},
         {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnanode_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnanode)", "default_value": "/opt/remnanode", "type": "", "required": false},
-        {"name": "remnanode_xray_manage", "title": "Manage custom xray", "description": "false — не трогать xray (текущий кастом сохраняется); true + версия — поставить версию; true + пусто — снять кастом", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnanode_xray_version", "title": "Xray core version", "description": "Официальный релиз XTLS/Xray-core, например 26.10.21 (пусто — не менять/снять кастом)", "type": "", "required": false},
-        {"name": "remnanode_mount_shm", "title": "Mount /dev/shm", "description": "true — прокинуть хостовый /dev/shm в контейнер (нужно для Selfsteal-сокета nginx); применяется на deploy", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnanode_mount_logs", "title": "Mount xray logs", "description": "true — прокинуть каталог логов xray (<host>:/var/log/remnanode); применяется на deploy", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnanode_old_dir", "title": "Existing project dir", "description": "Где уже лежит стек (пусто — автоопределить по compose-меткам). Deploy не переезжает — для этого move", "type": "", "required": false},
+        {"name": "remnanode_agent_container", "title": "Remnanode container", "description": "Имя контейнера агента (пусто — remnanode)", "default_value": "remnanode", "type": "", "required": false},
+        {"name": "remnanode_node_image", "title": "Image", "description": "Образ агента (пусто — текущий образ стека, а для новой установки remnawave/node:latest)", "type": "", "required": false},
+        {"name": "remnanode_force", "title": "Force", "description": "true — перерендерить существующий стек из survey (креды .env сохраняются; кастомный xray сохраняется при xray_mode=keep)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnawave_open_port", "title": "Open port in ufw", "description": "true — открыть порт агента в ufw, если он есть (нет — скип с warning; идемпотентно)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnawave_allow_from", "title": "Allow from", "description": "Только с IP панели, например 203.0.113.10 (пусто — отовсюду)", "type": "", "required": false},
+        {"name": "remnanode_mount_shm", "title": "Mount /dev/shm", "description": "true — прокинуть хостовый /dev/shm в контейнер (нужно для Selfsteal-сокета nginx)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnanode_mount_logs", "title": "Mount xray logs", "description": "true — прокинуть каталог логов xray (<host>:/var/log/remnanode)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnanode_log_dir", "title": "Xray log dir", "description": "Каталог на ноде под логи xray (пусто — /var/log/remnanode)", "default_value": "/var/log/remnanode", "type": "", "required": false},
         {"name": "remnanode_log_max_size", "title": "Xray log size", "description": "Макс. размер лог-файла до ротации, например 100M (число + k/M/G)", "default_value": "100M", "type": "", "required": false},
-        {"name": "remnanode_log_keep", "title": "Xray log keep", "description": "Сколько ротированных файлов хранить", "default_value": "5", "type": "int", "required": false}
+        {"name": "remnanode_log_keep", "title": "Xray log keep", "description": "Сколько ротированных файлов хранить", "default_value": "5", "type": "int", "required": false},
+        {"name": "remnanode_xray_mode", "title": "Xray mode", "description": "keep — сохранить текущий кастомный xray (иначе xray из образа); image — убрать кастом; version — поставить выбранную версию", "default_value": "keep", "type": "enum", "required": false, "values": [{"name": "keep", "value": "keep"}, {"name": "image", "value": "image"}, {"name": "version", "value": "version"}]},
+        {"name": "remnanode_xray_version", "title": "Xray core version", "description": "Официальный релиз XTLS/Xray-core, например 26.10.21 (обязателен только для xray_mode=version)", "type": "", "required": false}
+      ]
+    },
+    {
+      "name": "remnawave_node_config",
+      "view": "Remnawave",
+      "app": "ansible",
+      "environment": "remnawave_vars",
+      "description": "Remnawave нода: host-конфиг существующего стека — show/apply монтирований, логов и xray (playbooks/remnawave_node_config.yml)",
+      "playbook": "playbooks/remnawave_node_config.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Один хост ноды. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "remnawave_config_action", "title": "Action", "description": "show — только показать текущий конфиг; apply — применить изменения", "default_value": "show", "type": "enum", "required": false, "values": [{"name": "show", "value": "show"}, {"name": "apply", "value": "apply"}]},
+        {"name": "remnanode_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnanode)", "default_value": "/opt/remnanode", "type": "", "required": false},
+        {"name": "remnanode_old_dir", "title": "Existing project dir", "description": "Где уже лежит стек (пусто — автоопределить по compose-меткам)", "type": "", "required": false},
+        {"name": "remnanode_agent_container", "title": "Remnanode container", "description": "Имя контейнера агента (пусто — remnanode)", "default_value": "remnanode", "type": "", "required": false},
+        {"name": "remnanode_mount_shm", "title": "Mount /dev/shm", "description": "keep — оставить как есть; true/false — включить/выключить", "default_value": "keep", "type": "enum", "required": false, "values": [{"name": "keep", "value": "keep"}, {"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnanode_mount_logs", "title": "Mount xray logs", "description": "keep — оставить как есть; true/false — включить/выключить", "default_value": "keep", "type": "enum", "required": false, "values": [{"name": "keep", "value": "keep"}, {"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnanode_log_dir", "title": "Xray log dir", "description": "Каталог на ноде под логи xray (пусто — оставить текущий)", "type": "", "required": false},
+        {"name": "remnanode_log_max_size", "title": "Xray log size", "description": "Макс. размер лог-файла до ротации, например 100M (пусто — оставить текущий)", "type": "", "required": false},
+        {"name": "remnanode_log_keep", "title": "Xray log keep", "description": "Сколько ротированных файлов хранить (пусто — оставить текущий)", "type": "", "required": false},
+        {"name": "remnanode_xray_mode", "title": "Xray mode", "description": "keep — не менять xray; image — убрать кастом и использовать xray из образа; version — поставить выбранную версию", "default_value": "keep", "type": "enum", "required": false, "values": [{"name": "keep", "value": "keep"}, {"name": "image", "value": "image"}, {"name": "version", "value": "version"}]},
+        {"name": "remnanode_xray_version", "title": "Xray core version", "description": "Официальный релиз XTLS/Xray-core, например 26.10.21 (обязателен только для xray_mode=version)", "type": "", "required": false}
       ]
     },
     {
@@ -399,44 +437,40 @@
       ]
     },
     {
-      "name": "remnawave_node_adopt",
-      "view": "Remnawave",
-      "description": "Принять ручную ноду под управление: inspect (отчёт) / migrate (переезд файлов, офлайн, без панели) (playbooks/remnawave_node_adopt.yml)",
-      "playbook": "playbooks/remnawave_node_adopt.yml",
-      "survey_vars": [
-        {"name": "target", "title": "Target", "description": "Один хост ноды со старым агентом. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
-        {"name": "remnawave_adopt_action", "title": "Action", "description": "inspect — только отчёт что найдено (безопасно); migrate — переезд под стандарт", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "migrate", "value": "migrate"}]},
-        {"name": "remnanode_agent_container", "title": "Remnanode container", "description": "Имя контейнера агента (пусто — remnanode)", "default_value": "remnanode", "type": "", "required": false},
-        {"name": "remnanode_old_dir", "title": "Old project dir", "description": "Откуда переезжаем. Пусто — автоопределить из compose-меток (нет меток — обязательно явно)", "type": "", "required": false},
-        {"name": "remnanode_dir", "title": "Project dir", "description": "Куда переезжаем (пусто — /opt/remnanode)", "default_value": "/opt/remnanode", "type": "", "required": false},
-        {"name": "remnanode_xray_manage", "title": "Manage custom xray", "description": "false — сохранить текущий кастомный xray; true + версия — поставить версию; true + пусто — снять кастом", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnanode_xray_version", "title": "Xray core version", "description": "Официальный релиз XTLS/Xray-core, например 26.10.21 (пусто — сохранить текущий/снять кастом)", "type": "", "required": false},
-        {"name": "remnanode_mount_shm", "title": "Mount /dev/shm", "description": "true — прокинуть хостовый /dev/shm в контейнер (нужно для Selfsteal-сокета nginx); применяется на migrate", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnanode_mount_logs", "title": "Mount xray logs", "description": "true — прокинуть каталог логов xray (<host>:/var/log/remnanode); применяется на migrate", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnanode_log_dir", "title": "Xray log dir", "description": "Каталог на ноде под логи xray (пусто — /var/log/remnanode)", "default_value": "/var/log/remnanode", "type": "", "required": false},
-        {"name": "remnanode_log_max_size", "title": "Xray log size", "description": "Макс. размер лог-файла до ротации, например 100M (число + k/M/G)", "default_value": "100M", "type": "", "required": false},
-        {"name": "remnanode_log_keep", "title": "Xray log keep", "description": "Сколько ротированных файлов хранить", "default_value": "5", "type": "int", "required": false}
-      ]
-    },
-    {
       "name": "remnawave_node_move",
       "view": "Remnawave",
-      "description": "Переезд ноды на другой хост с сохранением кредов (тот же домен; DNS переключить руками) (playbooks/remnawave_node_move.yml)",
+      "description": "Переезд ноды 1:1 (local — другая папка, remote — другой хост) с сохранением кредов/образа/монтирований/xray (playbooks/remnawave_node_move.yml)",
       "playbook": "playbooks/remnawave_node_move.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "Исходная нода (откуда переезжаем). Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
         {"name": "remnawave_move_action", "title": "Action", "description": "inspect — только отчёт и план (безопасно); move — переезд", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "move", "value": "move"}]},
-        {"name": "remnanode_move_dest", "title": "Destination host", "description": "Целевая нода в inventory (куда переезжаем, например de9). Строго один хост", "type": "", "required": true},
-        {"name": "remnanode_move_confirmed", "title": "Confirm move", "description": "true — разрешить вывод старой ноды из работы (только для move)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnanode_move_scope", "title": "Scope", "description": "local — другая папка на том же хосте; remote — другой хост inventory", "default_value": "local", "type": "enum", "required": false, "values": [{"name": "local", "value": "local"}, {"name": "remote", "value": "remote"}]},
+        {"name": "remnanode_move_dest", "title": "Destination host", "description": "Целевая нода в inventory для scope=remote (например de9). Строго один хост; для local пусто", "type": "", "required": false},
+        {"name": "remnanode_move_confirmed", "title": "Confirm move", "description": "true — разрешить остановку/вывод старой ноды (только для action=move)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnanode_agent_container", "title": "Remnanode container", "description": "Имя контейнера агента (пусто — remnanode)", "default_value": "remnanode", "type": "", "required": false},
-        {"name": "remnanode_old_dir", "title": "Old project dir", "description": "Откуда переезжаем (на исходной ноде). Пусто — автоопределить из compose-меток", "type": "", "required": false},
-        {"name": "remnanode_dir", "title": "Project dir", "description": "Куда переезжаем на целевой ноде (пусто — /opt/remnanode)", "default_value": "/opt/remnanode", "type": "", "required": false},
-        {"name": "remnanode_xray_manage", "title": "Manage custom xray", "description": "false — перенести текущий кастомный xray на цель; true — не переносить (цель на xray из образа)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnanode_mount_shm", "title": "Mount /dev/shm", "description": "true — прокинуть хостовый /dev/shm в контейнер (нужно для Selfsteal-сокета nginx); применяется на move", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnanode_mount_logs", "title": "Mount xray logs", "description": "true — прокинуть каталог логов xray (<host>:/var/log/remnanode); применяется на move", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
-        {"name": "remnanode_log_dir", "title": "Xray log dir", "description": "Каталог на целевой ноде под логи xray (пусто — /var/log/remnanode)", "default_value": "/var/log/remnanode", "type": "", "required": false},
-        {"name": "remnanode_log_max_size", "title": "Xray log size", "description": "Макс. размер лог-файла до ротации, например 100M (число + k/M/G)", "default_value": "100M", "type": "", "required": false},
-        {"name": "remnanode_log_keep", "title": "Xray log keep", "description": "Сколько ротированных файлов хранить", "default_value": "5", "type": "int", "required": false}
+        {"name": "remnanode_old_dir", "title": "Old project dir", "description": "Откуда переезжаем (пусто — автоопределить по compose-меткам)", "type": "", "required": false},
+        {"name": "remnanode_dir", "title": "Project dir", "description": "Куда переезжаем (пусто — /opt/remnanode). Для local каталог должен отсутствовать", "default_value": "/opt/remnanode", "type": "", "required": false}
+      ]
+    },
+    {
+      "name": "remnawave_node_remove",
+      "view": "Remnawave",
+      "app": "ansible",
+      "environment": "remnawave_vars",
+      "description": "Remnawave нода: удаление из панели и/или с хоста. Сначала останавливается контейнер, потом панель; purge — по желанию (playbooks/remnawave_node_remove.yml)",
+      "playbook": "playbooks/remnawave_node_remove.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Хост ноды для scope=host/both. Для scope=panel можно пусто (строго один хост, не all)", "type": "", "required": false},
+        {"name": "remnawave_remove_action", "title": "Action", "description": "inspect — только отчёт (безопасно); remove — удалить", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "remove", "value": "remove"}]},
+        {"name": "remnawave_remove_scope", "title": "Scope", "description": "panel — только запись в панели; host — только стек на хосте; both — сначала хост, потом панель", "default_value": "both", "type": "enum", "required": false, "values": [{"name": "panel", "value": "panel"}, {"name": "host", "value": "host"}, {"name": "both", "value": "both"}]},
+        {"name": "remnawave_remove_confirm", "title": "Confirm remove", "description": "true — подтвердить удаление (обязательно для action=remove)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnawave_remove_purge", "title": "Purge files", "description": "true — после удаления стека стереть project dir и logrotate (для scope=host/both)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnawave_node_name", "title": "Node name", "description": "Точное имя ноды в панели (обязательно для scope=panel/both)", "type": "", "required": false},
+        {"name": "remnawave_token", "title": "API token override", "description": "Разовый override токена (пусто — секрет REMNAWAVE_TOKEN из группы)", "type": "secret", "required": false},
+        {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "remnanode_agent_container", "title": "Remnanode container", "description": "Имя контейнера агента (пусто — remnanode)", "default_value": "remnanode", "type": "", "required": false},
+        {"name": "remnanode_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnanode)", "default_value": "/opt/remnanode", "type": "", "required": false},
+        {"name": "remnanode_old_dir", "title": "Existing project dir", "description": "Где уже лежит стек (пусто — автоопределить по compose-меткам)", "type": "", "required": false}
       ]
     },
     {

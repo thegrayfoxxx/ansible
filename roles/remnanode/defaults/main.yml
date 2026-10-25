@@ -1,0 +1,87 @@
+---
+# Shared defaults for the Remnawave node role. Playbook vars override these.
+remnanode_dir: /opt/remnanode
+remnanode_old_dir: ""
+remnanode_agent_container: remnanode
+remnanode_node_image: remnawave/node:latest
+remnanode_mount_shm: true
+remnanode_mount_logs: true
+remnanode_log_dir: /var/log/remnanode
+remnanode_log_max_size: 100M
+remnanode_log_keep: 5
+
+# keep    — preserve the current custom xray (if any), otherwise use image xray
+# image   — remove the custom mount and use xray from the image
+# version — install the selected XTLS/Xray-core release and mount it
+remnanode_xray_mode: keep
+remnanode_xray_version: ""
+remnanode_xray_version_norm: "{{ (remnanode_xray_version | default('', true) | string | trim) | regex_replace('^[vV]', '') }}"
+
+remnanode_mount_xray: false
+remnanode_xray_changed: false
+remnanode_xray_summary: image
+remnanode_xray_preserve_existing: false
+remnanode_xray_needs_import: false
+remnanode_xray_mount_source_norm: ""
+remnanode_xray_target_path_norm: ""
+
+# Official XTLS/Xray-core release assets by `uname -m`.
+remnanode_xray_arch_map:
+  x86_64: "64"
+  amd64: "64"
+  aarch64: "arm64-v8a"
+  arm64: "arm64-v8a"
+  armv7l: "arm32-v7a"
+  armv6l: "arm32-v6"
+  i686: "32"
+  i386: "32"
+
+# Move sets this after it has already copied the binary and marker to the target.
+remnanode_xray_prepared: false
+
+# Set by discover.yml
+remnanode_container_exists: false
+remnanode_container_running: false
+remnanode_inspect: {}
+remnanode_mounts: []
+remnanode_mount_destinations: []
+remnanode_existing_mount_shm: false
+remnanode_existing_mount_logs: false
+remnanode_existing_mount_xray: false
+remnanode_existing_custom_xray: false
+remnanode_xray_mount_source: ""
+remnanode_image_current: ""
+remnanode_log_dir_current: ""
+remnanode_old_dir_final: ""
+remnanode_old_dir_discovered: ""
+remnanode_old_compose_exists: false
+remnanode_old_env_exists: false
+remnanode_target_dir_exists: false
+remnanode_target_compose_exists: false
+remnanode_target_env_exists: false
+remnanode_target_xray_binary_exists: false
+remnanode_target_xray_marker_exists: false
+remnanode_xray_version_current: ""
+remnanode_old_xray_binary_exists: false
+remnanode_old_xray_marker_exists: false
+remnanode_old_xray_version: ""
+remnanode_host_arch: ""
+remnanode_host_arch_asset: ""
+remnanode_logrotate_exists: false
+remnanode_log_max_size_current: ""
+remnanode_log_keep_current: ""
+
+# Filled by credentials.yml
+remnanode_creds_source: "none"
+remnanode_port_final: ""
+remnanode_node_secret: ""
+remnanode_require_credentials: true
+remnanode_require_discovered_old_dir: false
+
+# Filled by ufw_check.yml / ufw_open.yml
+remnanode_ufw_state: "unknown"
+remnanode_port_fw: "unknown"
+
+# Filled by up.yml
+remnanode_compose_up: {}
+remnanode_port_wait: {}

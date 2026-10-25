@@ -35,7 +35,7 @@
 
     - name: Require deployed stack
       ansible.builtin.fail:
-        msg: "No compose.yml in {{ remnanode_dir }}. Run remnawave_node_add with action deploy/both first"
+        msg: "No compose.yml in {{ remnanode_dir }}. Run remnawave_node_deploy first"
       when: not remnawave_compose.stat.exists
 
     - name: Pull latest images

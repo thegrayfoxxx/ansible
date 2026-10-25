@@ -1,0 +1,201 @@
+---
+- name: Remnawave node config (host-side show/apply)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    remnawave_config_action: show
+    remnanode_dir: /opt/remnanode
+    remnanode_old_dir: ""
+    remnanode_agent_container: remnanode
+    remnanode_mount_shm: ""
+    remnanode_mount_logs: ""
+    remnanode_log_dir: ""
+    remnanode_log_max_size: ""
+    remnanode_log_keep: ""
+    remnanode_xray_mode: ""
+    remnanode_xray_version: ""
+    remnanode_validate_xray: false
+  tasks:
+    - name: Validate config action
+      ansible.builtin.fail:
+        msg: "remnawave_config_action must be show or apply, got '{{ remnawave_config_action }}'"
+      when: remnawave_config_action not in ['show', 'apply']
+
+    - name: Require exactly one node host
+      ansible.builtin.fail:
+        msg: "Config addresses one node per run — point target at a single host, got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Capture raw config input
+      ansible.builtin.set_fact:
+        remnanode_cfg_input_shm: "{{ remnanode_mount_shm }}"
+        remnanode_cfg_input_logs: "{{ remnanode_mount_logs }}"
+        remnanode_cfg_input_log_dir: "{{ remnanode_log_dir }}"
+        remnanode_cfg_input_log_max_size: "{{ remnanode_log_max_size }}"
+        remnanode_cfg_input_log_keep: "{{ remnanode_log_keep }}"
+        remnanode_cfg_input_xray_mode: "{{ remnanode_xray_mode }}"
+        remnanode_cfg_input_xray_version: "{{ remnanode_xray_version }}"
+
+    - name: Normalize node settings
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: normalize
+
+    - name: Discover host state
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: discover
+
+    - name: Require a deployed stack
+      ansible.builtin.fail:
+        msg: "No compose.yml in {{ remnanode_dir }}. Run remnawave_node_deploy first"
+      when: not (remnanode_target_compose_exists | bool)
+
+    - name: Require a stack container
+      ansible.builtin.fail:
+        msg: "Container '{{ remnanode_agent_container }}' not found. Run remnawave_node_deploy with remnanode_force=true to recreate the stack"
+      when: not (remnanode_container_exists | bool)
+
+    - name: Refuse a stack that lives in another directory
+      ansible.builtin.fail:
+        msg: "Existing remnanode stack lives in {{ remnanode_old_dir_final }}, not in {{ remnanode_dir }}. Use remnawave_node_move scope=local first"
+      when: (remnanode_old_dir_final | regex_replace('/+$', '')) != (remnanode_dir | regex_replace('/+$', ''))
+
+    - name: Read current credentials for display
+      ansible.builtin.set_fact:
+        remnanode_require_credentials: false
+
+    - name: Discover current credentials
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: credentials
+
+    - name: Resolve desired mount and xray values
+      ansible.builtin.set_fact:
+        remnanode_mount_shm: >-
+          {{ remnanode_existing_mount_shm | bool
+             if ((remnanode_cfg_input_shm | default('', true) | string | trim | lower) in ['', 'keep', 'current'])
+             else (remnanode_cfg_input_shm | bool) }}
+        remnanode_mount_logs: >-
+          {{ remnanode_existing_mount_logs | bool
+             if ((remnanode_cfg_input_logs | default('', true) | string | trim | lower) in ['', 'keep', 'current'])
+             else (remnanode_cfg_input_logs | bool) }}
+        remnanode_xray_mode: "{{ (remnanode_cfg_input_xray_mode | default('', true) | string | trim) or 'keep' }}"
+        remnanode_xray_version: "{{ remnanode_cfg_input_xray_version | default('', true) }}"
+
+    - name: Resolve desired log values
+      ansible.builtin.set_fact:
+        remnanode_log_dir: >-
+          {{ (remnanode_cfg_input_log_dir | default('', true) | string | trim)
+             or (remnanode_log_dir_current if ((remnanode_mount_logs | bool) and (remnanode_existing_mount_logs | bool) and (remnanode_log_dir_current | length > 0)) else '')
+             or '/var/log/remnanode' }}
+        remnanode_log_max_size: >-
+          {{ (remnanode_cfg_input_log_max_size | default('', true) | string | trim)
+             or (remnanode_log_max_size_current | default('', true))
+             or '100M' }}
+        remnanode_log_keep: >-
+          {{ (remnanode_cfg_input_log_keep | default('', true) | string | trim)
+             or (remnanode_log_keep_current | default('', true))
+             or '5' }}
+
+    - name: Resolve desired mount flags
+      ansible.builtin.set_fact:
+        remnanode_mount_shm: "{{ remnanode_mount_shm | bool }}"
+        remnanode_mount_logs: "{{ remnanode_mount_logs | bool }}"
+
+    - name: Validate resolved config
+      ansible.builtin.set_fact:
+        remnanode_validate_xray: true
+
+    - name: Re-validate resolved config
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: normalize
+
+    - name: Compute config changes
+      ansible.builtin.set_fact:
+        remnanode_cfg_shm_changed: "{{ (remnanode_mount_shm | bool) != (remnanode_existing_mount_shm | bool) }}"
+        remnanode_cfg_logs_changed: "{{ (remnanode_mount_logs | bool) != (remnanode_existing_mount_logs | bool) }}"
+        remnanode_cfg_log_dir_changed: >-
+          {{ (remnanode_mount_logs | bool)
+             and ((remnanode_log_dir_current | default('', true) | regex_replace('/+$', '')) != (remnanode_log_dir | regex_replace('/+$', ''))) }}
+        remnanode_cfg_logrotate_changed: >-
+          {{ (not (remnanode_mount_logs | bool) and (remnanode_logrotate_exists | bool))
+             or ((remnanode_mount_logs | bool)
+                 and ((not (remnanode_logrotate_exists | bool))
+                      or (remnanode_log_max_size_current | default('') != remnanode_log_max_size)
+                      or ((remnanode_log_keep_current | default('') | string) != (remnanode_log_keep | string)))) }}
+
+    - name: Show current config
+      when: remnawave_config_action == 'show'
+      block:
+        - name: Check firewall state
+          ansible.builtin.include_role:
+            name: remnanode
+            tasks_from: ufw_check
+
+        - name: Show config summary
+          ansible.builtin.debug:
+            msg:
+              - "host={{ inventory_hostname }} dir={{ remnanode_dir }} container={{ remnanode_agent_container }} running={{ remnanode_container_running }}"
+              - "image={{ remnanode_image_current }} port={{ remnanode_port_final | default('?') }} creds_from={{ remnanode_creds_source }}"
+              - "mounts: shm={{ remnanode_existing_mount_shm }} logs={{ remnanode_existing_mount_logs }} xray={{ remnanode_existing_mount_xray }} log_dir={{ remnanode_log_dir_current | default('(none)') }}"
+              - "logrotate: file={{ remnanode_logrotate_exists }} size={{ remnanode_log_max_size_current | default('?') }} keep={{ remnanode_log_keep_current | default('?') }}"
+              - "xray: custom={{ remnanode_existing_custom_xray }} version={{ remnanode_xray_version_current | default('(unknown)') }} mount_source={{ remnanode_xray_mount_source | default('(none)') }}"
+              - "ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"
+        - name: Stop after show
+          ansible.builtin.meta: end_play
+
+    - name: Resolve xray intent
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: xray
+
+    - name: Resolve total config change
+      ansible.builtin.set_fact:
+        remnanode_cfg_changed: >-
+          {{ (remnanode_cfg_shm_changed | bool) or (remnanode_cfg_logs_changed | bool)
+             or (remnanode_cfg_log_dir_changed | bool) or (remnanode_cfg_logrotate_changed | bool)
+             or (remnanode_xray_changed | bool) }}
+
+    - name: Report no changes
+      ansible.builtin.debug:
+        msg: "No config changes for {{ inventory_hostname }} ({{ remnanode_dir }})"
+      when: not (remnanode_cfg_changed | bool)
+
+    - name: Stop when there is nothing to apply
+      ansible.builtin.meta: end_play
+      when: not (remnanode_cfg_changed | bool)
+
+    - name: Require usable credentials for apply
+      ansible.builtin.set_fact:
+        remnanode_require_credentials: true
+
+    - name: Validate current credentials before apply
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: credentials
+
+    - name: Keep the current image
+      ansible.builtin.set_fact:
+        remnanode_node_image: "{{ remnanode_image_current }}"
+
+    - name: Require a known current image
+      ansible.builtin.fail:
+        msg: "Cannot determine the current image for '{{ remnanode_agent_container }}'. Use remnawave_node_update or remnawave_node_deploy remnanode_force=true"
+      when: remnanode_node_image | default('') | trim | length == 0
+
+    - name: Render stack files
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: render
+
+    - name: Apply stack config
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: up
+
+    - name: Show apply summary
+      ansible.builtin.debug:
+        msg: "applied host={{ inventory_hostname }} dir={{ remnanode_dir }} shm={{ remnanode_mount_shm }} logs={{ remnanode_mount_logs }} log_dir={{ remnanode_log_dir }} log_size={{ remnanode_log_max_size }} log_keep={{ remnanode_log_keep }} xray={{ remnanode_xray_summary }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"

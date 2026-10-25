@@ -1,0 +1,181 @@
+---
+- name: Remnawave node deploy (host stack)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    remnawave_node_name: ""
+    remnawave_token: ""
+    remnawave_validate_certs: true
+    remnawave_open_port: false
+    remnawave_allow_from: ""
+    remnanode_dir: /opt/remnanode
+    remnanode_old_dir: ""
+    remnanode_agent_container: remnanode
+    remnanode_node_image: ""
+    remnanode_force: false
+    remnanode_mount_shm: true
+    remnanode_mount_logs: true
+    remnanode_log_dir: /var/log/remnanode
+    remnanode_log_max_size: 100M
+    remnanode_log_keep: 5
+    remnanode_xray_mode: keep
+    remnanode_xray_version: ""
+  tasks:
+    - name: Require exactly one node host
+      ansible.builtin.fail:
+        msg: "Deploy addresses one node per run — point target at a single host, got {{ ansible_play_hosts_all | length }}"
+      when: ansible_play_hosts_all | length != 1
+
+    - name: Check Debian family
+      ansible.builtin.stat:
+        path: /etc/debian_version
+      register: remnanode_debian
+
+    - name: Require Debian or Ubuntu
+      ansible.builtin.fail:
+        msg: "Remnawave node needs Debian or Ubuntu"
+      when: not remnanode_debian.stat.exists
+
+    - name: Normalize node settings
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: normalize
+
+    - name: Discover host state
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: discover
+
+    - name: Resolve stack presence
+      ansible.builtin.set_fact:
+        remnanode_stack_exists: "{{ (remnanode_old_compose_exists | bool) or (remnanode_container_exists | bool) }}"
+
+    - name: Refuse a stack that lives in another directory
+      ansible.builtin.fail:
+        msg: "Existing remnanode stack lives in {{ remnanode_old_dir_final }}, not in {{ remnanode_dir }}. Use remnawave_node_move scope=local to relocate it, or set remnanode_dir to the existing directory"
+      when:
+        - remnanode_container_exists | bool
+        - (remnanode_old_dir_final | regex_replace('/+$', '')) != (remnanode_dir | regex_replace('/+$', ''))
+
+    - name: Refuse to overwrite an existing stack without force
+      ansible.builtin.fail:
+        msg: "Stack already exists in {{ remnanode_dir }}. Use remnawave_node_config for mounts/logs/xray, remnawave_node_update for the image, remnawave_node_move to relocate, or set remnanode_force=true to re-render in place"
+      when:
+        - remnanode_stack_exists | bool
+        - not (remnanode_force | bool)
+
+    - name: Discover credentials without failing yet
+      ansible.builtin.set_fact:
+        remnanode_require_credentials: false
+
+    - name: Read local credentials
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: credentials
+
+    - name: Note panel handoff state
+      ansible.builtin.set_fact:
+        remnanode_panel_used: false
+        remnanode_needs_panel: "{{ ((remnanode_port_final | default('') | string | length) == 0) or ((remnanode_node_secret | default('') | length) == 0) }}"
+
+    - name: Resolve missing credentials from the panel
+      when: remnanode_needs_panel | bool
+      block:
+        - name: Require node name for panel handoff
+          ansible.builtin.fail:
+            msg: "First deploy has no usable NODE_PORT/SECRET_KEY in {{ remnanode_dir }}/.env. Set remnawave_node_name and remnawave_token (or REMNAWAVE_TOKEN) so the panel can supply them"
+          when: remnawave_node_name | default('') | trim | length == 0
+
+        - name: Resolve panel credentials
+          ansible.builtin.include_role:
+            name: remnawave_panel
+            tasks_from: auth
+
+        - name: Fetch panel nodes
+          ansible.builtin.include_role:
+            name: remnawave_panel
+            tasks_from: nodes
+
+        - name: Require the node to be registered
+          ansible.builtin.fail:
+            msg: "Node '{{ remnawave_node_name }}' not found in panel. Run remnawave_node_add first"
+          when: remnawave_existing | length == 0
+
+        - name: Require a stored panel port
+          ansible.builtin.fail:
+            msg: "Panel entry '{{ remnawave_node_name }}' has no port. Fix it in panel UI (or delete and recreate), then re-run deploy"
+          when: remnawave_existing.port | default('', true) | string | length == 0
+
+        - name: Refuse a port mismatch between .env and panel
+          ansible.builtin.fail:
+            msg: "Local .env uses port {{ remnanode_port_final }} but panel entry '{{ remnawave_node_name }}' uses {{ remnawave_existing.port }}. Fix one of them before deploying"
+          when:
+            - remnanode_port_final | default('') | string | length > 0
+            - (remnanode_port_final | int) != (remnawave_existing.port | int)
+
+        - name: Take port and UUID from the panel
+          ansible.builtin.set_fact:
+            remnanode_port_final: "{{ remnawave_existing.port | int }}"
+            remnawave_node_uuid: "{{ remnawave_existing.uuid | default('') }}"
+            remnanode_panel_used: true
+
+        - name: Fetch a new node secret when .env has none
+          when: remnanode_node_secret | default('') | length == 0
+          block:
+            - name: Fetch node secret key
+              ansible.builtin.include_role:
+                name: remnawave_panel
+                tasks_from: keygen
+
+            - name: Use panel node secret
+              ansible.builtin.set_fact:
+                remnanode_node_secret: "{{ remnawave_node_secret }}"
+              no_log: true
+
+        - name: Note panel-sourced credentials
+          ansible.builtin.set_fact:
+            remnanode_creds_source: "panel handoff"
+
+    - name: Validate resolved credentials
+      ansible.builtin.fail:
+        msg: "NODE_PORT/SECRET_KEY are incomplete on {{ inventory_hostname }} (port='{{ remnanode_port_final }}', secret={{ 'set' if (remnanode_node_secret | default('') | length > 0) else 'empty' }})"
+      when:
+        - (remnanode_port_final | default('') | string | length == 0)
+          or (remnanode_port_final | int < 1) or (remnanode_port_final | int > 65535)
+          or (remnanode_node_secret | default('') | length == 0)
+
+    - name: Resolve node image
+      ansible.builtin.set_fact:
+        remnanode_node_image: "{{ (remnanode_node_image | default('', true) | string | trim) or (remnanode_image_current | default('', true) | string | trim) or 'remnawave/node:latest' }}"
+
+    - name: Resolve xray intent
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: xray
+
+    - name: Render stack files
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: render
+
+    - name: Start the stack
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: up
+
+    - name: Open node port in ufw
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: ufw_open
+      when: remnawave_open_port | bool
+
+    - name: Wait for the node to connect to the panel
+      ansible.builtin.include_role:
+        name: remnawave_panel
+        tasks_from: health
+      when: remnanode_panel_used | bool
+
+    - name: Show deploy summary
+      ansible.builtin.debug:
+        msg: "node={{ remnawave_node_name | default('(local .env)', true) }} host={{ inventory_hostname }} dir={{ remnanode_dir }} image={{ remnanode_node_image }} port={{ remnanode_port_final }} force={{ remnanode_force }} creds_from={{ remnanode_creds_source }} xray={{ remnanode_xray_summary }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} connected={{ remnawave_node_connected if (remnanode_panel_used | bool) else 'n/a' }}"

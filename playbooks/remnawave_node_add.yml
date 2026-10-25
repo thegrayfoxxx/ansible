@@ -1,10 +1,10 @@
 ---
-- name: Remnawave node register (panel API)
-  hosts: "{{ target }}"
+- name: Remnawave node add (panel registration only)
+  hosts: localhost
+  connection: local
   gather_facts: false
-  become: true
+  become: false
   vars:
-    remnawave_action: both
     remnawave_node_name: ""
     remnawave_node_address: ""
     remnawave_node_port: ""
@@ -13,25 +13,9 @@
     remnawave_inbounds: ""
     remnawave_note: ""
     remnawave_token: ""
-    remnawave_open_port: false
-    remnawave_allow_from: ""
     remnawave_validate_certs: true
-    remnanode_dir: /opt/remnanode
-    remnanode_xray_manage: false
-    remnanode_xray_version: ""
-    remnanode_xray_version_norm: "{{ (remnanode_xray_version | default('', true) | string | trim) | regex_replace('^[vV]', '') }}"
     remnawave_uuid_re: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
   tasks:
-    - name: Validate action value
-      ansible.builtin.fail:
-        msg: "remnawave_action must be register/deploy/both"
-      when: remnawave_action not in ['register', 'deploy', 'both']
-
-    - name: Require exactly one node host
-      ansible.builtin.fail:
-        msg: "This template addresses one node per run — point target at a single host (in register mode the value is only an anchor)"
-      when: ansible_play_hosts_all | length != 1
-
     - name: Validate node name and address
       ansible.builtin.fail:
         msg: "remnawave_node_name must be 3..30 chars, remnawave_node_address must not be empty"
@@ -39,12 +23,12 @@
         - (remnawave_node_name | length < 3 or remnawave_node_name | length > 30)
           or (remnawave_node_address | default('') | trim | length < 2)
 
-    - name: Validate port value when explicit
+    - name: Validate explicit port value
       ansible.builtin.fail:
         msg: "remnawave_node_port must be 1..65535, got {{ remnawave_node_port }}"
       when:
-        - (remnawave_node_port | default('') | string | length > 0)
-          and ((remnawave_node_port | int < 1 or remnawave_node_port | int > 65535))
+        - remnawave_node_port | default('') | string | length > 0
+        - (remnawave_node_port | int < 1) or (remnawave_node_port | int > 65535)
 
     - name: Validate country and note
       ansible.builtin.fail:
@@ -53,118 +37,81 @@
         - (remnawave_country | default('XX') | length > 2)
           or (remnawave_note | default('') | length > 255)
 
-    - name: Warn when xray version is ignored
-      ansible.builtin.debug:
-        msg: "remnanode_xray_version={{ remnanode_xray_version }} is ignored because remnanode_xray_manage=false (existing custom xray is kept as-is)"
-      when:
-        - not (remnanode_xray_manage | bool)
-        - remnanode_xray_version | default('', true) | string | trim | length > 0
-
-    - name: Validate xray version format
-      ansible.builtin.fail:
-        msg: "remnanode_xray_version must look like 26.10.21 or v26.10.21, got '{{ remnanode_xray_version }}'"
-      when:
-        - remnanode_xray_manage | bool
-        - remnanode_xray_version_norm | length > 0
-        - not (remnanode_xray_version_norm is match('^[0-9]+\.[0-9]+\.[0-9]+$'))
-
     - name: Validate explicit inbound UUIDs format
       ansible.builtin.fail:
         msg: "Every remnawave_inbounds line must be a UUID"
       when:
         - remnawave_inbounds | default('') | length > 0
-          and (((remnawave_inbounds.replace(',', '\n').splitlines() | map('trim') | select | list) | select('match', remnawave_uuid_re) | list | length) != ((remnawave_inbounds.replace(',', '\n').splitlines() | map('trim') | select | list) | length))
+        - (((remnawave_inbounds.replace(',', '\n').splitlines() | map('trim') | select | list) | select('match', remnawave_uuid_re) | list | length) != ((remnawave_inbounds.replace(',', '\n').splitlines() | map('trim') | select | list) | length))
 
-    - name: Resolve API token and panel URL
-      ansible.builtin.set_fact:
-        remnawave_token_final: "{{ remnawave_token if (remnawave_token | default('') | length > 0) else lookup('env', 'REMNAWAVE_TOKEN') }}"
-        remnawave_panel_base: "{{ ((remnawave_default_panel_url | default('')) | trim).rstrip('/') }}"
-      delegate_to: localhost
-      become: false
-      no_log: true
-
-    - name: Require API token and panel URL
-      ansible.builtin.fail:
-        msg: "Panel URL must come from remnawave_default_panel_url in the remnawave_vars group; API token from REMNAWAVE_TOKEN secret or remnawave_token survey override"
-      when: remnawave_panel_base | length == 0
-      delegate_to: localhost
-      become: false
-
-    - name: Require API token value
-      ansible.builtin.fail:
-        msg: "API token is empty. Fill REMNAWAVE_TOKEN secret in remnawave_vars group or pass remnawave_token override"
-      when: remnawave_token_final | length == 0
-      delegate_to: localhost
-      become: false
-      no_log: true
+    - name: Resolve panel credentials
+      ansible.builtin.include_role:
+        name: remnawave_panel
+        tasks_from: auth
 
     - name: Fetch panel nodes
-      ansible.builtin.uri:
-        url: "{{ remnawave_panel_base }}/api/nodes"
-        headers:
-          Authorization: "Bearer {{ remnawave_token_final }}"
-          Accept: application/json
-        return_content: true
-        timeout: 30
-        validate_certs: "{{ remnawave_validate_certs | bool }}"
-      register: remnawave_nodes_list
-      delegate_to: localhost
-      become: false
-      no_log: true
+      ansible.builtin.include_role:
+        name: remnawave_panel
+        tasks_from: nodes
 
-    - name: Resolve existing node entry
-      ansible.builtin.set_fact:
-        remnawave_existing: "{{ (remnawave_nodes_list.json.response | default([]) if (remnawave_nodes_list.json.response is sequence and remnawave_nodes_list.json.response is not string) else (remnawave_nodes_list.json.response.nodes | default([]))) | selectattr('name', 'equalto', remnawave_node_name) | list | first | default({}) }}"
-      delegate_to: localhost
-      become: false
-
-    - name: Require registration before deploy-only run
+    - name: Refuse an ambiguous node name
       ansible.builtin.fail:
-        msg: "Node '{{ remnawave_node_name }}' not found in panel. Run with action register/both first"
-      when: remnawave_action == 'deploy' and remnawave_existing | length == 0
-      delegate_to: localhost
-      become: false
+        msg: "Panel has {{ remnawave_node_matches | default([]) | length }} nodes named '{{ remnawave_node_name }}'. Remove duplicates in the panel UI first"
+      when: (remnawave_node_matches | default([]) | length) > 1
 
-    - name: Resolve node port
+    - name: Resolve port for an existing node
       ansible.builtin.set_fact:
-        remnawave_port_final: "{{ remnawave_node_port | int if (remnawave_node_port | default('') | string | length > 0) else (remnawave_existing.port | default((range(1024, 65536) | random)) | int) }}"
-      delegate_to: localhost
-      become: false
-
-    - name: Refuse null stored port without explicit override
-      ansible.builtin.fail:
-        msg: "Panel entry '{{ remnawave_node_name }}' has no port and no explicit remnawave_node_port given. Set explicit port or fix the entry in panel UI"
+        remnawave_port_final: "{{ remnawave_existing.port | int }}"
       when:
         - remnawave_existing | length > 0
-          and (remnawave_node_port | default('') | string | length == 0)
-          and (remnawave_existing.port | default('', true) | string | length == 0)
-      delegate_to: localhost
-      become: false
+        - remnawave_existing.port | default('', true) | string | length > 0
 
-    - name: Refuse silently changing port of existing node
+    - name: Refuse existing node without a valid stored port
+      ansible.builtin.fail:
+        msg: "Panel entry '{{ remnawave_node_name }}' has no valid port ({{ remnawave_existing.port | default('empty', true) }}). Fix it in panel UI (or delete and recreate the node), then re-run add"
+      when:
+        - remnawave_existing | length > 0
+        - (remnawave_existing.port | default('', true) | string | length == 0)
+          or (remnawave_existing.port | int < 1) or (remnawave_existing.port | int > 65535)
+
+    - name: Refuse silently changing port of an existing node
       ansible.builtin.fail:
         msg: "Panel entry '{{ remnawave_node_name }}' already uses port {{ remnawave_existing.port }} but survey asks {{ remnawave_node_port }}. Change it in panel UI or delete and recreate the node"
       when:
         - remnawave_existing | length > 0
-          and (remnawave_node_port | default('') | string | length > 0)
-          and remnawave_existing.port is not none
-          and (remnawave_existing.port | int) != (remnawave_node_port | int)
-      delegate_to: localhost
-      become: false
+        - remnawave_node_port | default('') | string | length > 0
+        - remnawave_existing.port is not none
+        - (remnawave_existing.port | int) != (remnawave_node_port | int)
+
+    - name: Resolve port for a new node
+      ansible.builtin.set_fact:
+        remnawave_port_final: "{{ remnawave_node_port | int if (remnawave_node_port | default('') | string | length > 0) else (range(1024, 65536) | random) }}"
+      when: remnawave_existing | length == 0
 
     - name: Warn about privileged explicit port
       ansible.builtin.debug:
         msg: "Port {{ remnawave_port_final }} is privileged (<1024) — agent container may fail to bind it without extra capabilities"
       when: remnawave_port_final | int < 1024
-      delegate_to: localhost
-      become: false
+
+    - name: Show existing node summary
+      ansible.builtin.debug:
+        msg: "node={{ remnawave_node_name }} uuid={{ remnawave_existing.uuid | default('', true) }} address={{ remnawave_existing.address | default('', true) }} port={{ remnawave_port_final }} panel={{ remnawave_panel_base }} (already registered; add never changes an existing entry)"
+      when: remnawave_existing | length > 0
+
+    - name: Warn when existing address differs from survey
+      ansible.builtin.debug:
+        msg: "Panel entry address is '{{ remnawave_existing.address | default('', true) }}', survey says '{{ remnawave_node_address | trim }}'. Add does not update existing entries — change it in panel UI"
+      when:
+        - remnawave_existing | length > 0
+        - (remnawave_existing.address | default('', true) | trim) != (remnawave_node_address | trim)
+
+    - name: Stop after an existing node
+      ansible.builtin.meta: end_play
+      when: remnawave_existing | length > 0
 
     - name: Resolve config profile reference
       ansible.builtin.set_fact:
         remnawave_profile_want: "{{ remnawave_config_profile if (remnawave_config_profile | default('') | length > 0) else (remnawave_default_config_profile | default('')) }}"
-      delegate_to: localhost
-      become: false
-      when: remnawave_existing | length == 0
 
     - name: Fetch config profiles for auto resolve
       ansible.builtin.uri:
@@ -179,14 +126,12 @@
       delegate_to: localhost
       become: false
       no_log: true
-      when: remnawave_existing | length == 0 and (remnawave_profile_want | default('') | length == 0)
+      when: remnawave_profile_want | default('') | length == 0
 
-    - name: Match default config profile by keyword
+    - name: Match default config profile
       ansible.builtin.set_fact:
         remnawave_profile_match: "{{ remnawave_profiles.json.response.configProfiles | selectattr('name', 'defined') | list }}"
-      delegate_to: localhost
-      become: false
-      when: remnawave_existing | length == 0 and (remnawave_profile_want | default('') | length == 0)
+      when: remnawave_profile_want | default('') | length == 0
 
     - name: Resolve profile UUID from keyword match
       ansible.builtin.set_fact:
@@ -195,19 +140,14 @@
       vars:
         remnawave_exact: "{{ remnawave_profile_match | selectattr('name', 'equalto', 'default') | list + remnawave_profile_match | selectattr('name', 'equalto', 'Default') | list + remnawave_profile_match | selectattr('name', 'equalto', 'DEFAULT') | list }}"
         remnawave_contains: "{{ remnawave_profile_match | selectattr('name', 'search', '(?i)default') | list + remnawave_profile_match | selectattr('name', 'search', 'дефолт') | list | unique(attribute='uuid') }}"
-      delegate_to: localhost
-      become: false
-      when: remnawave_existing | length == 0 and (remnawave_profile_want | default('') | length == 0)
+      when: remnawave_profile_want | default('') | length == 0
 
     - name: Fail when default profile is ambiguous or missing
       ansible.builtin.fail:
         msg: "No unique default config profile (candidates: {{ remnawave_profile_candidates | join(', ') | default('none — available: ' + (remnawave_profile_match | map(attribute='name') | join(', '))) }}). Set remnawave_config_profile explicitly (UUID or name)"
       when:
-        - remnawave_existing | length == 0
-          and (remnawave_profile_want | default('') | length == 0)
-          and (remnawave_profile_uuid | default('') | length == 0)
-      delegate_to: localhost
-      become: false
+        - remnawave_profile_want | default('') | length == 0
+        - remnawave_profile_uuid | default('') | length == 0
 
     - name: Fetch config profiles for explicit name reference
       ansible.builtin.uri:
@@ -223,9 +163,8 @@
       become: false
       no_log: true
       when:
-        - remnawave_existing | length == 0
-          and (remnawave_profile_want | default('') | length > 0)
-          and not (remnawave_profile_want is match(remnawave_uuid_re))
+        - remnawave_profile_want | default('') | length > 0
+        - not (remnawave_profile_want is match(remnawave_uuid_re))
 
     - name: Resolve profile UUID from explicit reference
       ansible.builtin.set_fact:
@@ -234,21 +173,23 @@
       vars:
         remnawave_named: "{{ remnawave_named_all | selectattr('name', 'equalto', remnawave_profile_want) | list + remnawave_named_all | selectattr('name', 'search', '(?i)' + remnawave_profile_want) | list | unique(attribute='uuid') }}"
         remnawave_named_all: "{{ (remnawave_profiles_explicit | default({})).json.response.configProfiles | default([]) }}"
-      delegate_to: localhost
-      become: false
       when:
-        - remnawave_existing | length == 0
-          and (remnawave_profile_want | default('') | length > 0)
+        - remnawave_profile_want | default('') | length > 0
+        - not (remnawave_profile_want is match(remnawave_uuid_re))
+
+    - name: Resolve explicit profile UUID
+      ansible.builtin.set_fact:
+        remnawave_profile_uuid: "{{ remnawave_profile_want }}"
+      when:
+        - remnawave_profile_want | default('') | length > 0
+        - remnawave_profile_want is match(remnawave_uuid_re)
 
     - name: Fail when explicit profile reference is ambiguous or missing
       ansible.builtin.fail:
         msg: "Config profile '{{ remnawave_profile_want }}' not found or ambiguous (candidates: {{ remnawave_profile_candidates | join(', ') | default('none') }}). Use exact UUID or unique name"
       when:
-        - remnawave_existing | length == 0
-          and (remnawave_profile_want | default('') | length > 0)
-          and (remnawave_profile_uuid | default('') | length == 0)
-      delegate_to: localhost
-      become: false
+        - remnawave_profile_want | default('') | length > 0
+        - remnawave_profile_uuid | default('') | length == 0
 
     - name: Fetch inbounds of resolved profile
       ansible.builtin.uri:
@@ -263,25 +204,18 @@
       delegate_to: localhost
       become: false
       no_log: true
-      when: remnawave_existing | length == 0
 
     - name: Resolve active inbounds
       ansible.builtin.set_fact:
         remnawave_inbounds_final: "{{ remnawave_want_list if (remnawave_want_list | length > 0) else (remnawave_inbounds_resp.json.response.inbounds | map(attribute='uuid') | list) }}"
       vars:
         remnawave_want_list: "{{ ((remnawave_inbounds if (remnawave_inbounds | default('') | length > 0) else (remnawave_default_inbounds | default(''))).replace(',', '\n').splitlines() | map('trim') | select | list) if ((remnawave_inbounds | default('') | length > 0) or (remnawave_default_inbounds | default('') | length > 0)) else [] }}"
-      delegate_to: localhost
-      become: false
-      when: remnawave_existing | length == 0
 
     - name: Validate inbounds belong to resolved profile
       ansible.builtin.fail:
         msg: "Inbounds not in profile (available tags: {{ remnawave_inbounds_resp.json.response.inbounds | map(attribute='tag') | join(', ') }})"
       when:
-        - remnawave_existing | length == 0
-          and (remnawave_inbounds_final | difference(remnawave_inbounds_resp.json.response.inbounds | map(attribute='uuid') | list) | length > 0)
-      delegate_to: localhost
-      become: false
+        - remnawave_inbounds_final | difference(remnawave_inbounds_resp.json.response.inbounds | map(attribute='uuid') | list) | length > 0
 
     - name: Create panel node
       ansible.builtin.uri:
@@ -295,7 +229,7 @@
           name: "{{ remnawave_node_name }}"
           address: "{{ remnawave_node_address | trim }}"
           port: "{{ remnawave_port_final | int }}"
-          countryCode: "{{ remnawave_country | default('XX') | upper }}"
+          countryCode: "{{ ((remnawave_country | default('XX', true) | trim) or 'XX') | upper }}"
           note: "{{ remnawave_note | default('') }}"
           configProfile:
             activeConfigProfileUuid: "{{ remnawave_profile_uuid }}"
@@ -308,461 +242,7 @@
       delegate_to: localhost
       become: false
       no_log: true
-      when:
-        - remnawave_existing | length == 0
-          and remnawave_action in ['register', 'both']
-
-    - name: Set node UUID
-      ansible.builtin.set_fact:
-        remnawave_node_uuid: "{{ remnawave_created.json.response.uuid if (remnawave_created is defined and remnawave_created.json is defined) else remnawave_existing.uuid }}"
-        remnawave_node_created: "{{ remnawave_created is defined and remnawave_created.json is defined }}"
-      delegate_to: localhost
-      become: false
-
-    - name: Fetch node secret key
-      ansible.builtin.uri:
-        url: "{{ remnawave_panel_base }}/api/keygen"
-        headers:
-          Authorization: "Bearer {{ remnawave_token_final }}"
-          Accept: application/json
-        return_content: true
-        timeout: 30
-        validate_certs: "{{ remnawave_validate_certs | bool }}"
-      register: remnawave_secret_resp
-      delegate_to: localhost
-      become: false
-      no_log: true
-      when: remnawave_action in ['both', 'deploy']
-
-    - name: Validate node secret key
-      ansible.builtin.fail:
-        msg: "Panel returned empty or invalid node SECRET_KEY"
-      when:
-        - remnawave_action in ['both', 'deploy']
-        - (remnawave_secret_resp.json.response.secretKey | default('') | length == 0)
-          or ((remnawave_secret_resp.json.response.secretKey | b64decode | from_json).nodeCertPem is not defined)
-      delegate_to: localhost
-      become: false
-      no_log: true
-
-    - name: Store node secret key
-      ansible.builtin.set_fact:
-        remnawave_node_secret: "{{ remnawave_secret_resp.json.response.secretKey }}"
-      delegate_to: localhost
-      become: false
-      no_log: true
-      when: remnawave_action in ['both', 'deploy']
 
     - name: Show registration summary
       ansible.builtin.debug:
-        msg: "node={{ remnawave_node_name }} uuid={{ remnawave_node_uuid }} address={{ remnawave_node_address | trim }} port={{ remnawave_port_final }} panel={{ remnawave_panel_base }} (created={{ remnawave_node_created }})"
-
-- name: Remnawave node deploy (agent container)
-  hosts: "{{ target }}"
-  gather_facts: false
-  become: true
-  vars:
-    remnawave_action: both
-    remnawave_node_name: ""
-    remnawave_node_port: ""
-    remnawave_open_port: false
-    remnawave_allow_from: ""
-    remnanode_dir: /opt/remnanode
-    remnanode_node_image: remnawave/node:latest
-    remnanode_mount_shm: true
-    remnanode_mount_logs: true
-    remnanode_log_dir: /var/log/remnanode
-    remnanode_log_max_size: 100M
-    remnanode_log_keep: 5
-    remnanode_xray_manage: false
-    remnanode_xray_version: ""
-    remnanode_xray_version_norm: "{{ (remnanode_xray_version | default('', true) | string | trim) | regex_replace('^[vV]', '') }}"
-    remnanode_mount_xray: false
-    remnanode_xray_preserve_existing: false
-    remnanode_xray_existing_running: false
-    remnanode_xray_changed: false
-    remnanode_xray_summary: image
-    remnanode_agent_container: remnanode
-  tasks:
-    - name: Deploy remnawave node
-      block:
-        - name: Normalize project dir
-          ansible.builtin.set_fact:
-            remnanode_dir: "{{ (remnanode_dir | default('') | trim) or '/opt/remnanode' }}"
-
-        - name: Validate project dir
-          ansible.builtin.fail:
-            msg: "remnanode_dir must be an absolute path, got '{{ remnanode_dir }}'"
-          when: not (remnanode_dir is match('^/.+'))
-
-        - name: Normalize xray log dir
-          ansible.builtin.set_fact:
-            remnanode_log_dir: "{{ (remnanode_log_dir | default('') | trim) or '/var/log/remnanode' }}"
-
-        - name: Validate xray log dir
-          ansible.builtin.fail:
-            msg: "remnanode_log_dir must be an absolute path, got '{{ remnanode_log_dir }}'"
-          when:
-            - remnanode_mount_logs | bool
-            - not (remnanode_log_dir is match('^/.+'))
-
-        - name: Resolve node port and secret from registration step
-          ansible.builtin.set_fact:
-            remnanode_port_final: "{{ remnawave_port_final }}"
-            remnanode_node_secret: "{{ remnawave_node_secret }}"
-          no_log: true
-
-        - name: Require resolved node secret
-          ansible.builtin.fail:
-            msg: "Node secret not resolved (internal). Re-run; if persists, check keygen step output"
-          when: remnanode_node_secret | default('') | length == 0
-
-        - name: Check Debian family
-          ansible.builtin.stat:
-            path: /etc/debian_version
-          register: remnawave_debian
-
-        - name: Require Debian or Ubuntu
-          ansible.builtin.fail:
-            msg: "Remnawave node needs Debian or Ubuntu"
-          when: not remnawave_debian.stat.exists
-
-        - name: Check docker is available
-          ansible.builtin.shell: command -v docker
-          args:
-            executable: /bin/bash
-          register: remnawave_docker_bin
-          changed_when: false
-          failed_when: false
-
-        - name: Require docker on node
-          ansible.builtin.fail:
-            msg: "docker not found. Run the docker template on this host first"
-          when: remnawave_docker_bin.rc != 0
-
-        - name: Inspect existing remnanode container
-          ansible.builtin.command: docker inspect {{ remnanode_agent_container }}
-          register: remnanode_xray_inspect
-          changed_when: false
-          failed_when: false
-          no_log: true
-
-        - name: Resolve existing custom xray mount
-          ansible.builtin.set_fact:
-            remnanode_xray_existing_mount: "{{ (remnanode_xray_inspect.stdout | from_json | first | default({})).Mounts | default([]) | selectattr('Destination', 'equalto', '/usr/local/bin/xray') | list | first | default({}) }}"
-            remnanode_xray_existing_running: "{{ (remnanode_xray_inspect.stdout | from_json | first | default({})).State.Running | default(false) | bool }}"
-          when: remnanode_xray_inspect.rc | default(1) == 0
-          no_log: true
-
-        - name: Fail when docker inspect fails unexpectedly
-          ansible.builtin.fail:
-            msg: "docker inspect {{ remnanode_agent_container }} failed: {{ remnanode_xray_inspect.stderr | default('unknown error') }}"
-          when:
-            - remnanode_xray_inspect.rc | default(1) != 0
-            - not ((remnanode_xray_inspect.stderr | default('') | lower) is search('no such object|no such container'))
-
-        - name: Default xray mount when container is absent
-          ansible.builtin.set_fact:
-            remnanode_xray_existing_mount: {}
-            remnanode_xray_existing_running: false
-          when: remnanode_xray_inspect.rc | default(1) != 0
-          no_log: true
-
-        - name: Resolve xray mode
-          ansible.builtin.set_fact:
-            remnanode_xray_preserve_existing: "{{ not (remnanode_xray_manage | bool) and (remnanode_xray_existing_mount | length > 0) }}"
-            remnanode_mount_xray: "{{ (remnanode_xray_manage | bool and remnanode_xray_version_norm | length > 0) or (not (remnanode_xray_manage | bool) and (remnanode_xray_existing_mount | length > 0)) }}"
-            remnanode_xray_summary: "{{ remnanode_xray_version_norm if (remnanode_xray_manage | bool and remnanode_xray_version_norm | length > 0) else ('image (custom removed)' if (remnanode_xray_manage | bool and (remnanode_xray_existing_mount | length > 0)) else ('custom (preserved)' if (not (remnanode_xray_manage | bool) and (remnanode_xray_existing_mount | length > 0)) else 'image')) }}"
-
-        - name: Check node port is free
-          ansible.builtin.shell: "ss -tlnp | grep -E ':({{ remnanode_port_final }})\\s' || true"
-          args:
-            executable: /bin/bash
-          register: remnawave_port_busy
-          changed_when: false
-          failed_when: false
-
-        - name: Warn about busy port owned by existing container
-          ansible.builtin.debug:
-            msg: "Port {{ remnanode_port_final }} is listening, but it belongs to the existing container '{{ remnanode_agent_container }}' — continuing"
-          when:
-            - remnawave_port_busy.stdout | length > 0
-            - remnanode_xray_existing_running | bool
-
-        - name: Refuse busy node port
-          ansible.builtin.fail:
-            msg: "Port {{ remnanode_port_final }} is already listening on this host. Set explicit remnawave_node_port and re-run"
-          when:
-            - remnawave_port_busy.stdout | length > 0
-            - not (remnanode_xray_existing_running | bool)
-
-        - name: Ensure remnawave dir
-          ansible.builtin.file:
-            path: "{{ remnanode_dir }}"
-            state: directory
-            mode: "0755"
-
-        - name: Preserve existing custom xray
-          block:
-            - name: Extract custom xray from container
-              ansible.builtin.command:
-                argv: ["docker", "cp", "{{ remnanode_agent_container }}:/usr/local/bin/xray", "{{ remnanode_dir }}/.xray-core.preserve"]
-              changed_when: false
-
-            - name: Install preserved xray binary
-              ansible.builtin.copy:
-                src: "{{ remnanode_dir }}/.xray-core.preserve"
-                dest: "{{ remnanode_dir }}/xray-core"
-                remote_src: true
-                mode: "0755"
-
-            - name: Remove xray preservation temp
-              ansible.builtin.file:
-                path: "{{ remnanode_dir }}/.xray-core.preserve"
-                state: absent
-          when: remnanode_xray_preserve_existing | bool
-
-        - name: Install selected xray core
-          block:
-            - name: Note xray install
-              ansible.builtin.set_fact:
-                remnanode_xray_changed: true
-
-            - name: Detect node architecture
-              ansible.builtin.command: uname -m
-              register: remnanode_xray_uname
-              changed_when: false
-
-            - name: Resolve xray release asset
-              ansible.builtin.set_fact:
-                remnanode_xray_asset: "{{ remnanode_xray_arch_map[remnanode_xray_uname.stdout | trim] | default('') }}"
-              vars:
-                remnanode_xray_arch_map:
-                  x86_64: "64"
-                  amd64: "64"
-                  aarch64: "arm64-v8a"
-                  arm64: "arm64-v8a"
-                  armv7l: "arm32-v7a"
-                  armv6l: "arm32-v6"
-                  i686: "32"
-                  i386: "32"
-
-            - name: Fail on unsupported architecture
-              ansible.builtin.fail:
-                msg: "Unsupported architecture '{{ remnanode_xray_uname.stdout | trim }}' for Xray prebuilt releases. Supported: x86_64/amd64, aarch64/arm64, armv7l, armv6l, i686/i386"
-              when: remnanode_xray_asset | length == 0
-
-            - name: Check installed xray binary
-              ansible.builtin.stat:
-                path: "{{ remnanode_dir }}/xray-core"
-              register: remnanode_xray_bin
-
-            - name: Check installed xray version marker
-              ansible.builtin.stat:
-                path: "{{ remnanode_dir }}/.xray-core.version"
-              register: remnanode_xray_marker_stat
-
-            - name: Read installed xray version marker
-              ansible.builtin.slurp:
-                src: "{{ remnanode_dir }}/.xray-core.version"
-              register: remnanode_xray_marker
-              when: remnanode_xray_marker_stat.stat.exists
-
-            - name: Resolve installed xray version
-              ansible.builtin.set_fact:
-                remnanode_xray_installed: "{{ ((remnanode_xray_marker | default({})).content | default('')) | b64decode | trim }}"
-
-            - name: Download and install xray
-              block:
-                - name: Fetch xray release checksum file
-                  ansible.builtin.uri:
-                    url: "https://github.com/XTLS/Xray-core/releases/download/v{{ remnanode_xray_version_norm }}/Xray-linux-{{ remnanode_xray_asset }}.zip.dgst"
-                    return_content: true
-                    timeout: 30
-                  register: remnanode_xray_dgst
-
-                - name: Resolve xray release checksum
-                  ansible.builtin.set_fact:
-                    remnanode_xray_sha256: "{{ (remnanode_xray_dgst.content.splitlines() | select('match', '^SHA2-256=') | list | first | default('')).split('=', 1) | last | trim }}"
-
-                - name: Require xray release checksum
-                  ansible.builtin.fail:
-                    msg: "No SHA2-256 checksum in Xray release .dgst for v{{ remnanode_xray_version_norm }} ({{ remnanode_xray_asset }})"
-                  when: remnanode_xray_sha256 | length == 0
-
-                - name: Download xray release archive
-                  ansible.builtin.get_url:
-                    url: "https://github.com/XTLS/Xray-core/releases/download/v{{ remnanode_xray_version_norm }}/Xray-linux-{{ remnanode_xray_asset }}.zip"
-                    dest: "{{ remnanode_dir }}/.xray-core.zip"
-                    checksum: "sha256:{{ remnanode_xray_sha256 }}"
-                    force: true
-                    mode: "0644"
-
-                - name: Ensure unzip is installed
-                  ansible.builtin.apt:
-                    name: unzip
-                    state: present
-                    update_cache: true
-                    cache_valid_time: 3600
-
-                - name: Reset xray extraction dir
-                  ansible.builtin.file:
-                    path: "{{ remnanode_dir }}/.xray-extract"
-                    state: absent
-
-                - name: Create xray extraction dir
-                  ansible.builtin.file:
-                    path: "{{ remnanode_dir }}/.xray-extract"
-                    state: directory
-                    mode: "0755"
-
-                - name: Extract xray binary
-                  ansible.builtin.unarchive:
-                    src: "{{ remnanode_dir }}/.xray-core.zip"
-                    dest: "{{ remnanode_dir }}/.xray-extract"
-                    remote_src: true
-                    include:
-                      - xray
-
-                - name: Install xray binary
-                  ansible.builtin.copy:
-                    src: "{{ remnanode_dir }}/.xray-extract/xray"
-                    dest: "{{ remnanode_dir }}/xray-core"
-                    remote_src: true
-                    mode: "0755"
-
-              when: not (remnanode_xray_bin.stat.exists and (remnanode_xray_installed | default('')) == remnanode_xray_version_norm)
-              always:
-                - name: Remove xray release archive
-                  ansible.builtin.file:
-                    path: "{{ remnanode_dir }}/.xray-core.zip"
-                    state: absent
-
-                - name: Remove xray extraction dir
-                  ansible.builtin.file:
-                    path: "{{ remnanode_dir }}/.xray-extract"
-                    state: absent
-          when: remnanode_xray_manage | bool and remnanode_xray_version_norm | length > 0
-
-        - name: Render compose file
-          ansible.builtin.template:
-            src: "{{ playbook_dir }}/../templates/remnawave/compose.yml.j2"
-            dest: "{{ remnanode_dir }}/compose.yml"
-            mode: "0644"
-
-        - name: Render node env file
-          ansible.builtin.template:
-            src: "{{ playbook_dir }}/../templates/remnawave/dotenv.j2"
-            dest: "{{ remnanode_dir }}/.env"
-            mode: "0600"
-
-        - name: Validate xray log rotation values
-          ansible.builtin.fail:
-            msg: "remnanode_log_max_size must be like 100M (number + k/M/G), remnanode_log_keep 1..30, got '{{ remnanode_log_max_size }}' / '{{ remnanode_log_keep }}'"
-          when:
-            - remnanode_mount_logs | bool
-            - not (remnanode_log_max_size | default('') | string | trim is match('(?i)^[0-9]+[kMG]$'))
-              or (remnanode_log_keep | int < 1) or (remnanode_log_keep | int > 30)
-
-        - name: Ensure logrotate is installed
-          ansible.builtin.apt:
-            name: logrotate
-            state: present
-            update_cache: true
-            cache_valid_time: 3600
-          when: remnanode_mount_logs | bool
-
-        - name: Render xray logrotate config
-          ansible.builtin.template:
-            src: "{{ playbook_dir }}/../templates/remnawave/logrotate.j2"
-            dest: /etc/logrotate.d/remnanode
-            mode: "0644"
-          when: remnanode_mount_logs | bool
-
-        - name: Deploy remnawave stack
-          community.docker.docker_compose_v2:
-            project_src: "{{ remnanode_dir }}"
-            state: present
-            pull: missing
-            recreate: "{{ 'always' if remnanode_xray_changed | bool else 'auto' }}"
-          register: remnawave_deploy
-
-        - name: Record installed xray version
-          ansible.builtin.copy:
-            content: "{{ remnanode_xray_version_norm }}\n"
-            dest: "{{ remnanode_dir }}/.xray-core.version"
-            mode: "0644"
-          when: remnanode_xray_changed | bool
-
-        - name: Check ufw is available for auto open
-          ansible.builtin.shell: command -v ufw
-          args:
-            executable: /bin/bash
-          register: remnawave_ufw_bin
-          changed_when: false
-          failed_when: false
-          when: remnawave_open_port | bool
-
-        - name: Warn when ufw is missing for auto open
-          ansible.builtin.debug:
-            msg: "ufw not found — port {{ remnanode_port_final }} NOT opened. Install ufw (base/firewall templates) or open it manually; panel may fail to reach this node"
-          when:
-            - remnawave_open_port | bool
-            - remnawave_ufw_bin.rc | default(1) | int != 0
-
-        - name: Open node port in ufw
-          community.general.ufw:
-            rule: allow
-            port: "{{ remnanode_port_final }}"
-            proto: tcp
-            from_ip: "{{ remnawave_allow_from if (remnawave_allow_from | default('') | length > 0) else omit }}"
-          when:
-            - remnawave_open_port | bool
-            - remnawave_ufw_bin.rc | default(1) | int == 0
-
-        - name: Check agent answers panel
-          ansible.builtin.uri:
-            url: "{{ remnawave_panel_base }}/api/nodes/{{ remnawave_node_uuid }}"
-            headers:
-              Authorization: "Bearer {{ remnawave_token_final }}"
-              Accept: application/json
-            return_content: true
-            timeout: 30
-            validate_certs: "{{ remnawave_validate_certs | bool }}"
-          register: remnawave_node_state
-          until: remnawave_node_state.json.response.isConnected | default(false)
-          retries: 12
-          delay: 10
-          delegate_to: localhost
-          become: false
-          no_log: true
-
-        - name: Show deploy summary
-          ansible.builtin.debug:
-            msg: "node={{ remnawave_node_name }} connected={{ remnawave_node_state.json.response.isConnected | default('unknown') }} port={{ remnanode_port_final }} xray={{ remnanode_xray_summary }} firewall={{ 'manual' if not (remnawave_open_port | bool) else ('open' if (remnawave_ufw_bin.rc | default(1) | int == 0) else 'skipped (no ufw)') }}"
-      when: remnawave_action in ['both', 'deploy']
-      rescue:
-        - name: Roll back panel entry created this run
-          ansible.builtin.uri:
-            url: "{{ remnawave_panel_base }}/api/nodes/{{ remnawave_node_uuid }}"
-            method: DELETE
-            headers:
-              Authorization: "Bearer {{ remnawave_token_final }}"
-              Accept: application/json
-            status_code: 204
-            timeout: 30
-            validate_certs: "{{ remnawave_validate_certs | bool }}"
-          delegate_to: localhost
-          become: false
-          no_log: true
-          when: remnawave_node_created | default(false)
-
-        - name: Fail with rollback note
-          ansible.builtin.fail:
-            msg: "Deploy failed ({{ ansible_failed_result.msg | default('see above') }}); panel entry rolled back"
-          when: remnawave_node_created | default(false)
-
-        - name: Fail without rollback for pre-existing entry
-          ansible.builtin.fail:
-            msg: "Deploy failed ({{ ansible_failed_result.msg | default('see above') }}); panel entry pre-existing, kept"
-          when: not (remnawave_node_created | default(false))
+        msg: "node={{ remnawave_node_name }} uuid={{ remnawave_created.json.response.uuid | default('') }} address={{ remnawave_node_address | trim }} port={{ remnawave_port_final }} panel={{ remnawave_panel_base }} profile={{ remnawave_profile_uuid }} inbounds={{ remnawave_inbounds_final | length }} (next: run remnawave_node_deploy on the host)"

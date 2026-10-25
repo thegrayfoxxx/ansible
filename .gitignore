@@ -2,8 +2,12 @@
 *.vault-pass
 .vault-pass
 collections/
-roles/
+roles/*
 !roles/.gitkeep
+!roles/remnanode/
+!roles/remnanode/**
+!roles/remnawave_panel/
+!roles/remnawave_panel/**
 __pycache__/
 .mypy_cache/
 .env

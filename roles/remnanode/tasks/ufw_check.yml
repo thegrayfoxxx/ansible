@@ -1,0 +1,29 @@
+---
+- name: Check ufw is available
+  ansible.builtin.shell: command -v ufw
+  args:
+    executable: /bin/bash
+  register: remnanode_ufw_bin
+  changed_when: false
+  failed_when: false
+  when: remnanode_port_final | default('') | string | trim | length > 0
+
+- name: Get ufw status
+  ansible.builtin.command: ufw status
+  register: remnanode_ufw_status
+  changed_when: false
+  failed_when: false
+  when: remnanode_ufw_bin.rc | default(1) == 0
+
+- name: Resolve firewall state
+  ansible.builtin.set_fact:
+    remnanode_ufw_state: "{{ 'missing' if (remnanode_ufw_bin.rc | default(1) != 0) else ('active' if ('Status: active' in (remnanode_ufw_status.stdout | default(''))) else 'inactive') }}"
+    remnanode_port_fw: "{{ 'na' if (remnanode_ufw_bin.rc | default(1) != 0) or ('Status: active' not in (remnanode_ufw_status.stdout | default(''))) else ('allowed' if ((remnanode_ufw_status.stdout_lines | default([]) | select('search', '^' + (remnanode_port_final | string) + '(/tcp)?( |$)') | select('search', 'ALLOW') | reject('search', 'OUT') | list | length) > 0) else 'closed') }}"
+  when: remnanode_port_final | default('') | string | trim | length > 0
+
+- name: Warn when ufw blocks the node port
+  ansible.builtin.debug:
+    msg: "ufw is active but port {{ remnanode_port_final }} is not allowed — panel may not reach this node. Open it via the firewall template ({{ remnanode_port_final }}/tcp [from PANEL_IP])"
+  when:
+    - remnanode_port_final | default('') | string | trim | length > 0
+    - remnanode_port_fw | default('') == 'closed'

@@ -1,0 +1,193 @@
+---
+- name: Check docker is available
+  ansible.builtin.shell: command -v docker
+  args:
+    executable: /bin/bash
+  register: remnanode_docker_bin
+  changed_when: false
+  failed_when: false
+
+- name: Require docker on node
+  ansible.builtin.fail:
+    msg: "docker not found. Run the docker template on this host first"
+  when: remnanode_docker_bin.rc != 0
+
+- name: Detect host architecture
+  ansible.builtin.command: uname -m
+  register: remnanode_uname
+  changed_when: false
+
+- name: Resolve host architecture
+  ansible.builtin.set_fact:
+    remnanode_host_arch: "{{ remnanode_uname.stdout | trim }}"
+    remnanode_host_arch_asset: "{{ remnanode_xray_arch_map[remnanode_uname.stdout | trim] | default('') }}"
+
+- name: Inspect remnanode container
+  ansible.builtin.command: docker inspect {{ remnanode_agent_container }}
+  register: remnanode_inspect_raw
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Fail when docker inspect fails unexpectedly
+  ansible.builtin.fail:
+    msg: "docker inspect {{ remnanode_agent_container }} failed: {{ remnanode_inspect_raw.stderr | default('unknown error') }}"
+  when:
+    - remnanode_inspect_raw.rc | default(1) != 0
+    - not ((remnanode_inspect_raw.stderr | default('') | lower) is search('no such object|no such container'))
+
+- name: Resolve container presence
+  ansible.builtin.set_fact:
+    remnanode_container_exists: "{{ remnanode_inspect_raw.rc | default(1) == 0 }}"
+
+- name: Parse container metadata
+  ansible.builtin.set_fact:
+    remnanode_inspect: "{{ (remnanode_inspect_raw.stdout | from_json | first) | default({}) }}"
+  when: remnanode_container_exists | bool
+  no_log: true
+
+- name: Resolve container facts
+  ansible.builtin.set_fact:
+    remnanode_container_running: "{{ remnanode_inspect.State.Running | default(false) | bool }}"
+    remnanode_mounts: "{{ remnanode_inspect.Mounts | default([]) }}"
+    remnanode_mount_destinations: "{{ remnanode_inspect.Mounts | default([]) | map(attribute='Destination') | list }}"
+    remnanode_existing_mount_shm: "{{ '/dev/shm' in (remnanode_inspect.Mounts | default([]) | map(attribute='Destination') | list) }}"
+    remnanode_existing_mount_logs: "{{ '/var/log/remnanode' in (remnanode_inspect.Mounts | default([]) | map(attribute='Destination') | list) }}"
+    remnanode_existing_mount_xray: "{{ '/usr/local/bin/xray' in (remnanode_inspect.Mounts | default([]) | map(attribute='Destination') | list) }}"
+    remnanode_xray_mount_source: "{{ (remnanode_inspect.Mounts | default([]) | selectattr('Destination', 'equalto', '/usr/local/bin/xray') | list | first | default({})).Source | default('') }}"
+    remnanode_image_current: "{{ remnanode_inspect.Config.Image | default('') }}"
+    remnanode_log_dir_current: "{{ (remnanode_inspect.Mounts | default([]) | selectattr('Destination', 'equalto', '/var/log/remnanode') | list | first | default({})).Source | default('') }}"
+    remnanode_compose_labels: "{{ remnanode_inspect.Config.Labels | default({}) }}"
+    remnanode_inspect_env: "{{ remnanode_inspect.Config.Env | default([]) }}"
+  when: remnanode_container_exists | bool
+  no_log: true
+
+- name: Default container facts when container is absent
+  ansible.builtin.set_fact:
+    remnanode_container_running: false
+    remnanode_mounts: []
+    remnanode_mount_destinations: []
+    remnanode_existing_mount_shm: false
+    remnanode_existing_mount_logs: false
+    remnanode_existing_mount_xray: false
+    remnanode_xray_mount_source: ""
+    remnanode_image_current: ""
+    remnanode_log_dir_current: ""
+    remnanode_compose_labels: {}
+    remnanode_inspect_env: []
+  when: not (remnanode_container_exists | bool)
+  no_log: true
+
+- name: Resolve compose label config file
+  ansible.builtin.set_fact:
+    remnanode_label_config: "{{ ((remnanode_compose_labels['com.docker.compose.project.config_files'] | default('')).split(',') | map('trim') | select | list | first) | default('') }}"
+
+- name: Resolve discovered project dir
+  ansible.builtin.set_fact:
+    remnanode_old_dir_discovered: >-
+      {{ (remnanode_compose_labels['com.docker.compose.project.working_dir'] | default('') | trim)
+         or ((remnanode_label_config | dirname) if (remnanode_label_config | length > 0) else '') }}
+
+- name: Resolve source project dir
+  ansible.builtin.set_fact:
+    remnanode_old_dir_final: >-
+      {{ (remnanode_old_dir | default('') | trim)
+         or remnanode_old_dir_discovered
+         or (remnanode_dir if not (remnanode_require_discovered_old_dir | default(false) | bool) else '') }}
+
+- name: Require a source project dir
+  ansible.builtin.fail:
+    msg: "No compose metadata found for '{{ remnanode_agent_container }}' (manual docker run?). Set remnanode_old_dir explicitly"
+  when: remnanode_old_dir_final | default('') | trim | length == 0
+
+- name: Validate source project dir
+  ansible.builtin.fail:
+    msg: "Source project dir must be an absolute path, got '{{ remnanode_old_dir_final }}'"
+  when: not (remnanode_old_dir_final is match('^/.+'))
+
+- name: Stat target project dir
+  ansible.builtin.stat:
+    path: "{{ remnanode_dir }}"
+  register: remnanode_target_dir_stat
+
+- name: Stat target compose file
+  ansible.builtin.stat:
+    path: "{{ remnanode_dir }}/compose.yml"
+  register: remnanode_target_compose_stat
+
+- name: Stat target env file
+  ansible.builtin.stat:
+    path: "{{ remnanode_dir }}/.env"
+  register: remnanode_target_env_stat
+
+- name: Stat source compose file
+  ansible.builtin.stat:
+    path: "{{ remnanode_old_dir_final }}/compose.yml"
+  register: remnanode_old_compose
+
+- name: Stat source env file
+  ansible.builtin.stat:
+    path: "{{ remnanode_old_dir_final }}/.env"
+  register: remnanode_old_env
+
+- name: Stat source custom xray binary
+  ansible.builtin.stat:
+    path: "{{ remnanode_old_dir_final }}/xray-core"
+  register: remnanode_old_xray_binary
+
+- name: Stat source custom xray marker
+  ansible.builtin.stat:
+    path: "{{ remnanode_old_dir_final }}/.xray-core.version"
+  register: remnanode_old_xray_marker_stat
+
+- name: Read source custom xray marker
+  ansible.builtin.slurp:
+    src: "{{ remnanode_old_dir_final }}/.xray-core.version"
+  register: remnanode_old_xray_marker
+  when: remnanode_old_xray_marker_stat.stat.exists
+
+- name: Stat target custom xray binary
+  ansible.builtin.stat:
+    path: "{{ remnanode_dir }}/xray-core"
+  register: remnanode_target_xray_binary
+
+- name: Stat target custom xray marker
+  ansible.builtin.stat:
+    path: "{{ remnanode_dir }}/.xray-core.version"
+  register: remnanode_target_xray_marker_stat
+
+- name: Read target custom xray marker
+  ansible.builtin.slurp:
+    src: "{{ remnanode_dir }}/.xray-core.version"
+  register: remnanode_target_xray_marker
+  when: remnanode_target_xray_marker_stat.stat.exists
+
+- name: Stat host logrotate config
+  ansible.builtin.stat:
+    path: /etc/logrotate.d/remnanode
+  register: remnanode_logrotate_stat
+
+- name: Read host logrotate config
+  ansible.builtin.slurp:
+    src: /etc/logrotate.d/remnanode
+  register: remnanode_logrotate_slurp
+  when: remnanode_logrotate_stat.stat.exists
+
+- name: Resolve discovery facts
+  ansible.builtin.set_fact:
+    remnanode_target_dir_exists: "{{ remnanode_target_dir_stat.stat.exists | default(false) }}"
+    remnanode_target_compose_exists: "{{ remnanode_target_compose_stat.stat.exists | default(false) }}"
+    remnanode_target_env_exists: "{{ remnanode_target_env_stat.stat.exists | default(false) }}"
+    remnanode_old_compose_exists: "{{ remnanode_old_compose.stat.exists | default(false) }}"
+    remnanode_old_env_exists: "{{ remnanode_old_env.stat.exists | default(false) }}"
+    remnanode_old_xray_binary_exists: "{{ remnanode_old_xray_binary.stat.exists | default(false) }}"
+    remnanode_old_xray_marker_exists: "{{ remnanode_old_xray_marker_stat.stat.exists | default(false) }}"
+    remnanode_old_xray_version: "{{ ((remnanode_old_xray_marker | default({})).content | default('')) | b64decode | trim }}"
+    remnanode_target_xray_binary_exists: "{{ remnanode_target_xray_binary.stat.exists | default(false) }}"
+    remnanode_target_xray_marker_exists: "{{ remnanode_target_xray_marker_stat.stat.exists | default(false) }}"
+    remnanode_xray_version_current: "{{ ((remnanode_target_xray_marker | default({})).content | default('')) | b64decode | trim }}"
+    remnanode_existing_custom_xray: "{{ (remnanode_existing_mount_xray | bool) or ((remnanode_target_xray_binary.stat.exists | default(false)) and (remnanode_target_xray_marker_stat.stat.exists | default(false))) }}"
+    remnanode_logrotate_exists: "{{ remnanode_logrotate_stat.stat.exists | default(false) }}"
+    remnanode_logrotate_content: "{{ ((remnanode_logrotate_slurp | default({})).content | default('')) | b64decode }}"
+    remnanode_log_max_size_current: "{{ (((remnanode_logrotate_slurp | default({})).content | default('')) | b64decode).splitlines() | map('trim') | select('match', '^size +') | map('regex_replace', '^size +', '') | list | first | default('') }}"
+    remnanode_log_keep_current: "{{ (((remnanode_logrotate_slurp | default({})).content | default('')) | b64decode).splitlines() | map('trim') | select('match', '^rotate +') | map('regex_replace', '^rotate +', '') | list | first | default('') }}"

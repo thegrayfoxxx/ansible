@@ -1,0 +1,26 @@
+---
+- name: Check ufw is available for auto open
+  ansible.builtin.shell: command -v ufw
+  args:
+    executable: /bin/bash
+  register: remnanode_ufw_open_bin
+  changed_when: false
+  failed_when: false
+
+- name: Warn when ufw is missing for auto open
+  ansible.builtin.debug:
+    msg: "ufw not found — port {{ remnanode_port_final }} NOT opened. Install ufw (base/firewall templates) or open it manually; panel may fail to reach this node"
+  when: remnanode_ufw_open_bin.rc | default(1) | int != 0
+
+- name: Open node port in ufw
+  community.general.ufw:
+    rule: allow
+    port: "{{ remnanode_port_final }}"
+    proto: tcp
+    from_ip: "{{ remnawave_allow_from if (remnawave_allow_from | default('') | length > 0) else omit }}"
+  register: remnanode_ufw_open
+  when: remnanode_ufw_open_bin.rc | default(1) | int == 0
+
+- name: Refresh firewall state after opening the port
+  ansible.builtin.include_tasks: ufw_check.yml
+  when: remnanode_ufw_open_bin.rc | default(1) | int == 0

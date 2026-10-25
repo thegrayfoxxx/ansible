@@ -1,4 +1,6 @@
 # {{ ansible_managed }}
-# Remnanode agent env. Rendered by Ansible — do not edit by hand, re-run the remnawave_node_add or remnawave_node_adopt template.
+# Remnanode agent env. Rendered by Ansible — do not edit by hand.
+# Owned by remnawave_node_deploy: first install takes the port from the panel node
+# and SECRET_KEY from /api/keygen; force re-renders keep the existing credentials.
 NODE_PORT={{ remnanode_port_final }}
 SECRET_KEY={{ remnanode_node_secret }}

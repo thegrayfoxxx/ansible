@@ -1,6 +1,6 @@
 # {{ ansible_managed }}
-# Remnawave xray logs on the node. Rendered by Ansible — re-run the
-# remnawave_node_add template to change (applies on deploy).
+# Remnawave xray logs on the node. Rendered by Ansible — do not edit by hand.
+# Change size/keep with remnawave_node_config action=apply.
 # NOTE: docker json-file limits cover only container stdout, not these files.
 {{ remnanode_log_dir }}/*.log {
     su root root
