@@ -17,6 +17,9 @@
     remnawave_allow_from: ""
     remnawave_validate_certs: true
     remnanode_dir: /opt/remnanode
+    remnanode_xray_manage: false
+    remnanode_xray_version: ""
+    remnanode_xray_version_norm: "{{ (remnanode_xray_version | default('', true) | string | trim) | regex_replace('^[vV]', '') }}"
     remnawave_uuid_re: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
   tasks:
     - name: Validate action value
@@ -49,6 +52,21 @@
       when:
         - (remnawave_country | default('XX') | length > 2)
           or (remnawave_note | default('') | length > 255)
+
+    - name: Warn when xray version is ignored
+      ansible.builtin.debug:
+        msg: "remnanode_xray_version={{ remnanode_xray_version }} is ignored because remnanode_xray_manage=false (existing custom xray is kept as-is)"
+      when:
+        - not (remnanode_xray_manage | bool)
+        - remnanode_xray_version | default('', true) | string | trim | length > 0
+
+    - name: Validate xray version format
+      ansible.builtin.fail:
+        msg: "remnanode_xray_version must look like 26.10.21 or v26.10.21, got '{{ remnanode_xray_version }}'"
+      when:
+        - remnanode_xray_manage | bool
+        - remnanode_xray_version_norm | length > 0
+        - not (remnanode_xray_version_norm is match('^[0-9]+\.[0-9]+\.[0-9]+$'))
 
     - name: Validate explicit inbound UUIDs format
       ansible.builtin.fail:
@@ -356,6 +374,15 @@
     remnanode_log_dir: /var/log/remnanode
     remnanode_log_max_size: 100M
     remnanode_log_keep: 5
+    remnanode_xray_manage: false
+    remnanode_xray_version: ""
+    remnanode_xray_version_norm: "{{ (remnanode_xray_version | default('', true) | string | trim) | regex_replace('^[vV]', '') }}"
+    remnanode_mount_xray: false
+    remnanode_xray_preserve_existing: false
+    remnanode_xray_existing_running: false
+    remnanode_xray_changed: false
+    remnanode_xray_summary: image
+    remnanode_agent_container: remnanode
   tasks:
     - name: Deploy remnawave node
       block:
@@ -413,6 +440,40 @@
             msg: "docker not found. Run the docker template on this host first"
           when: remnawave_docker_bin.rc != 0
 
+        - name: Inspect existing remnanode container
+          ansible.builtin.command: docker inspect {{ remnanode_agent_container }}
+          register: remnanode_xray_inspect
+          changed_when: false
+          failed_when: false
+          no_log: true
+
+        - name: Resolve existing custom xray mount
+          ansible.builtin.set_fact:
+            remnanode_xray_existing_mount: "{{ (remnanode_xray_inspect.stdout | from_json | first | default({})).Mounts | default([]) | selectattr('Destination', 'equalto', '/usr/local/bin/xray') | list | first | default({}) }}"
+            remnanode_xray_existing_running: "{{ (remnanode_xray_inspect.stdout | from_json | first | default({})).State.Running | default(false) | bool }}"
+          when: remnanode_xray_inspect.rc | default(1) == 0
+          no_log: true
+
+        - name: Fail when docker inspect fails unexpectedly
+          ansible.builtin.fail:
+            msg: "docker inspect {{ remnanode_agent_container }} failed: {{ remnanode_xray_inspect.stderr | default('unknown error') }}"
+          when:
+            - remnanode_xray_inspect.rc | default(1) != 0
+            - not ((remnanode_xray_inspect.stderr | default('') | lower) is search('no such object|no such container'))
+
+        - name: Default xray mount when container is absent
+          ansible.builtin.set_fact:
+            remnanode_xray_existing_mount: {}
+            remnanode_xray_existing_running: false
+          when: remnanode_xray_inspect.rc | default(1) != 0
+          no_log: true
+
+        - name: Resolve xray mode
+          ansible.builtin.set_fact:
+            remnanode_xray_preserve_existing: "{{ not (remnanode_xray_manage | bool) and (remnanode_xray_existing_mount | length > 0) }}"
+            remnanode_mount_xray: "{{ (remnanode_xray_manage | bool and remnanode_xray_version_norm | length > 0) or (not (remnanode_xray_manage | bool) and (remnanode_xray_existing_mount | length > 0)) }}"
+            remnanode_xray_summary: "{{ remnanode_xray_version_norm if (remnanode_xray_manage | bool and remnanode_xray_version_norm | length > 0) else ('image (custom removed)' if (remnanode_xray_manage | bool and (remnanode_xray_existing_mount | length > 0)) else ('custom (preserved)' if (not (remnanode_xray_manage | bool) and (remnanode_xray_existing_mount | length > 0)) else 'image')) }}"
+
         - name: Check node port is free
           ansible.builtin.shell: "ss -tlnp | grep -E ':({{ remnanode_port_final }})\\s' || true"
           args:
@@ -421,16 +482,167 @@
           changed_when: false
           failed_when: false
 
+        - name: Warn about busy port owned by existing container
+          ansible.builtin.debug:
+            msg: "Port {{ remnanode_port_final }} is listening, but it belongs to the existing container '{{ remnanode_agent_container }}' — continuing"
+          when:
+            - remnawave_port_busy.stdout | length > 0
+            - remnanode_xray_existing_running | bool
+
         - name: Refuse busy node port
           ansible.builtin.fail:
             msg: "Port {{ remnanode_port_final }} is already listening on this host. Set explicit remnawave_node_port and re-run"
-          when: remnawave_port_busy.stdout | length > 0
+          when:
+            - remnawave_port_busy.stdout | length > 0
+            - not (remnanode_xray_existing_running | bool)
 
         - name: Ensure remnawave dir
           ansible.builtin.file:
             path: "{{ remnanode_dir }}"
             state: directory
             mode: "0755"
+
+        - name: Preserve existing custom xray
+          block:
+            - name: Extract custom xray from container
+              ansible.builtin.command:
+                argv: ["docker", "cp", "{{ remnanode_agent_container }}:/usr/local/bin/xray", "{{ remnanode_dir }}/.xray-core.preserve"]
+              changed_when: false
+
+            - name: Install preserved xray binary
+              ansible.builtin.copy:
+                src: "{{ remnanode_dir }}/.xray-core.preserve"
+                dest: "{{ remnanode_dir }}/xray-core"
+                remote_src: true
+                mode: "0755"
+
+            - name: Remove xray preservation temp
+              ansible.builtin.file:
+                path: "{{ remnanode_dir }}/.xray-core.preserve"
+                state: absent
+          when: remnanode_xray_preserve_existing | bool
+
+        - name: Install selected xray core
+          block:
+            - name: Note xray install
+              ansible.builtin.set_fact:
+                remnanode_xray_changed: true
+
+            - name: Detect node architecture
+              ansible.builtin.command: uname -m
+              register: remnanode_xray_uname
+              changed_when: false
+
+            - name: Resolve xray release asset
+              ansible.builtin.set_fact:
+                remnanode_xray_asset: "{{ remnanode_xray_arch_map[remnanode_xray_uname.stdout | trim] | default('') }}"
+              vars:
+                remnanode_xray_arch_map:
+                  x86_64: "64"
+                  amd64: "64"
+                  aarch64: "arm64-v8a"
+                  arm64: "arm64-v8a"
+                  armv7l: "arm32-v7a"
+                  armv6l: "arm32-v6"
+                  i686: "32"
+                  i386: "32"
+
+            - name: Fail on unsupported architecture
+              ansible.builtin.fail:
+                msg: "Unsupported architecture '{{ remnanode_xray_uname.stdout | trim }}' for Xray prebuilt releases. Supported: x86_64/amd64, aarch64/arm64, armv7l, armv6l, i686/i386"
+              when: remnanode_xray_asset | length == 0
+
+            - name: Check installed xray binary
+              ansible.builtin.stat:
+                path: "{{ remnanode_dir }}/xray-core"
+              register: remnanode_xray_bin
+
+            - name: Check installed xray version marker
+              ansible.builtin.stat:
+                path: "{{ remnanode_dir }}/.xray-core.version"
+              register: remnanode_xray_marker_stat
+
+            - name: Read installed xray version marker
+              ansible.builtin.slurp:
+                src: "{{ remnanode_dir }}/.xray-core.version"
+              register: remnanode_xray_marker
+              when: remnanode_xray_marker_stat.stat.exists
+
+            - name: Resolve installed xray version
+              ansible.builtin.set_fact:
+                remnanode_xray_installed: "{{ ((remnanode_xray_marker | default({})).content | default('')) | b64decode | trim }}"
+
+            - name: Download and install xray
+              block:
+                - name: Fetch xray release checksum file
+                  ansible.builtin.uri:
+                    url: "https://github.com/XTLS/Xray-core/releases/download/v{{ remnanode_xray_version_norm }}/Xray-linux-{{ remnanode_xray_asset }}.zip.dgst"
+                    return_content: true
+                    timeout: 30
+                  register: remnanode_xray_dgst
+
+                - name: Resolve xray release checksum
+                  ansible.builtin.set_fact:
+                    remnanode_xray_sha256: "{{ (remnanode_xray_dgst.content.splitlines() | select('match', '^SHA2-256=') | list | first | default('')).split('=', 1) | last | trim }}"
+
+                - name: Require xray release checksum
+                  ansible.builtin.fail:
+                    msg: "No SHA2-256 checksum in Xray release .dgst for v{{ remnanode_xray_version_norm }} ({{ remnanode_xray_asset }})"
+                  when: remnanode_xray_sha256 | length == 0
+
+                - name: Download xray release archive
+                  ansible.builtin.get_url:
+                    url: "https://github.com/XTLS/Xray-core/releases/download/v{{ remnanode_xray_version_norm }}/Xray-linux-{{ remnanode_xray_asset }}.zip"
+                    dest: "{{ remnanode_dir }}/.xray-core.zip"
+                    checksum: "sha256:{{ remnanode_xray_sha256 }}"
+                    force: true
+                    mode: "0644"
+
+                - name: Ensure unzip is installed
+                  ansible.builtin.apt:
+                    name: unzip
+                    state: present
+                    update_cache: true
+                    cache_valid_time: 3600
+
+                - name: Reset xray extraction dir
+                  ansible.builtin.file:
+                    path: "{{ remnanode_dir }}/.xray-extract"
+                    state: absent
+
+                - name: Create xray extraction dir
+                  ansible.builtin.file:
+                    path: "{{ remnanode_dir }}/.xray-extract"
+                    state: directory
+                    mode: "0755"
+
+                - name: Extract xray binary
+                  ansible.builtin.unarchive:
+                    src: "{{ remnanode_dir }}/.xray-core.zip"
+                    dest: "{{ remnanode_dir }}/.xray-extract"
+                    remote_src: true
+                    include:
+                      - xray
+
+                - name: Install xray binary
+                  ansible.builtin.copy:
+                    src: "{{ remnanode_dir }}/.xray-extract/xray"
+                    dest: "{{ remnanode_dir }}/xray-core"
+                    remote_src: true
+                    mode: "0755"
+
+              when: not (remnanode_xray_bin.stat.exists and (remnanode_xray_installed | default('')) == remnanode_xray_version_norm)
+              always:
+                - name: Remove xray release archive
+                  ansible.builtin.file:
+                    path: "{{ remnanode_dir }}/.xray-core.zip"
+                    state: absent
+
+                - name: Remove xray extraction dir
+                  ansible.builtin.file:
+                    path: "{{ remnanode_dir }}/.xray-extract"
+                    state: absent
+          when: remnanode_xray_manage | bool and remnanode_xray_version_norm | length > 0
 
         - name: Render compose file
           ansible.builtin.template:
@@ -472,7 +684,15 @@
             project_src: "{{ remnanode_dir }}"
             state: present
             pull: missing
+            recreate: "{{ 'always' if remnanode_xray_changed | bool else 'auto' }}"
           register: remnawave_deploy
+
+        - name: Record installed xray version
+          ansible.builtin.copy:
+            content: "{{ remnanode_xray_version_norm }}\n"
+            dest: "{{ remnanode_dir }}/.xray-core.version"
+            mode: "0644"
+          when: remnanode_xray_changed | bool
 
         - name: Check ufw is available for auto open
           ansible.builtin.shell: command -v ufw
@@ -519,7 +739,7 @@
 
         - name: Show deploy summary
           ansible.builtin.debug:
-            msg: "node={{ remnawave_node_name }} connected={{ remnawave_node_state.json.response.isConnected | default('unknown') }} port={{ remnanode_port_final }} firewall={{ 'manual' if not (remnawave_open_port | bool) else ('open' if (remnawave_ufw_bin.rc | default(1) | int == 0) else 'skipped (no ufw)') }}"
+            msg: "node={{ remnawave_node_name }} connected={{ remnawave_node_state.json.response.isConnected | default('unknown') }} port={{ remnanode_port_final }} xray={{ remnanode_xray_summary }} firewall={{ 'manual' if not (remnawave_open_port | bool) else ('open' if (remnawave_ufw_bin.rc | default(1) | int == 0) else 'skipped (no ufw)') }}"
       when: remnawave_action in ['both', 'deploy']
       rescue:
         - name: Roll back panel entry created this run

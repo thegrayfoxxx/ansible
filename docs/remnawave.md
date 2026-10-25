@@ -52,6 +52,7 @@
 - `remnanode_log_max_size: 100M` (String; ротация по размеру — число + `k`/`M`/`G`)
 - `remnanode_log_keep: 5` (Integer; сколько ротированных файлов хранить, `1..30`)
 - ротация — host-level `logrotate` (`/etc/logrotate.d/remnanode`, `copytruncate` — контейнер не дёргаем); лимиты `json-file` в compose покрывают только stdout контейнера, не файлы в примонтированном каталоге
+- `remnanode_xray_manage` + `remnanode_xray_version` — свой xray-core вместо встроенного в образ (см. «Версия xray-core» ниже)
 
 Как это работает: register пишет запись (`201`), повтор с тем же именем — skip по `uuid` (ротации нет: снос VPN-ноды роняет юзеров); дубликат адреса с другим именем — текст ошибки сервера как есть. `SECRET_KEY` забирается живым `GET /api/keygen` (общий на панель, в ответе создания его нет) и нигде не светится (`no_log`, в summary только имена/uuid). Deploy кладёт в `remnanode_dir` (дефолт `/opt/remnanode/`) (`compose.yml`, `.env 0600`; логи контейнера `json-file 10m × 3`), `up -d`, ждёт `isConnected` (~2 мин); упал deploy — созданная в этом прогоне запись откатывается (`DELETE`), повтор — чистый лист.
 
@@ -63,6 +64,25 @@
   "remnawave_node_address": "de1.cdn.theshadowfox.com",
   "remnawave_open_port": true,
   "remnawave_allow_from": "203.0.113.10"
+}
+```
+
+### Версия xray-core
+
+Нода может работать на xray из образа `remnawave/node` или на своём бинаре, примонтированном в `/usr/local/bin/xray`. Версия образа при этом не меняется — меняется только бинарь xray-core.
+
+- `remnanode_xray_manage: false` (дефолт) — xray не трогаем: если на ноде уже стоит кастомный xray, он сохраняется (в adopt/move переносится), иначе работает xray из образа. `remnanode_xray_version` игнорируется (в логе будет warning).
+- `remnanode_xray_manage: true` + `remnanode_xray_version` (например `26.10.21` или `v26.10.21`) — скачивается официальный релиз XTLS/Xray-core и монтируется в контейнер. Проверяется `SHA2-256` из `.dgst` релиза. Архитектуры: `x86_64` → `64`, `aarch64` → `arm64-v8a`, `armv7l` → `arm32-v7a`, `armv6l` → `arm32-v6`, `i686/i386` → `32`; остальные — fail.
+- `remnanode_xray_manage: true` без версии — кастомный mount снимается, нода возвращается на xray из образа. Файл `<project dir>/xray-core` остаётся на диске (удалить вручную, если не нужен).
+- Бинарь кладётся в `<project dir>/xray-core` (`0755`), версия фиксируется в `.xray-core.version`; повторный прогон с той же версией не перекачивает архив. Смена версии — повторный `action=deploy` (add) или `migrate` (adopt) с новой версией; контейнер пересоздаётся, чтобы подхватить новый бинарь.
+- `remnawave_node_update` версию xray не меняет: mount и бинарь переживают `down/up`, обновляется только образ.
+- `adopt`/`move` при `remnanode_xray_manage: false` сохраняют существующий кастом 1:1; в move `true` означает «не переносить кастом» (цель на xray из образа).
+
+```json
+{
+  "target": "de1",
+  "remnanode_xray_manage": true,
+  "remnanode_xray_version": "26.10.21"
 }
 ```
 
@@ -84,6 +104,7 @@
 - `remnanode_old_dir` (пусто — автоопределить из compose-меток; нет меток — обязательно явно)
 - `remnanode_dir` + флаги `mount_shm/mount_logs/log_dir/log_max_size/log_keep` — те же, что в deploy
 - discovery: compose-метки → `working_dir`, креды — сначала из running-контейнера (`docker inspect` → `Env`), потом из старого `.env`; секрет в логах не светится
+- `remnanode_xray_manage` + `remnanode_xray_version`: `false` (дефолт) — сохранить текущий кастомный xray; `true` + версия — поставить версию; `true` без версии — снять кастом и вернуться на xray из образа (см. «Версия xray-core»)
 - фаервол только светим (`ufw=active/inactive/missing`, `port_fw=allowed/closed/na` + warning при закрытом) — правила меняет `firewall`-шаблон
 - migrate: бэкап (переименование контейнера + каталога с timestamp, не удаление) → рендер стандарта → `up` → проверка running+listen; провал — автораollback (поднять бэкап) + fail с командой ручной проверки
 - тот же каталог как target — fail с подсказкой гнать `deploy` (переезжать нечего)
@@ -109,5 +130,6 @@
 
 - `target` — исходная нода (строго один хост); `remnanode_move_dest` (цель в inventory, обязательно, строго один хост, ≠ источнику)
 - `remnawave_move_action: inspect` (отчёт+план) / `move`; `remnanode_move_confirmed: true` — обязательно для `move` (сносим рабочую ноду)
+- `remnanode_xray_manage: false` (дефолт) — перенести текущий кастомный xray на цель 1:1; `true` — не переносить, цель на xray из образа
 - остальные поля — как в adopt (`container`, `old_dir`, `dir` уже целевой, те же 6 флагов)
 - rescue на цели: провал — новая гасится, источник не тронут; чистка источника (stop+rename, каталог цел) — только после verified новой; повторный прогон безопасен (источника с исходным именем уже нет → discovery упадёт с понятным текстом, а не переедет дважды)

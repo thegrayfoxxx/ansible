@@ -7,13 +7,16 @@ services:
     image: {{ remnanode_node_image }}
     network_mode: host
     restart: always
-{% if (remnanode_mount_shm | default(true) | bool) or (remnanode_mount_logs | default(true) | bool) %}
+{% if (remnanode_mount_shm | default(true) | bool) or (remnanode_mount_logs | default(true) | bool) or (remnanode_mount_xray | default(false) | bool) %}
     volumes:
 {% if remnanode_mount_shm | default(true) | bool %}
       - /dev/shm:/dev/shm:rw
 {% endif %}
 {% if remnanode_mount_logs | default(true) | bool %}
       - {{ remnanode_log_dir | default('/var/log/remnanode', true) }}:/var/log/remnanode:rw
+{% endif %}
+{% if remnanode_mount_xray | default(false) | bool %}
+      - ./xray-core:/usr/local/bin/xray
 {% endif %}
 {% endif %}
     logging:
