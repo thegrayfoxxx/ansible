@@ -19,6 +19,8 @@
     remnanode_log_dir: /var/log/remnanode
     remnanode_log_max_size: 100M
     remnanode_log_keep: 5
+    remnanode_geo_files: ""
+    remnanode_zapret_mode: "off"
     remnanode_xray_mode: keep
     remnanode_xray_version: ""
   tasks:
@@ -47,6 +49,11 @@
         name: remnanode
         tasks_from: discover
 
+    - name: Check node plugin prerequisites
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: plugin_check
+
     - name: Resolve stack presence
       ansible.builtin.set_fact:
         remnanode_stack_exists: "{{ (remnanode_old_compose_exists | bool) or (remnanode_container_exists | bool) }}"
@@ -64,6 +71,56 @@
       when:
         - remnanode_stack_exists | bool
         - not (remnanode_force | bool)
+
+    - name: Resolve desired geodata settings
+      ansible.builtin.set_fact:
+        remnanode_geo_files_effective: >-
+          {{ (remnanode_geo_files_current
+              if remnanode_geo_files_mode == 'keep'
+              else ([] if remnanode_geo_files_mode == 'none' else remnanode_geo_files_names))
+             | sort }}
+        remnanode_zapret_mode_effective: "{{ remnanode_zapret_mode_norm }}"
+        remnanode_mount_zapret_effective: >-
+          {{ false if remnanode_zapret_mode_norm == 'off'
+             else (true if remnanode_zapret_mode_norm in ['present', 'latest']
+                   else (remnanode_zapret_current | bool)) }}
+
+    - name: Warn about unmanaged geodata mounts
+      ansible.builtin.debug:
+        msg: >-
+          Unmanaged mounts under /usr/local/share/xray were found:
+          {{ remnanode_geo_foreign_mounts | map(attribute='Destination') | join(', ') }}.
+          deploy only manages files in {{ remnanode_geo_dir }}; move them there and re-run.
+      when: remnanode_geo_foreign_mounts | length > 0
+
+    - name: Warn about an unmanaged zapret mount
+      ansible.builtin.debug:
+        msg: >-
+          zapret.dat is mounted from {{ remnanode_zapret_mount_source_current }}
+          outside {{ remnanode_geo_source_dir }}; move it into
+          {{ remnanode_geo_dir }} and re-run.
+      when: remnanode_zapret_foreign | bool
+
+    - name: Refuse to replace unmanaged geodata mounts
+      ansible.builtin.fail:
+        msg: >-
+          The existing stack has unmanaged mounts under /usr/local/share/xray
+          or /usr/local/bin/zapret.dat. deploy would drop them. Move the files
+          into {{ remnanode_geo_dir }} and re-run, or set
+          remnanode_geo_files=none and remnanode_zapret_mode=off to remove them.
+      when:
+        - (remnanode_geo_foreign_mounts | length > 0 and remnanode_geo_files_mode != 'none')
+          or (remnanode_zapret_foreign | bool and remnanode_mount_zapret_effective | bool)
+
+    - name: Warn that deploy will remove the zapret mount
+      ansible.builtin.debug:
+        msg: >-
+          The existing zapret mount will be removed because
+          remnanode_zapret_mode=off. Set remnanode_zapret_mode=keep to preserve it.
+      when:
+        - remnanode_force | bool
+        - remnanode_zapret_current | bool
+        - remnanode_zapret_mode_norm == 'off'
 
     - name: Discover credentials without failing yet
       ansible.builtin.set_fact:
@@ -154,6 +211,11 @@
         name: remnanode
         tasks_from: xray
 
+    - name: Ensure geodata and zapret files
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: geo
+
     - name: Render stack files
       ansible.builtin.include_role:
         name: remnanode
@@ -163,6 +225,16 @@
       ansible.builtin.include_role:
         name: remnanode
         tasks_from: up
+
+    - name: Warn when the node port is opened to every source
+      ansible.builtin.debug:
+        msg: >-
+          remnawave_open_port=true with empty remnawave_allow_from opens
+          NODE_PORT {{ remnanode_port_final }} to all sources. Restrict it to
+          the panel IP with remnawave_allow_from.
+      when:
+        - remnawave_open_port | bool
+        - remnawave_allow_from | default('', true) | trim | length == 0
 
     - name: Open node port in ufw
       ansible.builtin.include_role:
@@ -178,4 +250,4 @@
 
     - name: Show deploy summary
       ansible.builtin.debug:
-        msg: "node={{ remnawave_node_name | default('(local .env)', true) }} host={{ inventory_hostname }} dir={{ remnanode_dir }} image={{ remnanode_node_image }} port={{ remnanode_port_final }} force={{ remnanode_force }} creds_from={{ remnanode_creds_source }} xray={{ remnanode_xray_summary }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} connected={{ remnawave_node_connected if (remnanode_panel_used | bool) else 'n/a' }}"
+        msg: "node={{ remnawave_node_name | default('(local .env)', true) }} host={{ inventory_hostname }} dir={{ remnanode_dir }} image={{ remnanode_node_image }} port={{ remnanode_port_final }} force={{ remnanode_force }} creds_from={{ remnanode_creds_source }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }}({{ remnanode_zapret_mode_norm }}) xray={{ remnanode_xray_summary }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} connected={{ remnawave_node_connected if (remnanode_panel_used | bool) else 'n/a' }}"

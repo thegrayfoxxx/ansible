@@ -100,6 +100,8 @@
 - `remnanode_force: false` → `true` — перерендерить существующий стек из survey. Force сохраняет креды `.env` (берёт их из running-контейнера или файла), текущий образ при пустом поле и кастомный xray при `xray_mode=keep`.
 - `remnawave_open_port` + `remnawave_allow_from` — открыть порт агента в `ufw`, если он есть (нет — скип с warning; идемпотентно; только с IP панели, пусто — отовсюду). Выключение правило не удаляет — это ручной `ufw delete`.
 - `remnanode_mount_shm`, `remnanode_mount_logs`, `remnanode_log_dir`, `remnanode_log_max_size`, `remnanode_log_keep` — монтирования и ротация логов (см. ниже).
+- `remnanode_geo_files` — имена файлов geodata в `<remnanode_dir>/xray/share/` через запятую; пусто/`keep` — сохранить текущие (на новой ноде — ничего), `none` — убрать все mount'ы (файлы остаются на диске).
+- `remnanode_zapret_mode` — `off` (дефолт) не ставит zapret; `keep` сохраняет текущий; `present` скачивает файл только при отсутствии/пустом файле; `latest` обновляет из GitHub. `remnanode_zapret_url` переопределяет URL.
 - `remnanode_xray_mode` / `remnanode_xray_version` — xray при первой установке или force (см. «Версия xray-core»).
 
 Порядок первой установки:
@@ -136,6 +138,58 @@
 - `remnanode_log_dir` (пусто — `/var/log/remnanode`; например `/opt/xray-logs`), `remnanode_log_max_size: 100M` (например `50M`, `100M`, `1G`; число + `k`/`M`/`G`), `remnanode_log_keep: 5` (`1..30`, например `5` или `10`).
 - Ротация — host-level `logrotate` (`/etc/logrotate.d/remnanode`, `copytruncate` — контейнер не дёргаем). Лимиты `json-file` в compose покрывают только stdout контейнера, не файлы в примонтированном каталоге.
 
+### Geodata, zapret и node plugins
+
+Файлы geodata кладутся на ноду вручную в `<remnanode_dir>/xray/share/`. Каждый файл монтируется отдельно и только на чтение:
+
+```text
+<remnanode_dir>/xray/share/geo-zapret.dat -> /usr/local/share/xray/geo-zapret.dat:ro
+<remnanode_dir>/xray/share/ip-zapret.dat  -> /usr/local/share/xray/ip-zapret.dat:ro
+```
+
+В survey передаются только имена файлов:
+
+```json
+{
+  "target": "de1",
+  "remnawave_config_action": "apply",
+  "remnanode_geo_files": "geo-zapret.dat, ip-zapret.dat"
+}
+```
+
+В Xray они используются как `ext:geo-zapret.dat:zapret` и `ext:ip-zapret.dat:zapret`. Папку `/usr/local/share/xray` целиком монтировать нельзя — это перекроет встроенные `geoip.dat`/`geosite.dat`. Не называй кастомные файлы `geoip.dat`/`geosite.dat` без необходимости: панель может обновлять эти имена, а read-only mount помешает записи. Для кастомных файлов лучше имена вроде `geoip-custom.dat`.
+
+`remnanode_geo_files` в `config`: `keep`/пусто — оставить текущие, `none`/`-` — убрать все, явный список — заменить. В `deploy` пусто/`keep` также сохраняет текущие при `force`, а на новой ноде просто ничего не монтирует.
+
+`none`/`-` убирает только mount'ы: сами файлы в `<remnanode_dir>/xray/share/` остаются на диске. Если нужно удалить и данные — сделай это вручную. Замена содержимого уже смонтированного файла не меняет набор mount'ов, поэтому `config` может ответить `No config changes`; чтобы Xray перечитал geodata, перезапусти стек через `remnawave_node_update` (или `config` с другим изменением, которое пересоздаст контейнер).
+
+`XRAY_LOCATION_ASSET` мы **не выставляем**. Xray сначала ищет ассеты в каталоге исполняемого файла (`/usr/local/bin`), затем в `/usr/local/share/xray`. Это позволяет одновременно использовать geodata в `/usr/local/share/xray` и zapret в `/usr/local/bin`.
+
+Zapret:
+
+```json
+{
+  "target": "de1",
+  "remnawave_config_action": "apply",
+  "remnanode_zapret_mode": "present"
+}
+```
+
+- `off` (дефолт в `deploy`) — не монтировать; существующий mount снимается, но `zapret.dat` остаётся на диске;
+- `keep` — сохранить текущий mount (дефолт в `config`);
+- `present` — скачать `zapret.dat`, только если файла нет, он пустой или не является обычным файлом; валидный файл не трогается и сеть не дёргается. Затем смонтировать в `/usr/local/bin/zapret.dat:ro`;
+- `latest` — принудительно скачать свежий релиз и пересоздать контейнер.
+
+Если файл обновлён вручную (не через `latest`), контейнер не пересоздаётся: перезапусти стек через `remnawave_node_update`.
+
+Файл: `<remnanode_dir>/xray/share/zapret.dat`, URL по умолчанию — `https://github.com/kutovoys/ru_gov_zapret/releases/latest/download/zapret.dat`. Маршрутизация — `ext:zapret.dat:zapret` / `ext:zapret.dat:zapret-zapad`.
+
+Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) требуют `cap_add: NET_ADMIN` (уже есть), `nftables` на хосте и ядро ≥ 5.7. `deploy` только предупреждает, если `nft` не найден или ядро старее; ничего не устанавливает и не блокирует запуск.
+
+`deploy` с `remnawave_open_port=true` и пустым `remnawave_allow_from` теперь выдаёт warning: порт открывается для всех, а офдока требует ограничить его IP панели. Правило при этом создаётся как раньше.
+
+`move` переносит файлы из `<source>/xray/share/` вместе со стеком (local — копированием каталога, remote — fetch по списку). Неуправляемые mount'ы под `/usr/local/share/xray` и `/usr/local/bin/zapret.dat` `move` не переносит и останавливается с ошибкой — файлы нужно сначала переложить в `xray/share/`.
+
 ## `remnawave_node_config` — host-конфиг существующего стека
 
 `action=show` — только отчёт (безопасно). `action=apply` — применить изменения. Работает только с уже развёрнутым стеком: нет `compose.yml` или контейнера — `fail` с подсказкой про `deploy`. Стек должен лежать в `remnanode_dir`; если он в другом каталоге — сначала `remnawave_node_move scope=local`.
@@ -147,6 +201,8 @@
 - `target` — строго один хост; `remnanode_dir` (пусто — `/opt/remnanode`), `remnanode_agent_container`.
 - `remnanode_mount_shm`, `remnanode_mount_logs`: `keep` (дефолт) — оставить как есть; `true`/`false` — включить/выключить.
 - `remnanode_log_dir`, `remnanode_log_max_size`, `remnanode_log_keep`: `keep` (дефолт) или пусто — оставить текущее; явное значение — изменить. Примеры: `/var/log/remnanode` или `/opt/xray-logs`, `100M`/`50M`/`1G`, `5`/`10` (`1..30`). Если текущего значения нет, используются `/var/log/remnanode`, `100M`, `5`.
+- `remnanode_geo_files`: `keep` (дефолт) или пусто — оставить текущие файлы; `none`/`-` — убрать все mount'ы (файлы остаются на диске); иначе список имён из `<remnanode_dir>/xray/share/` через запятую.
+- `remnanode_zapret_mode`: `keep` (дефолт) — сохранить текущий mount; `off` — убрать mount (файл остаётся); `present` — скачать только при отсутствии/пустом файле; `latest` — обновить. `remnanode_zapret_url` — override URL.
 - `remnanode_xray_mode`: `keep` (дефолт) — не трогать xray; `image` — снять кастомный mount и вернуться на xray из образа; `version` — поставить выбранную версию.
 - `remnanode_xray_version` — только для `version`.
 
@@ -249,7 +305,7 @@
 - Цель должна быть чистой: нет target-каталога, контейнера с тем же именем и слушателя на порту — иначе `fail` до изменений.
 - Если xray кастомный и архитектуры источника/цели различаются — `fail` до любых изменений. Порядок обхода: на источнике `remnawave_node_config action=apply remnanode_xray_mode=image`, затем `move`, затем на цели `remnawave_node_config remnanode_xray_mode=version`.
 - Порядок: source остаётся работать → на цели создаётся каталог, переносится xray/креды/настройки → стек поднимается и проверяется → только после этого source останавливается и переименовывается в `<name>-moved-bak-<ts>` (каталог источника цел). Провал на цели — source не тронут.
-- Файлы логов на цель не копируются: переносятся mount и настройки ротации, старые логи остаются на источнике. Панель не трогаем — запись и креды те же; после переезда поправь DNS на новый адрес (TTL). Если в панели адрес ноды задан IP-адресом источника, обнови его на IP цели в UI панели вручную — `move` этого не делает.
+- Файлы логов на цель не копируются: переносятся mount и настройки ротации, старые логи остаются на источнике. Файлы geodata и `zapret.dat` из `<source>/xray/share/` наоборот переносятся на цель; неуправляемые mount'ы под `/usr/local/share/xray` и `/usr/local/bin/zapret.dat` требуют ручного переноса в `xray/share/`, иначе `move` остановится. Панель не трогаем — запись и креды те же; после переезда поправь DNS на новый адрес (TTL). Если в панели адрес ноды задан IP-адресом источника, обнови его на IP цели в UI панели вручную — `move` этого не делает.
 - Панель/токен не нужны.
 
 ```json

@@ -1,0 +1,107 @@
+---
+- name: Resolve zapret mount intent
+  ansible.builtin.set_fact:
+    remnanode_mount_zapret_effective: >-
+      {{ false if remnanode_zapret_mode_norm == 'off'
+         else (true if remnanode_zapret_mode_norm in ['present', 'latest']
+               else (remnanode_zapret_current | default(false) | bool)) }}
+
+- name: Ensure geodata directory
+  ansible.builtin.file:
+    path: "{{ remnanode_geo_dir }}"
+    state: directory
+    mode: "0755"
+  when: >-
+    (remnanode_geo_files_effective | default([]) | length > 0)
+    or (remnanode_mount_zapret_effective | bool)
+    or (remnanode_zapret_mode_norm in ['present', 'latest'])
+
+- name: Warn about overriding built-in geodata files
+  ansible.builtin.debug:
+    msg: >-
+      {{ item }} is mounted read-only over the image file at
+      /usr/local/share/xray/{{ item }}. Panel-managed geodata updates for this
+      name will fail; use a custom name (for example geoip-custom.dat) unless
+      you intend to replace the built-in file.
+  loop: "{{ remnanode_geo_files_effective | default([]) | select('match', '^(geoip|geosite)[.]dat$') | list }}"
+
+- name: Stat geodata files
+  ansible.builtin.stat:
+    path: "{{ remnanode_geo_dir }}/{{ item }}"
+  loop: "{{ remnanode_geo_files_effective | default([]) }}"
+  register: remnanode_geo_stat
+
+- name: Require geodata files
+  ansible.builtin.fail:
+    msg: >-
+      Geodata file '{{ item.item }}' is missing, empty or not a regular file in
+      {{ remnanode_geo_dir }}. Place it there first (scp/wget), then re-run.
+  loop: "{{ remnanode_geo_stat.results | default([]) }}"
+  when: >-
+    not (item.stat.exists | default(false))
+    or not (item.stat.isreg | default(false))
+    or (item.stat.size | default(0) | int == 0)
+
+- name: Stat existing zapret file
+  ansible.builtin.stat:
+    path: "{{ remnanode_zapret_file }}"
+  register: remnanode_zapret_pre_stat
+
+- name: Refuse a non-file zapret path
+  ansible.builtin.fail:
+    msg: >-
+      {{ remnanode_zapret_file }} exists but is not a regular file.
+      Remove it manually, then re-run.
+  when:
+    - remnanode_zapret_mode_norm in ['present', 'latest']
+    - remnanode_zapret_pre_stat.stat.exists | default(false)
+    - not (remnanode_zapret_pre_stat.stat.isreg | default(false))
+
+- name: Download zapret file
+  ansible.builtin.get_url:
+    url: "{{ remnanode_zapret_url }}"
+    dest: "{{ remnanode_zapret_file }}"
+    mode: "0644"
+    force: true
+  when:
+    - remnanode_zapret_mode_norm in ['present', 'latest']
+    - >-
+      remnanode_zapret_mode_norm == 'latest'
+      or not (remnanode_zapret_pre_stat.stat.exists | default(false))
+      or not (remnanode_zapret_pre_stat.stat.isreg | default(false))
+      or (remnanode_zapret_pre_stat.stat.size | default(0) | int == 0)
+  register: remnanode_zapret_download
+
+- name: Note zapret file changed
+  ansible.builtin.set_fact:
+    remnanode_zapret_changed: "{{ remnanode_zapret_download.changed | default(false) | bool }}"
+  when: remnanode_zapret_mode_norm in ['present', 'latest']
+
+- name: Stat zapret file
+  ansible.builtin.stat:
+    path: "{{ remnanode_zapret_file }}"
+  register: remnanode_zapret_stat
+  when: remnanode_mount_zapret_effective | bool
+
+- name: Require zapret file
+  ansible.builtin.fail:
+    msg: >-
+      zapret.dat is missing, empty or not a regular file at
+      {{ remnanode_zapret_file }}. Use remnanode_zapret_mode=present/latest
+      to download it, or place the file there manually.
+  when:
+    - remnanode_mount_zapret_effective | bool
+    - >-
+      not (remnanode_zapret_stat.stat.exists | default(false))
+      or not (remnanode_zapret_stat.stat.isreg | default(false))
+      or (remnanode_zapret_stat.stat.size | default(0) | int == 0)
+
+- name: Warn when zapret.dat is also listed as geodata
+  ansible.builtin.debug:
+    msg: >-
+      zapret.dat is listed in remnanode_geo_files and is also mounted to
+      /usr/local/bin/zapret.dat. Xray resolves ext:zapret.dat from
+      /usr/local/bin first, so the geodata copy is redundant.
+  when:
+    - remnanode_mount_zapret_effective | bool
+    - "'zapret.dat' in (remnanode_geo_files_effective | default([]))"

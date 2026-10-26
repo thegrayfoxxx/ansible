@@ -1,0 +1,37 @@
+---
+- name: Check nftables availability
+  ansible.builtin.shell: command -v nft
+  args:
+    executable: /bin/bash
+  register: remnanode_nft_bin
+  changed_when: false
+  failed_when: false
+
+- name: Check kernel release
+  ansible.builtin.command: uname -r
+  register: remnanode_kernel_uname
+  changed_when: false
+  failed_when: false
+
+- name: Resolve plugin preflight facts
+  ansible.builtin.set_fact:
+    remnanode_nft_available: "{{ remnanode_nft_bin.rc | default(1) | int == 0 }}"
+    remnanode_kernel_release: "{{ remnanode_kernel_uname.stdout | default('') | trim }}"
+    remnanode_kernel_base: "{{ (remnanode_kernel_uname.stdout | default('') | trim).split('-')[0] }}"
+
+- name: Warn when nftables is missing
+  ansible.builtin.debug:
+    msg: >-
+      nft not found on {{ inventory_hostname }}. Remnawave node plugins
+      (Torrent Blocker, Ingress/Egress Filter, Connection Drop) will not work.
+      Install nftables on the host if you plan to use them.
+  when: not (remnanode_nft_available | bool)
+
+- name: Warn when the kernel is too old for node plugins
+  ansible.builtin.debug:
+    msg: >-
+      kernel {{ remnanode_kernel_release }} is older than 5.7.
+      Remnawave node plugins will not work; upgrade the kernel if you plan to use them.
+  when:
+    - remnanode_kernel_base | default('') | length > 0
+    - remnanode_kernel_base is version('5.7', '<')

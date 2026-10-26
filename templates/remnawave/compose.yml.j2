@@ -3,6 +3,9 @@
 # Change it with remnawave_node_deploy (first install / force), remnawave_node_config
 # (mounts, logs, xray) or remnawave_node_move (relocation). remnawave_node_update
 # only pulls the image.
+{% set geo_files = remnanode_geo_files_effective | default([]) %}
+{% set mount_zapret = remnanode_mount_zapret_effective | default(false) | bool %}
+{% set geo_dir = remnanode_geo_dir | default((remnanode_dir | default('/opt/remnanode')) ~ '/xray/share') %}
 services:
   remnanode:
     container_name: {{ remnanode_agent_container }}
@@ -10,7 +13,7 @@ services:
     image: {{ remnanode_node_image }}
     network_mode: host
     restart: always
-{% if (remnanode_mount_shm_effective | default(true) | bool) or (remnanode_mount_logs_effective | default(true) | bool) or (remnanode_mount_xray | default(false) | bool) %}
+{% if (remnanode_mount_shm_effective | default(true) | bool) or (remnanode_mount_logs_effective | default(true) | bool) or (remnanode_mount_xray | default(false) | bool) or (geo_files | length > 0) or mount_zapret %}
     volumes:
 {% if remnanode_mount_shm_effective | default(true) | bool %}
       - /dev/shm:/dev/shm:rw
@@ -20,6 +23,12 @@ services:
 {% endif %}
 {% if remnanode_mount_xray | default(false) | bool %}
       - ./xray-core:/usr/local/bin/xray
+{% endif %}
+{% for geo_file in geo_files %}
+      - {{ geo_dir }}/{{ geo_file }}:/usr/local/share/xray/{{ geo_file }}:ro
+{% endfor %}
+{% if mount_zapret %}
+      - {{ geo_dir }}/zapret.dat:/usr/local/bin/zapret.dat:ro
 {% endif %}
 {% endif %}
     logging:

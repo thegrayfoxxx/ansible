@@ -20,7 +20,7 @@
     project_src: "{{ remnanode_dir }}"
     state: present
     pull: missing
-    recreate: "{{ 'always' if remnanode_xray_changed | bool else 'auto' }}"
+    recreate: "{{ 'always' if (remnanode_xray_changed | bool) or (remnanode_zapret_changed | default(false) | bool) else 'auto' }}"
   register: remnanode_compose_up
 
 - name: Check remnanode container is running

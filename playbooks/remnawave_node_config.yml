@@ -14,6 +14,8 @@
     remnanode_log_dir: keep
     remnanode_log_max_size: keep
     remnanode_log_keep: keep
+    remnanode_geo_files: keep
+    remnanode_zapret_mode: keep
     remnanode_xray_mode: ""
     remnanode_xray_version: ""
     remnanode_validate_xray: false
@@ -63,6 +65,47 @@
         msg: "Existing remnanode stack lives in {{ remnanode_old_dir_final }}, not in {{ remnanode_dir }}. Use remnawave_node_move scope=local first"
       when: (remnanode_old_dir_final | regex_replace('/+$', '')) != (remnanode_dir | regex_replace('/+$', ''))
 
+    - name: Warn about unmanaged geodata mounts
+      ansible.builtin.debug:
+        msg: >-
+          Unmanaged mounts under /usr/local/share/xray were found:
+          {{ remnanode_geo_foreign_mounts | map(attribute='Destination') | join(', ') }}.
+          config only manages files in {{ remnanode_geo_dir }}; move them there and re-run.
+      when: remnanode_geo_foreign_mounts | length > 0
+
+    - name: Warn about an unmanaged zapret mount
+      ansible.builtin.debug:
+        msg: >-
+          zapret.dat is mounted from {{ remnanode_zapret_mount_source_current }}
+          outside {{ remnanode_geo_source_dir }}; move it into
+          {{ remnanode_geo_dir }} and re-run.
+      when: remnanode_zapret_foreign | bool
+
+    - name: Resolve desired geodata settings
+      ansible.builtin.set_fact:
+        remnanode_geo_files_effective: >-
+          {{ (remnanode_geo_files_current
+              if remnanode_geo_files_mode == 'keep'
+              else ([] if remnanode_geo_files_mode == 'none' else remnanode_geo_files_names))
+             | sort }}
+        remnanode_zapret_mode_effective: "{{ remnanode_zapret_mode_norm }}"
+        remnanode_mount_zapret_effective: >-
+          {{ false if remnanode_zapret_mode_norm == 'off'
+             else (true if remnanode_zapret_mode_norm in ['present', 'latest']
+                   else (remnanode_zapret_current | bool)) }}
+
+    - name: Refuse to replace unmanaged geodata mounts
+      ansible.builtin.fail:
+        msg: >-
+          The stack has unmanaged mounts under /usr/local/share/xray or
+          /usr/local/bin/zapret.dat. config would drop them on apply. Move the
+          files into {{ remnanode_geo_dir }} and re-run, or set
+          remnanode_geo_files=none and remnanode_zapret_mode=off to remove them.
+      when:
+        - remnawave_config_action == 'apply'
+        - (remnanode_geo_foreign_mounts | length > 0 and remnanode_geo_files_mode != 'none')
+          or (remnanode_zapret_foreign | bool and remnanode_mount_zapret_effective | bool)
+
     - name: Read current credentials for display
       ansible.builtin.set_fact:
         remnanode_require_credentials: false
@@ -108,6 +151,41 @@
         remnanode_mount_shm_effective: "{{ remnanode_mount_shm_effective | bool }}"
         remnanode_mount_logs_effective: "{{ remnanode_mount_logs_effective | bool }}"
 
+    - name: Stat desired geodata files
+      ansible.builtin.stat:
+        path: "{{ remnanode_geo_dir }}/{{ item }}"
+      loop: "{{ remnanode_geo_files_effective }}"
+      register: remnanode_cfg_geo_stat
+
+    - name: Reset missing geodata files
+      ansible.builtin.set_fact:
+        remnanode_cfg_geo_missing: []
+
+    - name: Resolve missing geodata files
+      ansible.builtin.set_fact:
+        remnanode_cfg_geo_missing: >-
+          {{ remnanode_cfg_geo_missing
+             + ([item.item]
+                if ((not (item.stat.exists | default(false)))
+                    or (not (item.stat.isreg | default(false)))
+                    or ((item.stat.size | default(0) | int) == 0))
+                else []) }}
+      loop: "{{ remnanode_cfg_geo_stat.results | default([]) }}"
+
+    - name: Stat current zapret file
+      ansible.builtin.stat:
+        path: "{{ remnanode_zapret_file }}"
+      register: remnanode_cfg_zapret_stat
+      when: remnanode_mount_zapret_effective | bool
+
+    - name: Resolve current zapret file presence
+      ansible.builtin.set_fact:
+        remnanode_cfg_zapret_exists: >-
+          {{ ((remnanode_cfg_zapret_stat.stat.exists | default(false))
+              and (remnanode_cfg_zapret_stat.stat.isreg | default(false))
+              and (remnanode_cfg_zapret_stat.stat.size | default(0) | int > 0))
+             if (remnanode_mount_zapret_effective | bool) else false }}
+
     - name: Validate resolved config
       ansible.builtin.set_fact:
         remnanode_validate_xray: true
@@ -130,6 +208,14 @@
                  and ((not (remnanode_logrotate_exists | bool))
                       or (remnanode_log_max_size_current | default('') != remnanode_log_max_size_effective)
                       or ((remnanode_log_keep_current | default('') | string) != (remnanode_log_keep_effective | string)))) }}
+        remnanode_cfg_geo_changed: >-
+          {{ ((remnanode_geo_files_effective | sort) != (remnanode_geo_files_current | sort))
+             or (remnanode_cfg_geo_missing | default([]) | length > 0) }}
+        remnanode_cfg_zapret_changed: >-
+          {{ ((remnanode_mount_zapret_effective | bool) != (remnanode_zapret_current | bool))
+             or (remnanode_zapret_mode_norm == 'latest')
+             or ((remnanode_mount_zapret_effective | bool)
+                 and not (remnanode_cfg_zapret_exists | bool)) }}
 
     - name: Show current config
       when: remnawave_config_action == 'show'
@@ -145,6 +231,8 @@
               - "host={{ inventory_hostname }} dir={{ remnanode_dir }} container={{ remnanode_agent_container }} running={{ remnanode_container_running }}"
               - "image={{ remnanode_image_current }} port={{ remnanode_port_final | default('?') }} creds_from={{ remnanode_creds_source }}"
               - "mounts: shm={{ remnanode_existing_mount_shm }} logs={{ remnanode_existing_mount_logs }} xray={{ remnanode_existing_mount_xray }} log_dir={{ remnanode_log_dir_current | default('(none)') }}"
+              - "geo: files={{ remnanode_geo_files_current | join(', ') or '(none)' }} dir={{ remnanode_geo_dir }} missing={{ remnanode_cfg_geo_missing | default([]) | join(', ') or '(none)' }}"
+              - "zapret: mounted={{ remnanode_zapret_current }} file={{ remnanode_geo_dir }}/zapret.dat present={{ remnanode_cfg_zapret_exists | default(false) }}"
               - "logrotate: file={{ remnanode_logrotate_exists }} size={{ remnanode_log_max_size_current | default('?') }} keep={{ remnanode_log_keep_current | default('?') }}"
               - "xray: custom={{ remnanode_existing_custom_xray }} version={{ remnanode_xray_version_current | default('(unknown)') }} mount_source={{ remnanode_xray_mount_source | default('(none)') }}"
               - "ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"
@@ -161,6 +249,7 @@
         remnanode_cfg_changed: >-
           {{ (remnanode_cfg_shm_changed | bool) or (remnanode_cfg_logs_changed | bool)
              or (remnanode_cfg_log_dir_changed | bool) or (remnanode_cfg_logrotate_changed | bool)
+             or (remnanode_cfg_geo_changed | bool) or (remnanode_cfg_zapret_changed | bool)
              or (remnanode_xray_changed | bool) }}
 
     - name: Report no changes
@@ -171,6 +260,24 @@
     - name: Stop when there is nothing to apply
       ansible.builtin.meta: end_play
       when: not (remnanode_cfg_changed | bool)
+
+    - name: Require geodata files before apply
+      ansible.builtin.fail:
+        msg: >-
+          Geodata file '{{ item }}' is missing in {{ remnanode_geo_dir }}.
+          Place it there first (scp/wget), then re-run.
+      loop: "{{ remnanode_cfg_geo_missing | default([]) }}"
+      when: remnanode_cfg_geo_missing | default([]) | length > 0
+
+    - name: Require zapret file before apply
+      ansible.builtin.fail:
+        msg: >-
+          zapret.dat is mounted but missing at {{ remnanode_zapret_file }}.
+          Set remnanode_zapret_mode=present or latest to download it, or restore the file.
+      when:
+        - remnanode_mount_zapret_effective | bool
+        - not (remnanode_cfg_zapret_exists | bool)
+        - remnanode_zapret_mode_norm not in ['present', 'latest']
 
     - name: Require usable credentials for apply
       ansible.builtin.set_fact:
@@ -190,6 +297,11 @@
         msg: "Cannot determine the current image for '{{ remnanode_agent_container }}'. Use remnawave_node_update or remnawave_node_deploy remnanode_force=true"
       when: remnanode_node_image | default('') | trim | length == 0
 
+    - name: Ensure geodata and zapret files
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: geo
+
     - name: Render stack files
       ansible.builtin.include_role:
         name: remnanode
@@ -202,4 +314,4 @@
 
     - name: Show apply summary
       ansible.builtin.debug:
-        msg: "applied host={{ inventory_hostname }} dir={{ remnanode_dir }} shm={{ remnanode_mount_shm_effective }} logs={{ remnanode_mount_logs_effective }} log_dir={{ remnanode_log_dir_effective }} log_size={{ remnanode_log_max_size_effective }} log_keep={{ remnanode_log_keep_effective }} xray={{ remnanode_xray_summary }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"
+        msg: "applied host={{ inventory_hostname }} dir={{ remnanode_dir }} shm={{ remnanode_mount_shm_effective }} logs={{ remnanode_mount_logs_effective }} log_dir={{ remnanode_log_dir_effective }} log_size={{ remnanode_log_max_size_effective }} log_keep={{ remnanode_log_keep_effective }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }}({{ remnanode_zapret_mode_norm }}) xray={{ remnanode_xray_summary }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"

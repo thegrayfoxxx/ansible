@@ -74,6 +74,31 @@
         msg: "Container '{{ remnanode_agent_container }}' not found on {{ inventory_hostname }}. Set remnanode_agent_container or remnanode_old_dir explicitly"
       when: not (remnanode_container_exists | bool)
 
+    - name: Warn about unmanaged geodata mounts
+      ansible.builtin.debug:
+        msg: >-
+          Unmanaged mounts under /usr/local/share/xray were found:
+          {{ remnanode_geo_foreign_mounts | map(attribute='Destination') | join(', ') }}.
+          move only preserves files in {{ remnanode_geo_source_dir }}.
+      when: remnanode_geo_foreign_mounts | length > 0
+
+    - name: Warn about an unmanaged zapret mount
+      ansible.builtin.debug:
+        msg: >-
+          zapret.dat is mounted from {{ remnanode_zapret_mount_source_current }}
+          outside {{ remnanode_geo_source_dir }}; move only preserves the managed path.
+      when: remnanode_zapret_foreign | bool
+
+    - name: Refuse to move unmanaged geodata mounts
+      ansible.builtin.fail:
+        msg: >-
+          The source stack has unmanaged mounts under /usr/local/share/xray or
+          /usr/local/bin/zapret.dat. move preserves only files in
+          {{ remnanode_geo_source_dir }}. Move the files there and re-run.
+      when:
+        - remnanode_move_action == 'move'
+        - (remnanode_geo_foreign_mounts | length > 0) or (remnanode_zapret_foreign | bool)
+
     - name: Require source credentials
       ansible.builtin.set_fact:
         remnanode_require_credentials: true
@@ -101,6 +126,9 @@
           log_keep: "{{ remnanode_log_keep_current if (remnanode_log_keep_current | length > 0) else '5' }}"
           xray_custom: "{{ remnanode_existing_mount_xray | bool }}"
           xray_version: "{{ remnanode_old_xray_version | default('') }}"
+          geo_files: "{{ remnanode_geo_files_current }}"
+          geo_dir: "{{ remnanode_geo_source_dir }}"
+          zapret: "{{ remnanode_zapret_current | bool }}"
           arch: "{{ remnanode_host_arch }}"
           arch_asset: "{{ remnanode_host_arch_asset }}"
           source_host: "{{ inventory_hostname }}"
@@ -113,9 +141,51 @@
         msg: "Cannot determine the current image of '{{ remnanode_agent_container }}'"
       when: remnanode_move_payload.image | default('') | trim | length == 0
 
+    - name: Stat source geodata files
+      ansible.builtin.stat:
+        path: "{{ remnanode_move_payload.geo_dir }}/{{ item }}"
+      loop: "{{ remnanode_move_payload.geo_files | default([]) }}"
+      register: remnanode_move_geo_stat
+      when: remnanode_move_action == 'move'
+
+    - name: Require source geodata files
+      ansible.builtin.fail:
+        msg: >-
+          Geodata file '{{ item.item }}' is mounted but missing or not a
+          regular file at {{ remnanode_move_payload.geo_dir }}/{{ item.item }}.
+          Restore it before moving.
+      loop: "{{ remnanode_move_geo_stat.results | default([]) }}"
+      when:
+        - remnanode_move_action == 'move'
+        - not (item.stat.exists | default(false)) or not (item.stat.isreg | default(false))
+
+    - name: Stat source zapret file
+      ansible.builtin.stat:
+        path: "{{ remnanode_move_payload.geo_dir }}/zapret.dat"
+      register: remnanode_move_zapret_stat
+      when:
+        - remnanode_move_action == 'move'
+        - remnanode_move_payload.zapret | bool
+
+    - name: Resolve source zapret presence
+      ansible.builtin.set_fact:
+        remnanode_move_zapret_exists: >-
+          {{ (remnanode_move_zapret_stat.stat.exists | default(false))
+             if (remnanode_move_action == 'move' and remnanode_move_payload.zapret | bool) else false }}
+
+    - name: Require source zapret file
+      ansible.builtin.fail:
+        msg: >-
+          zapret.dat is mounted but missing at
+          {{ remnanode_move_payload.geo_dir }}/zapret.dat. Restore it before moving.
+      when:
+        - remnanode_move_action == 'move'
+        - remnanode_move_payload.zapret | bool
+        - not (remnanode_move_zapret_exists | bool)
+
     - name: Show source discovery
       ansible.builtin.debug:
-        msg: "source={{ inventory_hostname }} container={{ remnanode_agent_container }} dir={{ remnanode_old_dir_final }} image={{ remnanode_move_payload.image }} port={{ remnanode_move_payload.port }} creds_from={{ remnanode_creds_source }} shm={{ remnanode_move_payload.mount_shm }} logs={{ remnanode_move_payload.mount_logs }} log_dir={{ remnanode_move_payload.log_dir }} log_size={{ remnanode_move_payload.log_max_size }} log_keep={{ remnanode_move_payload.log_keep }} xray={{ 'custom ' + remnanode_move_payload.xray_version if (remnanode_move_payload.xray_custom | bool) else 'image' }} arch={{ remnanode_move_payload.arch }} scope={{ remnanode_move_scope }}"
+        msg: "source={{ inventory_hostname }} container={{ remnanode_agent_container }} dir={{ remnanode_old_dir_final }} image={{ remnanode_move_payload.image }} port={{ remnanode_move_payload.port }} creds_from={{ remnanode_creds_source }} shm={{ remnanode_move_payload.mount_shm }} logs={{ remnanode_move_payload.mount_logs }} log_dir={{ remnanode_move_payload.log_dir }} log_size={{ remnanode_move_payload.log_max_size }} log_keep={{ remnanode_move_payload.log_keep }} geo={{ remnanode_move_payload.geo_files | join(',') or '(none)' }} zapret={{ remnanode_move_payload.zapret }} xray={{ 'custom ' + remnanode_move_payload.xray_version if (remnanode_move_payload.xray_custom | bool) else 'image' }} arch={{ remnanode_move_payload.arch }} scope={{ remnanode_move_scope }}"
 
     - name: Stop at inspect
       ansible.builtin.meta: end_play
@@ -205,6 +275,26 @@
                 state: directory
                 mode: "0755"
 
+            - name: Check source geodata directory
+              ansible.builtin.stat:
+                path: "{{ remnanode_move_backup_dir }}/xray/share"
+              register: remnanode_move_geo_dir_stat
+
+            - name: Create target geodata directory
+              ansible.builtin.file:
+                path: "{{ remnanode_dir }}/xray/share"
+                state: directory
+                mode: "0755"
+              when: remnanode_move_geo_dir_stat.stat.exists | bool
+
+            - name: Preserve geodata files
+              ansible.builtin.copy:
+                src: "{{ remnanode_move_backup_dir }}/xray/share/"
+                dest: "{{ remnanode_dir }}/xray/share/"
+                remote_src: true
+                mode: preserve
+              when: remnanode_move_geo_dir_stat.stat.exists | bool
+
             - name: Install preserved xray binary
               ansible.builtin.copy:
                 src: "{{ remnanode_move_xray_tmp }}"
@@ -235,6 +325,15 @@
                 remnanode_log_dir_effective: "{{ remnanode_move_payload.log_dir }}"
                 remnanode_log_max_size_effective: "{{ remnanode_move_payload.log_max_size }}"
                 remnanode_log_keep_effective: "{{ remnanode_move_payload.log_keep }}"
+                remnanode_geo_files_effective: "{{ remnanode_move_payload.geo_files | default([]) }}"
+                remnanode_geo_files_current: "{{ remnanode_move_payload.geo_files | default([]) }}"
+                remnanode_zapret_mode_norm: "{{ 'keep' if (remnanode_move_payload.zapret | bool) else 'off' }}"
+                remnanode_zapret_mode_effective: "{{ 'keep' if (remnanode_move_payload.zapret | bool) else 'off' }}"
+                remnanode_mount_zapret_effective: "{{ remnanode_move_payload.zapret | bool }}"
+                remnanode_zapret_current: "{{ remnanode_move_payload.zapret | bool }}"
+                remnanode_zapret_mount_source_current: "{{ (remnanode_geo_dir ~ '/zapret.dat') if (remnanode_move_payload.zapret | bool) else '' }}"
+                remnanode_zapret_foreign: false
+                remnanode_geo_foreign_mounts: []
                 remnanode_port_final: "{{ remnanode_move_payload.port }}"
                 remnanode_node_secret: "{{ remnanode_move_payload.secret }}"
                 remnanode_xray_mode: keep
@@ -251,6 +350,11 @@
                 name: remnanode
                 tasks_from: xray
 
+            - name: Validate moved geodata files
+              ansible.builtin.include_role:
+                name: remnanode
+                tasks_from: geo
+
             - name: Render moved stack files
               ansible.builtin.include_role:
                 name: remnanode
@@ -263,7 +367,7 @@
 
             - name: Show local move summary
               ansible.builtin.debug:
-                msg: "moved {{ remnanode_move_source_dir_norm }} -> {{ remnanode_dir }} container={{ remnanode_agent_container }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} xray={{ remnanode_xray_summary }} backup_container={{ remnanode_move_backup_container }}{{ (' backup_dir=' + remnanode_move_backup_dir) if remnanode_move_source_stat.stat.exists else '' }} (verify, then remove backups manually)"
+                msg: "moved {{ remnanode_move_source_dir_norm }} -> {{ remnanode_dir }} container={{ remnanode_agent_container }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }} xray={{ remnanode_xray_summary }} backup_container={{ remnanode_move_backup_container }}{{ (' backup_dir=' + remnanode_move_backup_dir) if remnanode_move_source_stat.stat.exists else '' }} (verify, then remove backups manually)"
           rescue:
             - name: Remove preserved xray temp
               ansible.builtin.file:
@@ -427,6 +531,46 @@
             state: directory
             mode: "0755"
 
+        - name: Resolve geodata files to fetch
+          ansible.builtin.set_fact:
+            remnanode_move_geo_fetch: >-
+              {{ ((remnanode_move_payload.geo_files | default([]))
+                  + (['zapret.dat'] if (remnanode_move_payload.zapret | bool) else []))
+                 | unique | sort }}
+
+        - name: Move geodata files to destination
+          block:
+            - name: Create destination geodata dir
+              ansible.builtin.file:
+                path: "{{ remnanode_geo_dir }}"
+                state: directory
+                mode: "0755"
+              when: remnanode_move_geo_fetch | length > 0
+
+            - name: Fetch geodata files from source
+              ansible.builtin.fetch:
+                src: "{{ remnanode_move_payload.geo_dir }}/{{ item }}"
+                dest: "/tmp/remnanode-move-geo-{{ inventory_hostname }}/"
+                flat: true
+              delegate_to: "{{ remnanode_move_payload.source_host }}"
+              loop: "{{ remnanode_move_geo_fetch }}"
+              when: remnanode_move_geo_fetch | length > 0
+
+            - name: Install fetched geodata files
+              ansible.builtin.copy:
+                src: "/tmp/remnanode-move-geo-{{ inventory_hostname }}/{{ item }}"
+                dest: "{{ remnanode_geo_dir }}/{{ item }}"
+                mode: "0644"
+              loop: "{{ remnanode_move_geo_fetch }}"
+              when: remnanode_move_geo_fetch | length > 0
+          always:
+            - name: Remove fetched geodata files
+              ansible.builtin.file:
+                path: "/tmp/remnanode-move-geo-{{ inventory_hostname }}"
+                state: absent
+              delegate_to: localhost
+              become: false
+
         - name: Preserve custom xray from source
           block:
             - name: Extract custom xray from source container
@@ -485,6 +629,15 @@
             remnanode_log_dir_effective: "{{ remnanode_move_payload.log_dir }}"
             remnanode_log_max_size_effective: "{{ remnanode_move_payload.log_max_size }}"
             remnanode_log_keep_effective: "{{ remnanode_move_payload.log_keep }}"
+            remnanode_geo_files_effective: "{{ remnanode_move_payload.geo_files | default([]) }}"
+            remnanode_geo_files_current: "{{ remnanode_move_payload.geo_files | default([]) }}"
+            remnanode_zapret_mode_norm: "{{ 'keep' if (remnanode_move_payload.zapret | bool) else 'off' }}"
+            remnanode_zapret_mode_effective: "{{ 'keep' if (remnanode_move_payload.zapret | bool) else 'off' }}"
+            remnanode_mount_zapret_effective: "{{ remnanode_move_payload.zapret | bool }}"
+            remnanode_zapret_current: "{{ remnanode_move_payload.zapret | bool }}"
+            remnanode_zapret_mount_source_current: "{{ (remnanode_geo_dir ~ '/zapret.dat') if (remnanode_move_payload.zapret | bool) else '' }}"
+            remnanode_zapret_foreign: false
+            remnanode_geo_foreign_mounts: []
             remnanode_port_final: "{{ remnanode_move_payload.port }}"
             remnanode_node_secret: "{{ remnanode_move_payload.secret }}"
             remnanode_xray_mode: keep
@@ -500,6 +653,11 @@
           ansible.builtin.include_role:
             name: remnanode
             tasks_from: xray
+
+        - name: Validate moved geodata files
+          ansible.builtin.include_role:
+            name: remnanode
+            tasks_from: geo
 
         - name: Render moved stack files
           ansible.builtin.include_role:
@@ -519,7 +677,7 @@
 
         - name: Show remote move summary
           ansible.builtin.debug:
-            msg: "moved {{ remnanode_move_payload.source_host }} -> {{ inventory_hostname }}:{{ remnanode_dir }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} xray={{ remnanode_xray_summary }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} (repoint DNS manually; source is decommissioned only after this verification)"
+            msg: "moved {{ remnanode_move_payload.source_host }} -> {{ inventory_hostname }}:{{ remnanode_dir }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }} xray={{ remnanode_xray_summary }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} (repoint DNS manually; source is decommissioned only after this verification)"
       rescue:
         - name: Take down partial moved stack
           community.docker.docker_compose_v2:

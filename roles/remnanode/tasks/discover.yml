@@ -57,6 +57,11 @@
     remnanode_xray_mount_source: "{{ (remnanode_inspect.Mounts | default([]) | selectattr('Destination', 'equalto', '/usr/local/bin/xray') | list | first | default({})).Source | default('') }}"
     remnanode_image_current: "{{ remnanode_inspect.Config.Image | default('') }}"
     remnanode_log_dir_current: "{{ (remnanode_inspect.Mounts | default([]) | selectattr('Destination', 'equalto', '/var/log/remnanode') | list | first | default({})).Source | default('') }}"
+    remnanode_geo_file_mounts_current: "{{ remnanode_inspect.Mounts | default([]) | selectattr('Destination', 'match', '^/usr/local/share/xray/[^/]+$') | list }}"
+    remnanode_geo_files_current: "{{ remnanode_inspect.Mounts | default([]) | selectattr('Destination', 'match', '^/usr/local/share/xray/[^/]+$') | map(attribute='Destination') | map('regex_replace', '^/usr/local/share/xray/', '') | sort | list }}"
+    remnanode_geo_dir_mount_current: "{{ (remnanode_inspect.Mounts | default([]) | selectattr('Destination', 'equalto', '/usr/local/share/xray') | list | length) > 0 }}"
+    remnanode_zapret_current: "{{ (remnanode_inspect.Mounts | default([]) | selectattr('Destination', 'equalto', '/usr/local/bin/zapret.dat') | list | length) > 0 }}"
+    remnanode_zapret_mount_source_current: "{{ (remnanode_inspect.Mounts | default([]) | selectattr('Destination', 'equalto', '/usr/local/bin/zapret.dat') | list | first | default({})).Source | default('') }}"
     remnanode_compose_labels: "{{ remnanode_inspect.Config.Labels | default({}) }}"
     remnanode_inspect_env: "{{ remnanode_inspect.Config.Env | default([]) }}"
   when: remnanode_container_exists | bool
@@ -73,6 +78,11 @@
     remnanode_xray_mount_source: ""
     remnanode_image_current: ""
     remnanode_log_dir_current: ""
+    remnanode_geo_file_mounts_current: []
+    remnanode_geo_files_current: []
+    remnanode_geo_dir_mount_current: false
+    remnanode_zapret_current: false
+    remnanode_zapret_mount_source_current: ""
     remnanode_compose_labels: {}
     remnanode_inspect_env: []
   when: not (remnanode_container_exists | bool)
@@ -104,6 +114,25 @@
   ansible.builtin.fail:
     msg: "Source project dir must be an absolute path, got '{{ remnanode_old_dir_final }}'"
   when: not (remnanode_old_dir_final is match('^/.+'))
+
+- name: Resolve geodata source dir
+  ansible.builtin.set_fact:
+    remnanode_geo_source_dir: "{{ (remnanode_old_dir_final | regex_replace('/+$', '')) }}/xray/share"
+
+- name: Detect unmanaged geodata mounts
+  ansible.builtin.set_fact:
+    remnanode_geo_foreign_mounts: >-
+      {{ (remnanode_inspect.Mounts | default([])
+          | selectattr('Destination', 'match', '^/usr/local/share/xray(/.*)?$')
+          | rejectattr('Destination', 'match', '^/usr/local/share/xray/[^/]+$')
+          | list)
+         + (remnanode_geo_file_mounts_current
+            | rejectattr('Source', 'match', '^' ~ (remnanode_geo_source_dir | regex_escape) ~ '/')
+            | list) }}
+    remnanode_zapret_foreign: >-
+      {{ (remnanode_zapret_current | bool)
+         and ((remnanode_zapret_mount_source_current | regex_replace('/+$', ''))
+              != ((remnanode_geo_source_dir ~ '/zapret.dat') | regex_replace('/+$', ''))) }}
 
 - name: Stat target project dir
   ansible.builtin.stat:

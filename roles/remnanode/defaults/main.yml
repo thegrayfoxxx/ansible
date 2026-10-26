@@ -21,6 +21,37 @@ remnanode_log_dir_effective: "{{ remnanode_log_dir }}"
 remnanode_log_max_size_effective: "{{ remnanode_log_max_size }}"
 remnanode_log_keep_effective: "{{ remnanode_log_keep }}"
 
+# Geodata and zapret assets. Files live in <remnanode_dir>/xray/share/ and are
+# mounted individually: a whole-directory mount would shadow image assets.
+# keep/empty preserves current files, none removes all, a list replaces them.
+remnanode_geo_files: ""
+remnanode_geo_files_norm: []
+remnanode_geo_files_names: []
+remnanode_geo_files_mode: keep
+remnanode_geo_files_effective: []
+remnanode_geo_files_current: []
+remnanode_geo_file_mounts_current: []
+remnanode_geo_dir_mount_current: false
+remnanode_geo_foreign_mounts: []
+remnanode_geo_dir: "{{ (remnanode_dir | regex_replace('/+$', '')) }}/xray/share"
+remnanode_geo_source_dir: "{{ remnanode_geo_dir }}"
+
+# keep — preserve the current zapret mount; off — remove it; present — mount
+# and download only when the file is missing; latest — refresh from the URL.
+remnanode_zapret_mode: "keep"
+remnanode_zapret_mode_norm: >-
+  {{ 'off' if (remnanode_zapret_mode is sameas false)
+     else ('present' if (remnanode_zapret_mode is sameas true)
+           else ((remnanode_zapret_mode | default('keep', true) | string | trim | lower) or 'keep')) }}
+remnanode_zapret_mode_effective: "{{ remnanode_zapret_mode_norm }}"
+remnanode_zapret_url: "https://github.com/kutovoys/ru_gov_zapret/releases/latest/download/zapret.dat"
+remnanode_zapret_file: "{{ remnanode_geo_dir }}/zapret.dat"
+remnanode_zapret_current: false
+remnanode_zapret_mount_source_current: ""
+remnanode_zapret_foreign: false
+remnanode_mount_zapret_effective: false
+remnanode_zapret_changed: false
+
 # keep    — preserve the current custom xray (if any), otherwise use image xray
 # image   — remove the custom mount and use xray from the image
 # version — install the selected XTLS/Xray-core release and mount it

@@ -8,6 +8,11 @@
     msg: "remnanode_dir must be an absolute path, got '{{ remnanode_dir }}'"
   when: not (remnanode_dir is match('^/.+'))
 
+- name: Resolve geodata paths
+  ansible.builtin.set_fact:
+    remnanode_geo_dir: "{{ (remnanode_dir | regex_replace('/+$', '')) }}/xray/share"
+    remnanode_zapret_file: "{{ (remnanode_dir | regex_replace('/+$', '')) }}/xray/share/zapret.dat"
+
 - name: Normalize agent container name
   ansible.builtin.set_fact:
     remnanode_agent_container: "{{ (remnanode_agent_container | default('') | trim) or 'remnanode' }}"
@@ -84,3 +89,65 @@
   when:
     - remnanode_log_keep_effective | default('') | string | trim | length > 0
     - (remnanode_log_keep_effective | int < 1) or (remnanode_log_keep_effective | int > 30)
+
+- name: Normalize geodata file list
+  ansible.builtin.set_fact:
+    remnanode_geo_files_norm: >-
+      {{ ((remnanode_geo_files | list)
+          if (remnanode_geo_files is iterable and remnanode_geo_files is not string and remnanode_geo_files is not mapping)
+          else ((remnanode_geo_files | default('', true) | string) | regex_findall('[^,\s]+')))
+         | map('string') | map('trim') | select | list }}
+
+- name: Resolve geodata input tokens
+  ansible.builtin.set_fact:
+    remnanode_geo_files_tokens: "{{ remnanode_geo_files_norm | select('match', '^(keep|current|none|-)$') | list }}"
+
+- name: Validate geodata input tokens
+  ansible.builtin.fail:
+    msg: "remnanode_geo_files mixes mode tokens (keep/current/none) with file names: {{ remnanode_geo_files_norm | join(', ') }}"
+  when:
+    - remnanode_geo_files_tokens | length > 0
+    - remnanode_geo_files_norm | length > 1
+
+- name: Validate geodata file names
+  ansible.builtin.fail:
+    msg: "remnanode_geo_files accepts file names only (no paths), matching ^[A-Za-z0-9_.-]+$, got '{{ item }}'"
+  loop: "{{ remnanode_geo_files_norm }}"
+  when:
+    - remnanode_geo_files_tokens | length == 0
+    - (item is not match('^[A-Za-z0-9_.-]+$')) or (item in ['.', '..'])
+
+- name: Validate geodata file list has no duplicates
+  ansible.builtin.fail:
+    msg: "remnanode_geo_files contains duplicate names: {{ remnanode_geo_files_norm | join(', ') }}"
+  when:
+    - remnanode_geo_files_tokens | length == 0
+    - (remnanode_geo_files_norm | length) != (remnanode_geo_files_norm | unique | length)
+
+- name: Resolve geodata input mode and file names
+  ansible.builtin.set_fact:
+    remnanode_geo_files_mode: >-
+      {{ 'keep' if ((remnanode_geo_files_norm | length) == 0)
+          or (((remnanode_geo_files_tokens | length) == 1) and (remnanode_geo_files_tokens[0] in ['keep', 'current']))
+         else ('none' if (((remnanode_geo_files_tokens | length) == 1) and (remnanode_geo_files_tokens[0] in ['none', '-']))
+               else 'list') }}
+    remnanode_geo_files_names: "{{ remnanode_geo_files_norm if (remnanode_geo_files_tokens | length == 0) else [] }}"
+
+- name: Normalize zapret mode
+  ansible.builtin.set_fact:
+    remnanode_zapret_mode_norm: >-
+      {{ 'off' if (remnanode_zapret_mode is sameas false)
+         else ('present' if (remnanode_zapret_mode is sameas true)
+               else ((remnanode_zapret_mode | default('keep', true) | string | trim | lower) or 'keep')) }}
+
+- name: Validate zapret mode
+  ansible.builtin.fail:
+    msg: "remnanode_zapret_mode must be keep, off, present or latest, got '{{ remnanode_zapret_mode_norm }}'"
+  when: remnanode_zapret_mode_norm not in ['keep', 'off', 'present', 'latest']
+
+- name: Validate zapret URL
+  ansible.builtin.fail:
+    msg: "remnanode_zapret_url must be an https URL, got '{{ remnanode_zapret_url | default('') }}'"
+  when:
+    - remnanode_zapret_mode_norm in ['present', 'latest']
+    - not (remnanode_zapret_url | default('') is match('^https://'))

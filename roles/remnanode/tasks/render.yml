@@ -12,6 +12,15 @@
     mode: "0755"
   when: remnanode_mount_logs_effective | bool
 
+- name: Ensure geodata dir
+  ansible.builtin.file:
+    path: "{{ remnanode_geo_dir }}"
+    state: directory
+    mode: "0755"
+  when: >-
+    (remnanode_geo_files_effective | default([]) | length > 0)
+    or (remnanode_mount_zapret_effective | default(false) | bool)
+
 - name: Render compose file
   ansible.builtin.template:
     src: "{{ role_path }}/../../templates/remnawave/compose.yml.j2"
