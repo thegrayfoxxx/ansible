@@ -449,7 +449,7 @@
       "playbook": "playbooks/remnawave_node_move.yml",
       "survey_vars": [
         {"name": "target", "title": "Target", "description": "Исходная нода (откуда переезжаем). Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
-        {"name": "remnawave_move_action", "title": "Action", "description": "inspect — только отчёт и план (безопасно); move — переезд", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "move", "value": "move"}]},
+        {"name": "remnanode_move_action", "title": "Action", "description": "inspect — только отчёт и план (безопасно); move — переезд", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "move", "value": "move"}]},
         {"name": "remnanode_move_scope", "title": "Scope", "description": "local — другая папка на том же хосте; remote — другой хост inventory", "default_value": "local", "type": "enum", "required": false, "values": [{"name": "local", "value": "local"}, {"name": "remote", "value": "remote"}]},
         {"name": "remnanode_move_dest", "title": "Destination host", "description": "Целевая нода в inventory для scope=remote (например de9). Строго один хост; для local пусто", "type": "", "required": false},
         {"name": "remnanode_move_confirmed", "title": "Confirm move", "description": "true — разрешить остановку/вывод старой ноды (только для action=move)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},

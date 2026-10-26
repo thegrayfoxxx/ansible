@@ -290,7 +290,7 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
 Общие поля:
 
 - `target` — исходная нода, строго один хост.
-- `remnawave_move_action: inspect` — отчёт и план; `move` — переезд.
+- `remnanode_move_action: inspect` — отчёт и план; `move` — переезд.
 - `remnanode_move_confirmed: true` — обязательно для `move` (останавливаем рабочую ноду).
 - `remnanode_agent_container`, `remnanode_old_dir` (пусто — автоопределить по compose-меткам; для контейнера, запущенного вручную через `docker run`, укажи явно), `remnanode_dir` (куда переезжаем).
 
@@ -304,7 +304,7 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
 ```json
 {
   "target": "de5",
-  "remnawave_move_action": "move",
+  "remnanode_move_action": "move",
   "remnanode_move_scope": "local",
   "remnanode_move_confirmed": true,
   "remnanode_dir": "/opt/remnanode"
@@ -323,7 +323,7 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
 ```json
 {
   "target": "de5",
-  "remnawave_move_action": "move",
+  "remnanode_move_action": "move",
   "remnanode_move_scope": "remote",
   "remnanode_move_dest": "de9",
   "remnanode_move_confirmed": true
