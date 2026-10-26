@@ -415,8 +415,9 @@
       "description": "Remnawave нода: host-конфиг существующего стека — show/apply монтирований, логов и xray (playbooks/remnawave_node_config.yml)",
       "playbook": "playbooks/remnawave_node_config.yml",
       "survey_vars": [
-        {"name": "target", "title": "Target", "description": "Один хост ноды. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "target", "title": "Target", "description": "Хост или список/группа нод (de1,de2). show — можно несколько; apply на нескольких — только с Confirm fleet. Ноды обрабатываются по одной. ⚠️ Проверь охват перед Run", "type": "", "required": true},
         {"name": "remnawave_config_action", "title": "Action", "description": "show — только показать текущий конфиг; apply — применить изменения", "default_value": "show", "type": "enum", "required": false, "values": [{"name": "show", "value": "show"}, {"name": "apply", "value": "apply"}]},
+        {"name": "remnanode_config_confirmed", "title": "Confirm fleet", "description": "true — разрешить apply сразу на нескольких хостах (ноды применяются по одной; для show и одного хоста не нужен)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnanode_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnanode)", "default_value": "/opt/remnanode", "type": "", "required": false},
         {"name": "remnanode_agent_container", "title": "Remnanode container", "description": "Имя контейнера агента (пусто — remnanode)", "default_value": "remnanode", "type": "", "required": false},
         {"name": "remnanode_mount_shm", "title": "Mount /dev/shm", "description": "keep — оставить как есть; true/false — включить/выключить", "default_value": "keep", "type": "enum", "required": false, "values": [{"name": "keep", "value": "keep"}, {"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},

@@ -192,13 +192,14 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
 
 ## `remnawave_node_config` — host-конфиг существующего стека
 
-`action=show` — только отчёт (безопасно). `action=apply` — применить изменения. Работает только с уже развёрнутым стеком: нет `compose.yml` или контейнера — `fail` с подсказкой про `deploy`. Стек должен лежать в `remnanode_dir`; если он в другом каталоге — сначала `remnawave_node_move scope=local`.
+`action=show` — только отчёт (безопасно). `action=apply` — применить изменения. `target` может быть одним хостом, группой или списком нод: `show` на нескольких хостах безопасен, `apply` требует `remnanode_config_confirmed=true` и всегда идёт по одной ноде. Работает только с уже развёрнутым стеком: нет `compose.yml` или контейнера — `fail` с подсказкой про `deploy`. Стек должен лежать в `remnanode_dir`; если он в другом каталоге — сначала `remnawave_node_move scope=local`.
 
 `config` — единственный day-2 владелец xray. Он **никогда** не меняет образ, порт и `SECRET_KEY`: текущий образ берётся из контейнера, креды только читаются и проверяются.
 
 Поля:
 
-- `target` — строго один хост; `remnanode_dir` (пусто — `/opt/remnanode`), `remnanode_agent_container`.
+- `target` — один хост, группа или список нод; `remnanode_dir` (пусто — `/opt/remnanode`), `remnanode_agent_container`.
+- `remnanode_config_confirmed` — `true` разрешает `apply` сразу на нескольких хостах; для `show` и одного хоста не нужен.
 - `remnanode_mount_shm`, `remnanode_mount_logs`: `keep` (дефолт) — оставить как есть; `true`/`false` — включить/выключить.
 - `remnanode_log_dir`, `remnanode_log_max_size`, `remnanode_log_keep`: `keep` (дефолт) или пусто — оставить текущее; явное значение — изменить. Примеры: `/var/log/remnanode` или `/opt/xray-logs`, `100M`/`50M`/`1G`, `5`/`10` (`1..30`). Если текущего значения нет, используются `/var/log/remnanode`, `100M`, `5`.
 - `remnanode_geo_files`: `keep` (дефолт) или пусто — оставить текущие файлы; `none`/`-` — убрать все mount'ы (файлы остаются на диске); иначе список имён из `<remnanode_dir>/xray/share/` через запятую.
@@ -209,6 +210,7 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
 Поведение:
 
 - `keep` (дефолт) и пустые поля трактуются как «оставить текущее»;
+- ноды всегда обрабатываются по одной (`serial: 1`), даже если `target` — группа: `apply` перезапускает их последовательно; упавшая нода не останавливает остальные, итог виден в recap;
 - если менять нечего — `No config changes` и выход без рестарта;
 - изменения монтирований/логов/xray пересобирают контейнер; смена только logrotate может обойтись без рестарта, но проверка running/listen всё равно выполняется;
 - `ufw` только отображается (`remnanode_ufw_state`, `remnanode_port_fw` + warning при закрытом порте) — правила меняет шаблон `firewall`;
@@ -230,6 +232,16 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
   "remnanode_log_keep": 10,
   "remnanode_xray_mode": "version",
   "remnanode_xray_version": "26.10.21"
+}
+```
+
+```json
+{
+  "target": "de1,de2",
+  "remnawave_config_action": "apply",
+  "remnanode_config_confirmed": true,
+  "remnanode_geo_files": "geo-zapret.dat,ip-zapret.dat",
+  "remnanode_zapret_mode": "present"
 }
 ```
 
