@@ -37,6 +37,7 @@
       ansible.builtin.command: >-
         docker ps -a --filter "name={{ remnanode_agent_container }}-move-bak"
         --filter "name={{ remnanode_agent_container }}-moved-bak"
+        --filter "name={{ remnanode_agent_container }}-adopt-bak"
         --format "{{ '{{.Names}}' }}"
       register: remnanode_purge_discovered_containers
       changed_when: false
@@ -46,7 +47,7 @@
     - name: Auto-discover backup directories
       ansible.builtin.shell: >-
         find {{ remnanode_dir | regex_replace('/[^/]+$', '') }} /opt -maxdepth 1 -type d
-        \( -name "*.move-bak-*" -o -name "*.moved-bak-*" \) 2>/dev/null || true
+        \( -name "*.move-bak-*" -o -name "*.moved-bak-*" -o -name "*.adopt-bak-*" \) 2>/dev/null || true
       register: remnanode_purge_discovered_dirs
       changed_when: false
       failed_when: false
