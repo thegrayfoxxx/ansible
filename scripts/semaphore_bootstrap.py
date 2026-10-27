@@ -199,6 +199,7 @@ def build_payload(project_id, tpl, ids):
         "description": tpl.get("description", ""),
         "arguments": "[]",
         "survey_vars": tpl.get("survey_vars", []),
+        "survey": tpl.get("survey_vars", []),
     }
     if ids.get("view") is not None:
         payload["view_id"] = ids["view"]
