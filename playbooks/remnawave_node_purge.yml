@@ -37,7 +37,7 @@
       ansible.builtin.command: >-
         docker ps -a --filter "name={{ remnanode_agent_container }}-move-bak"
         --filter "name={{ remnanode_agent_container }}-moved-bak"
-        --format "{{.Names}}"
+        --format "{{ '{{.Names}}' }}"
       register: remnanode_purge_discovered_containers
       changed_when: false
       failed_when: false
