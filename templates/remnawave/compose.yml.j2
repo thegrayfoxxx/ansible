@@ -12,7 +12,7 @@ services:
     hostname: remnanode
     image: {{ remnanode_node_image }}
     network_mode: host
-    restart: always
+    restart: unless-stopped
 {% if (remnanode_mount_shm_effective | default(true) | bool) or (remnanode_mount_logs_effective | default(true) | bool) or (remnanode_mount_xray | default(false) | bool) or (geo_files | length > 0) or mount_zapret %}
     volumes:
 {% if remnanode_mount_shm_effective | default(true) | bool %}

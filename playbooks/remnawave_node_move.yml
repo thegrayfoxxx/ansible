@@ -367,7 +367,19 @@
 
             - name: Show local move summary
               ansible.builtin.debug:
-                msg: "moved {{ remnanode_move_source_dir_norm }} -> {{ remnanode_dir }} container={{ remnanode_agent_container }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }} xray={{ remnanode_xray_summary }} backup_container={{ remnanode_move_backup_container }}{{ (' backup_dir=' + remnanode_move_backup_dir) if remnanode_move_source_stat.stat.exists else '' }} (verify, then remove backups manually)"
+                msg: "moved {{ remnanode_move_source_dir_norm }} -> {{ remnanode_dir }} container={{ remnanode_agent_container }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }} xray={{ remnanode_xray_summary }} backup_container={{ remnanode_move_backup_container }}{{ (' backup_dir=' + remnanode_move_backup_dir) if remnanode_move_source_stat.stat.exists else '' }} (backup auto-purged after verify)"
+
+            - name: Purge moved stack backup container after successful move
+              ansible.builtin.command:
+                argv: ["docker", "rm", "-f", "{{ remnanode_move_backup_container }}"]
+              changed_when: true
+              when: remnanode_move_source_stat.stat.exists | bool
+
+            - name: Purge moved stack backup dir after successful move
+              ansible.builtin.file:
+                path: "{{ remnanode_move_backup_dir }}"
+                state: absent
+              when: remnanode_move_source_stat.stat.exists | bool
           rescue:
             - name: Remove preserved xray temp
               ansible.builtin.file:
@@ -733,6 +745,19 @@
         argv: ["docker", "rename", "{{ remnanode_agent_container }}", "{{ remnanode_agent_container }}-moved-bak-{{ remnanode_move_ts.stdout | trim }}"]
       changed_when: true
 
+    - name: Purge moved source backup after successful move
+      when: remnanode_move_action == 'move'
+      block:
+        - name: Remove moved source backup container
+          ansible.builtin.command:
+            argv: ["docker", "rm", "-f", "{{ remnanode_agent_container }}-moved-bak-{{ remnanode_move_ts.stdout | trim }}"]
+          changed_when: true
+
+        - name: Remove moved source backup dir
+          ansible.builtin.file:
+            path: "{{ remnanode_old_dir_final }}.move-bak-{{ remnanode_move_ts.stdout | trim }}"
+            state: absent
+
     - name: Show decommission summary
       ansible.builtin.debug:
-        msg: "source {{ inventory_hostname }} decommissioned: container renamed to {{ remnanode_agent_container }}-moved-bak-{{ remnanode_move_ts.stdout | trim }} (rename back + start to roll back), project files left intact (remove manually when stable). Repoint DNS to the new node (mind TTL)"
+        msg: "source {{ inventory_hostname }} decommissioned: moved-source backup container {{ remnanode_agent_container }}-moved-bak-{{ remnanode_move_ts.stdout | trim }} renamed aside then purged after successful move, project files left intact (remove manually when stable). Repoint DNS to the new node (mind TTL)"
