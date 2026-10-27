@@ -490,7 +490,26 @@
 
         - name: Show adopt summary
           ansible.builtin.debug:
-            msg: "adopted {{ nginx_old_dir_final }} -> {{ nginx_dir }} domain={{ nginx_domain_final }} conf={{ 'stock' if (nginx_overwrite_conf | bool) else 'preserved' }} acme={{ 'moved' if (nginx_acme_src | default('') | length > 0) else 'missing (renewals need re-issue)' }} firewall={{ 'manual' if not (nginx_open_ports | bool) else 'open' }} backup_dir={{ nginx_backup_dir }} (remove backups manually when stable)"
+            msg: "adopted {{ nginx_old_dir_final }} -> {{ nginx_dir }} domain={{ nginx_domain_final }} conf={{ 'stock' if (nginx_overwrite_conf | bool) else 'preserved' }} acme={{ 'moved' if (nginx_acme_src | default('') | length > 0) else 'missing (renewals need re-issue)' }} firewall={{ 'manual' if not (nginx_open_ports | bool) else 'open' }} backup_dir={{ nginx_backup_dir }} (backups auto-purged after verify)"
+        - name: Purge adopted source backup after successful adopt
+          when: nginx_backup_dir is defined
+          block:
+            - name: Remove adopted source backup containers
+              ansible.builtin.command:
+                argv: ["docker", "rm", "-f", "{{ item }}"]
+              loop:
+                - "{{ nginx_backup_web }}"
+                - "{{ nginx_backup_acme }}"
+              changed_when: true
+              failed_when: false
+
+            - name: Remove adopted source backup dir
+              ansible.builtin.file:
+                path: "{{ nginx_backup_dir }}"
+                state: absent
+              become: true
+              failed_when: false
+
       rescue:
         - name: Take down partial new stack
           community.docker.docker_compose_v2:

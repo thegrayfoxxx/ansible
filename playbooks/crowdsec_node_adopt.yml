@@ -448,7 +448,26 @@
 
         - name: Show adopt summary
           ansible.builtin.debug:
-            msg: "adopted {{ crowdsec_old_dir_final }} -> {{ crowdsec_dir }} node={{ crowdsec_resolved_name }} mode={{ crowdsec_mode }} group={{ crowdsec_group_name }} updated backup_agent={{ crowdsec_backup_agent }} backup_bouncer={{ crowdsec_backup_bouncer }}{{ (' backup_dir=' + crowdsec_backup_dir) if crowdsec_old_compose.stat.exists else '' }} (remove backups manually when stable)"
+            msg: "adopted {{ crowdsec_old_dir_final }} -> {{ crowdsec_dir }} node={{ crowdsec_resolved_name }} mode={{ crowdsec_mode }} group={{ crowdsec_group_name }} updated backup_agent={{ crowdsec_backup_agent }} backup_bouncer={{ crowdsec_backup_bouncer }}{{ (' backup_dir=' + crowdsec_backup_dir) if crowdsec_old_compose.stat.exists else '' }} (backups auto-purged after verify)"
+        - name: Purge adopted source backup after successful adopt
+          when: crowdsec_old_compose.stat.exists | bool
+          block:
+            - name: Remove adopted source backup containers
+              ansible.builtin.command:
+                argv: ["docker", "rm", "-f", "{{ item }}"]
+              loop:
+                - "{{ crowdsec_backup_agent }}"
+                - "{{ crowdsec_backup_bouncer }}"
+              changed_when: true
+              failed_when: false
+
+            - name: Remove adopted source backup dir
+              ansible.builtin.file:
+                path: "{{ crowdsec_backup_dir }}"
+                state: absent
+              become: true
+              failed_when: false
+
       rescue:
         - name: Take down partial new stack
           community.docker.docker_compose_v2:
