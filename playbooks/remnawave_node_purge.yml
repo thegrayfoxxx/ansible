@@ -34,11 +34,8 @@
         - not (remnanawave_purge_confirm | bool)
 
     - name: Auto-discover backup containers
-      ansible.builtin.command: >-
-        docker ps -a --filter "name={{ remnanode_agent_container }}-move-bak"
-        --filter "name={{ remnanode_agent_container }}-moved-bak"
-        --filter "name={{ remnanode_agent_container }}-adopt-bak"
-        --format "{{ '{{.Names}}' }}"
+      ansible.builtin.shell: >-
+        docker ps -a --format "{{ '{{.Names}}' }}" | grep -- '-bak-' || true
       register: remnanode_purge_discovered_containers
       changed_when: false
       failed_when: false
@@ -46,7 +43,7 @@
 
     - name: Auto-discover backup directories
       ansible.builtin.shell: >-
-        ls /opt 2>/dev/null | grep -- '-bak-' | sed 's|^|/opt/|' | sort -u || true
+        find /opt /home /root /srv /var -maxdepth 3 -type d -name "*-bak-*" 2>/dev/null | sort -u || true
       register: remnanode_purge_discovered_dirs
       changed_when: false
       failed_when: false
