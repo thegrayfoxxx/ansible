@@ -655,6 +655,21 @@
       changed_when: true
       when: (nginx_web_final | default('') | length) > 0
 
+    - name: Purge moved source backup after successful move
+      when: nginx_move_action == 'move'
+      block:
+        - name: Remove moved source backup containers
+          ansible.builtin.command:
+            argv: ["docker", "rm", "-f", "{{ item }}-moved-bak-{{ nginx_ts.stdout | trim }}"]
+          loop: "{{ [nginx_web_final | default('')] + ([nginx_acme_name] if (nginx_acme_found | default(false) | bool) else []) | select | list }}"
+          changed_when: true
+          when: (nginx_web_final | default('') | length) > 0
+
+        - name: Remove moved source backup dir
+          ansible.builtin.file:
+            path: "{{ nginx_old_dir_final }}.move-bak-{{ nginx_ts.stdout | trim }}"
+            state: absent
+
     - name: Show decommission summary
       ansible.builtin.debug:
-        msg: "source {{ inventory_hostname }} decommissioned: containers renamed *-moved-bak (rename back + start to roll back), project files left intact (remove manually when stable). DNS already repointed?"
+        msg: "source {{ inventory_hostname }} decommissioned: moved-source backup containers renamed *-moved-bak then purged after successful move, project files left intact (remove manually when stable). DNS already repointed?"
