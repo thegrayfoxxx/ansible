@@ -3,6 +3,7 @@
   hosts: "{{ target | default('localhost', true) }}"
   gather_facts: false
   become: false
+  serial: 1
   vars:
     remnanawave_purge_action: inspect
     remnanawave_purge_confirm: false
@@ -23,10 +24,13 @@
         - remnanawave_purge_action == 'purge'
         - (remnanode_purge_container | default('', true) | trim | length) == 0 or (remnanode_purge_dir | default('', true) | trim | length) == 0
 
-    - name: Require exactly one target host
+    - name: Require fleet confirmation for multiple hosts
       ansible.builtin.fail:
-        msg: "Purge addresses one host per run — point target at a single host, got {{ ansible_play_hosts_all | length }}"
-      when: ansible_play_hosts_all | length != 1
+        msg: "Purge on multiple hosts requires remnanawave_purge_confirmed=true"
+      when:
+        - remnanawave_purge_action == 'purge'
+        - ansible_play_hosts_all | length > 1
+        - not (remnanawave_purge_confirmed | default(false, true) | bool)
 
     - name: Require confirmation for purge
       ansible.builtin.fail:
@@ -59,9 +63,9 @@
               container={{ remnanode_purge_container | default('', true) }} exists={{ (remnanode_purge_container_check.rc | default(1) == 0) if (remnanode_purge_container | default('', true) | trim | length) > 0 else false }}
               dir={{ remnanode_purge_dir | default('', true) }} exists={{ remnanode_purge_dir_stat.stat.exists | default(false) if (remnanode_purge_dir | default('', true) | trim | length) > 0 else false }}
 
-    - name: Stop after inspect
+    - name: Stop after inspect (this host only)
       when: remnanawave_purge_action == 'inspect'
-      ansible.builtin.meta: end_play
+      ansible.builtin.meta: end_host
 
     - name: Purge backup artifacts
       when: remnanawave_purge_action == 'purge'
