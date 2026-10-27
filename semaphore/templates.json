@@ -324,6 +324,20 @@
       ]
     },
     {
+      "name": "crowdsec_node_purge",
+      "view": "CrowdSec",
+      "description": "CrowdSec: удаление бэкапа после успешного move/adopt (action=inspect/purge; удаляет container+dir бэкапа)",
+      "playbook": "playbooks/crowdsec_node_purge.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Один хост или список хостов (de1,de2). Обрабатываются по одному (serial=1). ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "crowdsec_purge_action", "title": "Action", "description": "inspect — только отчёт что будет удалено; purge — удалить контейнер и каталог бэкапа", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "purge", "value": "purge"}]},
+        {"name": "crowdsec_purge_container", "title": "Backup container", "description": "Имя контейнера бэкапа для удаления. Пусто — искать автоматически по шаблону *-bak-*", "type": "", "required": false},
+        {"name": "crowdsec_purge_dir", "title": "Backup dir", "description": "Путь каталога бэкапа для удаления. Пусто — искать автоматически в /opt, /home, /root, /srv, /var", "type": "", "required": false},
+        {"name": "crowdsec_purge_confirm", "title": "Confirm purge", "description": "true — разрешить удаление (только с action=purge)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "crowdsec_purge_confirmed", "title": "Confirm fleet", "description": "true — разрешить purge сразу на нескольких хостах (для одного хоста не нужен)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
       "name": "health",
       "view": "Observability",
       "description": "Сводный read-only статус нод: uptime, диск, docker, fail2ban/crowdsec/remnawave (playbooks/health.yml)",
@@ -542,6 +556,20 @@
         {"name": "nginx_dir", "title": "Project dir", "description": "Куда переезжаем на целевой ноде (пусто — /opt/nginx)", "default_value": "/opt/nginx", "type": "", "required": false},
         {"name": "nginx_open_ports", "title": "Open 80+443", "description": "true — открыть 80,443/tcp в ufw на цели, если он есть (нет — скип с warning)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "nginx_overwrite_conf", "title": "Overwrite nginx conf", "description": "true — заменить найденный конфиг нашим стоком (иначе сохранить + warning о diff)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
+      "name": "nginx_node_purge",
+      "view": "Nginx",
+      "description": "Nginx: удаление бэкапа после успешного move/adopt (action=inspect/purge; удаляет container+dir бэкапа)",
+      "playbook": "playbooks/nginx_node_purge.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Один хост или список хостов (de1,de2). Обрабатываются по одному (serial=1). ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "nginx_purge_action", "title": "Action", "description": "inspect — только отчёт что будет удалено; purge — удалить контейнер и каталог бэкапа", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "purge", "value": "purge"}]},
+        {"name": "nginx_purge_container", "title": "Backup container", "description": "Имя контейнера бэкапа для удаления. Пусто — искать автоматически по шаблону *-bak-*", "type": "", "required": false},
+        {"name": "nginx_purge_dir", "title": "Backup dir", "description": "Путь каталога бэкапа для удаления. Пусто — искать автоматически в /opt, /home, /root, /srv, /var", "type": "", "required": false},
+        {"name": "nginx_purge_confirm", "title": "Confirm purge", "description": "true — разрешить удаление (только с action=purge)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "nginx_purge_confirmed", "title": "Confirm fleet", "description": "true — разрешить purge сразу на нескольких хостах (для одного хоста не нужен)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
     {
