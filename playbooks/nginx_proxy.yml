@@ -118,6 +118,7 @@
         dest: "{{ nginx_dir }}/.env"
         mode: "0600"
       vars:
+        nginx_acme_server: "{{ 'https://acme-staging-v02.api.letsencrypt.org/directory' if (nginx_staging | bool) else 'https://acme-v02.api.letsencrypt.org/directory' }}"
         nginx_domain: "{{ nginx_domain }}"
         nginx_email: "{{ nginx_email }}"
         nginx_staging: "{{ nginx_staging }}"
