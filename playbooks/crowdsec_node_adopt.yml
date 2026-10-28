@@ -12,7 +12,6 @@
     project_id: ""
     crowdsec_mode: ""
     crowdsec_dir: /opt/crowdsec
-    crowdsec_mode: ""
     crowdsec_group_name: crowdsec_nodes
     crowdsec_base_collections:
       - crowdsecurity/linux
