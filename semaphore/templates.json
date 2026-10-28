@@ -576,6 +576,48 @@
       ]
     },
     {
+      "name": "nginx_proxy",
+      "view": "Nginx",
+      "description": "Nginx reverse proxy: терминирует TLS на 443, маршрутит заданный путь на сокет Xray, остальное — fallback-заглушка (playbooks/nginx_proxy.yml)",
+      "playbook": "playbooks/nginx_proxy.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Один хост ноды. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "nginx_domain", "title": "Domain", "description": "Домен, например de1.example.com (без https:// и слэшей)", "type": "", "required": true},
+        {"name": "nginx_proxy_path", "title": "Xray path", "description": "Путь запроса, маршрутимый на Xray, например /xray, /data/, /api", "default_value": "/xray", "type": "", "required": false},
+        {"name": "nginx_proxy_upstream", "title": "Xray upstream", "description": "Адрес Xray: http://unix:/dev/shm/xray.sock (сокет) или http://127.0.0.1:PORT (сеть)", "default_value": "http://unix:/dev/shm/xray.sock", "type": "", "required": false},
+        {"name": "nginx_email", "title": "ACME email", "description": "Обязателен для первого выпуска серта (потом можно пустым)", "type": "", "required": false},
+        {"name": "nginx_html", "title": "index.html", "description": "Свой HTML заглушки целиком", "type": "text", "required": true},
+        {"name": "nginx_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/nginx_proxy)", "default_value": "/opt/nginx_proxy", "type": "", "required": false},
+        {"name": "nginx_staging", "title": "LE staging", "description": "true — staging LE для обкатки без рейт-лимитов", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "nginx_force_issue", "title": "Force reissue", "description": "true — перевыпустить принудительно", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "nginx_open_ports", "title": "Open 80+443", "description": "true — открыть 80,443/tcp в ufw, если он есть", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
+      "name": "nginx_proxy_update",
+      "view": "Nginx",
+      "description": "Обновление Nginx proxy: pull + down + up -d (playbooks/nginx_proxy_update.yml)",
+      "playbook": "playbooks/nginx_proxy_update.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "nginx_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/nginx_proxy)", "default_value": "/opt/nginx_proxy", "type": "", "required": false}
+      ]
+    },
+    {
+      "name": "nginx_proxy_purge",
+      "view": "Nginx",
+      "description": "Nginx proxy: удаление бэкапа после успешного деплоя (action=inspect/purge; удаляет container+dir бэкапа)",
+      "playbook": "playbooks/nginx_proxy_purge.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "Один хост или список хостов (de1,de2). Обрабатываются по одному (serial=1). ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "nginx_proxy_purge_action", "title": "Action", "description": "inspect — только отчёт что будет удалено; purge — удалить контейнер и каталог бэкапа", "default_value": "inspect", "type": "enum", "required": false, "values": [{"name": "inspect", "value": "inspect"}, {"name": "purge", "value": "purge"}]},
+        {"name": "nginx_proxy_purge_container", "title": "Backup container", "description": "Имя контейнера бэкапа для удаления. Пусто — искать автоматически по шаблону *-bak-*", "type": "", "required": false},
+        {"name": "nginx_proxy_purge_dir", "title": "Backup dir", "description": "Путь каталога бэкапа для удаления. Пусто — искать автоматически в /opt, /home, /root, /srv, /var", "type": "", "required": false},
+        {"name": "nginx_proxy_purge_confirm", "title": "Confirm purge", "description": "true — разрешить удаление (только с action=purge)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
+        {"name": "nginx_proxy_purge_confirmed", "title": "Confirm fleet", "description": "true — разрешить purge сразу на нескольких хостах (для одного хоста не нужен)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
+      ]
+    },
+    {
       "name": "nginx_node_update",
       "view": "Nginx",
       "description": "Обновление Nginx fallback: pull + down + up -d (playbooks/nginx_node_update.yml)",

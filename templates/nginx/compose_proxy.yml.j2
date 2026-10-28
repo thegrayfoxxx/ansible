@@ -1,0 +1,43 @@
+# {{ ansible_managed }}
+# Nginx reverse proxy: nginx впереди на 443, маршрутит заданный путь на сокет Xray,
+# всё остальное — fallback-заглушка. Xray запускается ОТДЕЛЬНО.
+services:
+
+  nginx-proxy-web:
+    image: nginx:alpine
+    container_name: nginx-proxy-web
+    network_mode: host
+    environment:
+      - DOMAIN=${DOMAIN}
+      - XRAY_PATH=${XRAY_PATH}
+      - XRAY_UPSTREAM=${XRAY_UPSTREAM}
+      - ACME_SERVER=${ACME_SERVER}
+    volumes:
+      - ./nginx/nginx_proxy.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./html/index.html:/usr/share/nginx/html/index.html:ro
+      - ./letsencrypt:/etc/letsencrypt:rw
+      - ./webroot:/var/www/webroot:rw
+      - /dev/shm:/dev/shm:rw
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  nginx-proxy-acme:
+    image: neilpang/acme.sh:latest
+    container_name: nginx-proxy-acme
+    command: daemon
+    environment:
+      - ACME_SERVER=${ACME_SERVER}
+    volumes:
+      - ./acme.sh:/acme.sh:rw
+      - ./letsencrypt:/etc/letsencrypt:rw
+      - ./webroot:/var/www/webroot:rw
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped

@@ -1,0 +1,190 @@
+---
+- name: Deploy nginx proxy (TLS termination + Xray route + fallback stub)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    nginx_domain: ""
+    nginx_proxy_path: "/xray"
+    nginx_proxy_upstream: "http://unix:/dev/shm/xray.sock"
+    nginx_email: ""
+    nginx_html: ""
+    nginx_dir: /opt/nginx_proxy
+    nginx_staging: false
+    nginx_force_issue: false
+    nginx_open_ports: false
+    nginx_web_container: nginx-proxy-web
+    nginx_acme_container: nginx-proxy-acme
+    nginx_socket: /dev/shm/xray.sock
+  tasks:
+    - name: Normalize project dir
+      ansible.builtin.set_fact:
+        nginx_dir: "{{ (nginx_dir | default('') | trim) or '/opt/nginx_proxy' }}"
+
+    - name: Validate project dir
+      ansible.builtin.fail:
+        msg: "nginx_dir must be an absolute path, got '{{ nginx_dir }}'"
+      when: not (nginx_dir is match('^/.+'))
+
+    - name: Validate domain value
+      ansible.builtin.fail:
+        msg: "nginx_domain must be a plain hostname like de1.example.com (no scheme, slashes or spaces), got '{{ nginx_domain }}'"
+      when: nginx_domain | default('') | trim | length == 0
+
+    - name: Validate proxy path
+      ansible.builtin.fail:
+        msg: "nginx_proxy_path must start with /, got '{{ nginx_proxy_path }}'"
+      when: not (nginx_proxy_path | default('') | trim | regex_search('^/'))
+
+    - name: Validate proxy upstream
+      ansible.builtin.fail:
+        msg: "nginx_proxy_upstream must be a valid URL (http://unix:/path or http://host:port), got '{{ nginx_proxy_upstream }}'"
+      when: not (nginx_proxy_upstream | default('') | trim | regex_search('^https?://'))
+
+    - name: Validate html value
+      ansible.builtin.fail:
+        msg: "nginx_html must be non-empty (pass full index.html content)"
+      when: nginx_html | default('') | trim | length == 0
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: nginx_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker on node
+      ansible.builtin.fail:
+        msg: "docker not found. Run the docker template on this host first"
+      when: nginx_docker_bin.rc != 0
+
+    - name: Check Debian family
+      ansible.builtin.stat:
+        path: /etc/debian_version
+      register: nginx_debian
+
+    - name: Require Debian or Ubuntu
+      ansible.builtin.fail:
+        msg: "Nginx proxy needs Debian or Ubuntu"
+      when: not nginx_debian.stat.exists
+
+    - name: Check own web container is running
+      ansible.builtin.command: docker inspect {{ nginx_web_container }}
+      register: nginx_own_web
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Ensure project dir
+      ansible.builtin.file:
+        path: "{{ nginx_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Ensure subdirs
+      ansible.builtin.file:
+        path: "{{ nginx_dir }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - nginx
+        - html
+        - letsencrypt
+        - webroot
+        - acme.sh
+
+    - name: Render compose file
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/nginx/compose_proxy.yml.j2"
+        dest: "{{ nginx_dir }}/compose.yml"
+        mode: "0644"
+
+    - name: Render nginx config
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../files/nginx/nginx_proxy.conf.template"
+        dest: "{{ nginx_dir }}/nginx/nginx_proxy.conf.template"
+        mode: "0644"
+
+    - name: Render index.html
+      ansible.builtin.copy:
+        content: "{{ nginx_html }}"
+        dest: "{{ nginx_dir }}/html/index.html"
+        mode: "0644"
+
+    - name: Render dotenv
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/nginx/dotenv.j2"
+        dest: "{{ nginx_dir }}/.env"
+        mode: "0600"
+      vars:
+        nginx_domain: "{{ nginx_domain }}"
+        nginx_email: "{{ nginx_email }}"
+        nginx_staging: "{{ nginx_staging }}"
+        nginx_socket: "{{ nginx_socket }}"
+        nginx_proxy_path: "{{ nginx_proxy_path }}"
+        nginx_proxy_upstream: "{{ nginx_proxy_upstream }}"
+
+    - name: Start stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ nginx_dir }}"
+        state: present
+      register: nginx_up
+
+    - name: Wait for nginx to be ready
+      ansible.builtin.wait_for:
+        port: 443
+        delay: 2
+        timeout: 30
+      when: nginx_open_ports | bool
+
+    - name: Validate nginx config
+      ansible.builtin.command: docker exec {{ nginx_web_container }} nginx -t
+      register: nginx_config_test
+      changed_when: false
+      failed_when: false
+
+    - name: Require valid nginx config
+      ansible.builtin.fail:
+        msg: "nginx config validation failed: {{ nginx_config_test.stderr | default('') }}"
+      when: nginx_config_test.rc != 0
+
+    - name: Issue LE certificate (first time)
+      ansible.builtin.command:
+        argv: "{{ ['docker', 'exec', nginx_acme_container, 'acme.sh', '--issue', '-d', (nginx_domain | trim), '--webroot', '/var/www/webroot', '--accountemail', (nginx_email | trim)] + (['--server', 'letsencrypt_test'] if (nginx_staging | bool) else ['--server', 'letsencrypt']) }}"
+      register: nginx_cert_issue
+      changed_when: "'Cert success' in (nginx_cert_issue.stdout + nginx_cert_issue.stderr)"
+      failed_when: false
+      when: nginx_email | default('') | trim | length > 0
+
+    - name: Reload nginx after cert
+      ansible.builtin.command: docker exec {{ nginx_web_container }} nginx -s reload
+      changed_when: true
+      when: nginx_cert_issue is defined and nginx_cert_issue.rc == 0
+
+    - name: Check ufw is available for auto open
+      ansible.builtin.shell: command -v ufw
+      args:
+        executable: /bin/bash
+      register: nginx_ufw_bin
+      changed_when: false
+      failed_when: false
+      when: nginx_open_ports | bool
+
+    - name: Warn when ufw is missing for auto open
+      ansible.builtin.debug:
+        msg: "ufw not found — ports 80,443 NOT opened. Install ufw (base/firewall templates) or open them manually"
+      when:
+        - nginx_open_ports | bool
+        - nginx_ufw_bin.rc | default(1) | int != 0
+
+    - name: Open 80 and 443 in ufw
+      ansible.builtin.command: ufw allow proto tcp from any to any port 80,443
+      changed_when: true
+      when:
+        - nginx_open_ports | bool
+        - nginx_ufw_bin.rc | default(1) | int == 0
+
+    - name: Show deploy summary
+      ansible.builtin.debug:
+        msg: "deployed nginx_proxy {{ nginx_dir }} domain={{ nginx_domain }} path={{ nginx_proxy_path }} upstream={{ nginx_proxy_upstream }} ports={{ 'open' if (nginx_open_ports | bool) else 'manual' }} cert={{ 'issued' if (nginx_cert_issue is defined and nginx_cert_issue.rc == 0) else 'skipped/failed' }}"

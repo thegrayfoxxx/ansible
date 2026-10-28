@@ -3,3 +3,5 @@
 DOMAIN={{ nginx_domain }}
 EMAIL={{ nginx_email }}
 ACME_SERVER={{ nginx_acme_server }}
+XRAY_PATH={{ nginx_proxy_path | default('/xray') }}
+XRAY_UPSTREAM={{ nginx_proxy_upstream | default('http://unix:/dev/shm/xray.sock') }}

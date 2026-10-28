@@ -1,0 +1,127 @@
+# Nginx reverse proxy: терминирует TLS на 443, маршрутит заданный путь на сокет/upstream Xray,
+# всё остальное отдаёт как fallback-заглушку (правдоподобный сайт для сканеров).
+# Шаблон для nginx:alpine: ${DOMAIN}, ${XRAY_PATH}, ${XRAY_UPSTREAM} подставятся из environment.
+# Результат: /etc/nginx/conf.d/default.conf
+#
+# Архитектура (nginx впереди, в отличие от nginx_fallback где Xray стоит впереди):
+#   Клиент → :443 → Nginx (TLS, LE-серт, http2) → /XRAY_PATH → Xray (сокет/upstream)
+#                                                  → /           → fallback stub (index.html)
+#
+# Оптимизации под XHTTP-трафик (packet-up mode):
+#   - HTTP/2 для alpn h2
+#   - Большие заголовки (XHTTP передаёт данные в X-Cache и др.)
+#   - Отключение буферизации и кэша на маршруте Xray
+#   - Keep-alive к upstream
+#
+# Требования:
+# - Xray должен слушать на сокете/upstream, указанном в XRAY_UPSTREAM
+# - LE-сертификат для ${DOMAIN}
+
+# --- 443: основной сервер ---
+server {
+    listen 443 ssl http2;
+    server_name ${DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    server_tokens off;
+    access_log off;
+    error_log stderr warn;
+
+    # Большие заголовки для XHTTP packet-up (данные в X-Cache и др.)
+    large_client_header_buffers 4 32k;
+    client_header_buffer_size 8k;
+    client_max_body_size 10m;
+
+    # TCP-оптимизации
+    tcp_nodelay on;
+    tcp_nopush on;
+
+    default_type text/html;
+    charset utf-8;
+
+    # --- Маршрут на Xray (сокет или upstream) ---
+    # XRAY_PATH — путь запроса (например /xray, /data/, /api)
+    # XRAY_UPSTREAM — адрес Xray (http://unix:/dev/shm/xray.sock или http://127.0.0.1:PORT)
+    location ${XRAY_PATH} {
+        proxy_pass ${XRAY_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+
+        # Таймауты для долгих соединений
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_connect_timeout 10s;
+
+        # Отключение буферизации (XHTTP стриминг)
+        proxy_buffering off;
+        proxy_request_buffering off;
+
+        # Отключение кэша на маршруте Xray
+        proxy_cache off;
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+
+        # Буферы для больших заголовков
+        proxy_buffer_size 16k;
+        proxy_buffers 8 16k;
+
+        # Заголовки против кэширования
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    }
+
+    # --- Fallback-заглушка: всё остальное ---
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "public, max-age=3600";
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    }
+
+    # robots/sitemap — живые, 200
+    location = /robots.txt {
+        add_header Content-Type text/plain;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+        return 200 "User-agent: *\nAllow: /\nSitemap: https://${DOMAIN}/sitemap.xml\n";
+    }
+
+    location = /sitemap.xml {
+        add_header Content-Type application/xml;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+        return 200 '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://${DOMAIN}/</loc></url></urlset>';
+    }
+}
+
+# --- 80 порт: только 301 на https + webroot для ACME http-01 ---
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    server_tokens off;
+    access_log off;
+    error_log stderr warn;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/webroot;
+        default_type text/plain;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}

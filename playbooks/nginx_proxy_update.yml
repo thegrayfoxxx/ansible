@@ -1,0 +1,63 @@
+---
+- name: Nginx proxy update (pull + down + up)
+  hosts: "{{ target }}"
+  gather_facts: false
+  become: true
+  vars:
+    nginx_dir: /opt/nginx_proxy
+    nginx_web_container: nginx-proxy-web
+  tasks:
+    - name: Normalize project dir
+      ansible.builtin.set_fact:
+        nginx_dir: "{{ (nginx_dir | default('') | trim) or '/opt/nginx_proxy' }}"
+
+    - name: Validate project dir
+      ansible.builtin.fail:
+        msg: "nginx_dir must be an absolute path, got '{{ nginx_dir }}'"
+      when: not (nginx_dir is match('^/.+'))
+
+    - name: Check docker is available
+      ansible.builtin.shell: command -v docker
+      args:
+        executable: /bin/bash
+      register: nginx_docker_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Require docker on node
+      ansible.builtin.fail:
+        msg: "docker not found. Run the docker template on this host first"
+      when: nginx_docker_bin.rc != 0
+
+    - name: Check compose file exists
+      ansible.builtin.stat:
+        path: "{{ nginx_dir }}/compose.yml"
+      register: nginx_compose
+
+    - name: Require deployed stack
+      ansible.builtin.fail:
+        msg: "No compose.yml in {{ nginx_dir }}. Run nginx_proxy first"
+      when: not nginx_compose.stat.exists
+
+    - name: Pull latest images
+      ansible.builtin.command: docker compose pull
+      args:
+        chdir: "{{ nginx_dir }}"
+      register: nginx_pull
+      changed_when: "'Downloaded' in (nginx_pull.stdout + nginx_pull.stderr)"
+
+    - name: Recreate stack (down, volumes kept)
+      community.docker.docker_compose_v2:
+        project_src: "{{ nginx_dir }}"
+        state: absent
+      register: nginx_down
+
+    - name: Recreate stack (up -d)
+      community.docker.docker_compose_v2:
+        project_src: "{{ nginx_dir }}"
+        state: present
+      register: nginx_up
+
+    - name: Show update summary
+      ansible.builtin.debug:
+        msg: "updated {{ nginx_dir }} (pull changed={{ nginx_pull.changed }})"
