@@ -8,6 +8,7 @@
     remnanode_move_scope: local
     remnanode_move_dest: ""
     remnanode_move_confirmed: false
+    remnanode_move_purge_backup: true
     remnanode_dir: /opt/remnanode
     remnanode_old_dir: ""
     remnanode_agent_container: remnanode
@@ -367,19 +368,23 @@
 
             - name: Show local move summary
               ansible.builtin.debug:
-                msg: "moved {{ remnanode_move_source_dir_norm }} -> {{ remnanode_dir }} container={{ remnanode_agent_container }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }} xray={{ remnanode_xray_summary }} backup_container={{ remnanode_move_backup_container }}{{ (' backup_dir=' + remnanode_move_backup_dir) if remnanode_move_source_stat.stat.exists else '' }} (backup auto-purged after verify)"
+                msg: "moved {{ remnanode_move_source_dir_norm }} -> {{ remnanode_dir }} container={{ remnanode_agent_container }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }} xray={{ remnanode_xray_summary }} backup_container={{ remnanode_move_backup_container }}{{ (' backup_dir=' + remnanode_move_backup_dir) if remnanode_move_source_stat.stat.exists else '' }}{{ ' (backup auto-purged after verify)' if (remnanode_move_purge_backup | bool and remnanode_move_source_stat.stat.exists | bool) else ' (backup kept, purge manually when stable)' }}"
 
             - name: Purge moved stack backup container after successful move
               ansible.builtin.command:
                 argv: ["docker", "rm", "-f", "{{ remnanode_move_backup_container }}"]
               changed_when: true
-              when: remnanode_move_source_stat.stat.exists | bool
+              when:
+                - remnanode_move_source_stat.stat.exists | bool
+                - remnanode_move_purge_backup | bool
 
             - name: Purge moved stack backup dir after successful move
               ansible.builtin.file:
                 path: "{{ remnanode_move_backup_dir }}"
                 state: absent
-              when: remnanode_move_source_stat.stat.exists | bool
+              when:
+                - remnanode_move_source_stat.stat.exists | bool
+                - remnanode_move_purge_backup | bool
           rescue:
             - name: Remove preserved xray temp
               ansible.builtin.file:

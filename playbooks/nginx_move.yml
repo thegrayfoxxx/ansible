@@ -7,6 +7,7 @@
     nginx_move_action: inspect
     nginx_move_dest: ""
     nginx_move_confirmed: false
+    nginx_move_purge_backup: true
     nginx_web_container: ""
     nginx_old_dir: ""
   tasks:
@@ -656,7 +657,9 @@
       when: (nginx_web_final | default('') | length) > 0
 
     - name: Purge moved source backup after successful move
-      when: nginx_move_action == 'move'
+      when:
+        - nginx_move_action == 'move'
+        - nginx_move_purge_backup | bool
       block:
         - name: Remove moved source backup containers
           ansible.builtin.command:
@@ -672,4 +675,4 @@
 
     - name: Show decommission summary
       ansible.builtin.debug:
-        msg: "source {{ inventory_hostname }} decommissioned: moved-source backup containers renamed *-moved-bak then purged after successful move, project files left intact (remove manually when stable). DNS already repointed?"
+        msg: "source {{ inventory_hostname }} decommissioned: moved-source backup containers renamed *-moved-bak{{ ' then purged after successful move' if (nginx_move_purge_backup | bool) else ' (kept, purge manually when stable)' }}, project files left intact (remove manually when stable). DNS already repointed?"

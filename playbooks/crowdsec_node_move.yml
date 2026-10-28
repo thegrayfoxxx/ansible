@@ -7,6 +7,7 @@
     crowdsec_move_action: inspect
     crowdsec_move_dest: ""
     crowdsec_move_confirmed: false
+    crowdsec_move_purge_backup: true
     crowdsec_agent_container: crowdsec-agent
     crowdsec_bouncer_container: crowdsec-bouncer
     crowdsec_node_name: ""
@@ -568,7 +569,9 @@
       changed_when: true
 
     - name: Purge moved source backup after successful move
-      when: crowdsec_move_action == 'move'
+      when:
+        - crowdsec_move_action == 'move'
+        - crowdsec_move_purge_backup | bool
       block:
         - name: Remove moved source backup containers
           ansible.builtin.command:
@@ -583,4 +586,4 @@
 
     - name: Show decommission summary
       ansible.builtin.debug:
-        msg: "source {{ inventory_hostname }} decommissioned: moved-source backup containers renamed *-moved-bak then purged after successful move, project files left intact (remove manually when stable). No DNS changes needed (agents dial out to LAPI)"
+        msg: "source {{ inventory_hostname }} decommissioned: moved-source backup containers renamed *-moved-bak{{ ' then purged after successful move' if (crowdsec_move_purge_backup | bool) else ' (kept, purge manually when stable)' }}, project files left intact (remove manually when stable). No DNS changes needed (agents dial out to LAPI)"
