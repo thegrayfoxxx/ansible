@@ -95,7 +95,7 @@
             (nginx_purge_dir_resolved | length == 0)
             or (not (nginx_purge_dir_resolved is match('^/.+')))
             or ('..' in nginx_purge_dir_resolved)
-            or ((nginx_purge_dir_resolved | regex_replace('/+$', '').split('/') | length) < 3)
+            or ((nginx_purge_dir_resolved | regex_replace('/+$', '') | split('/') | length) < 3)
 
         - name: Remove purge container
           ansible.builtin.command:
