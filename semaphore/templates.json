@@ -576,6 +576,16 @@
       ]
     },
     {
+      "name": "nginx_node_update",
+      "view": "Nginx",
+      "description": "Обновление Nginx fallback: pull + down + up -d (playbooks/nginx_node_update.yml)",
+      "playbook": "playbooks/nginx_node_update.yml",
+      "survey_vars": [
+        {"name": "target", "title": "Target", "description": "de (группа); de1 (хост); de1,de2 (несколько); all:!de5 (кроме); all (всё — осознанно). ⚠️ Проверь охват перед Run", "type": "", "required": true},
+        {"name": "nginx_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/nginx)", "default_value": "/opt/nginx", "type": "", "required": false}
+      ]
+    },
+    {
       "name": "update_templates",
       "view": "Service",
       "app": "python",
