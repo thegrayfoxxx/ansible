@@ -78,9 +78,16 @@
              if (remnanode_purge_dir | default('', true) | trim | length) > 0
              else (remnanode_purge_discovered_dirs.stdout_lines | default([]) | first | default('', true)) }}
 
-    - name: Require purge artifacts for purge
-      ansible.builtin.fail:
-        msg: "Purge requires at least one of remnanode_purge_container or remnanode_purge_dir to be set (or auto-discovered backups found)"
+    - name: Nothing to purge
+      ansible.builtin.debug:
+        msg: "nothing to purge on {{ inventory_hostname }} — no backup containers or directories found"
+      when:
+        - remnanawave_purge_action == 'purge'
+        - (remnanode_purge_container_resolved | default('', true) | trim | length) == 0
+        - (remnanode_purge_dir_resolved | default('', true) | trim | length) == 0
+
+    - name: Skip host with nothing to purge
+      ansible.builtin.meta: end_host
       when:
         - remnanawave_purge_action == 'purge'
         - (remnanode_purge_container_resolved | default('', true) | trim | length) == 0

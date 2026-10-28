@@ -77,9 +77,16 @@
              if (crowdsec_purge_dir | default('', true) | trim | length) > 0
              else (crowdsec_purge_discovered_dirs.stdout_lines | default([]) | first | default('', true)) }}
 
-    - name: Require purge artifacts for purge
-      ansible.builtin.fail:
-        msg: "Purge requires at least one of crowdsec_purge_container or crowdsec_purge_dir to be set (or auto-discovered backups found)"
+    - name: Nothing to purge
+      ansible.builtin.debug:
+        msg: "nothing to purge on {{ inventory_hostname }} — no backup containers or directories found"
+      when:
+        - crowdsec_purge_action == 'purge'
+        - (crowdsec_purge_container_resolved | default('', true) | trim | length) == 0
+        - (crowdsec_purge_dir_resolved | default('', true) | trim | length) == 0
+
+    - name: Skip host with nothing to purge
+      ansible.builtin.meta: end_host
       when:
         - crowdsec_purge_action == 'purge'
         - (crowdsec_purge_container_resolved | default('', true) | trim | length) == 0
