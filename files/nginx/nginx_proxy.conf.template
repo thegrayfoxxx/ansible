@@ -56,7 +56,6 @@ server {
     # XRAY_UPSTREAM — адрес Xray (http://unix:/dev/shm/xray.sock или http://127.0.0.1:PORT)
     location ${XRAY_PATH} {
         proxy_pass ${XRAY_UPSTREAM};
-        proxy_protocol on;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
