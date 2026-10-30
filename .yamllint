@@ -1,0 +1,21 @@
+---
+extends: default
+
+ignore: |
+  .git/
+  collections/
+  # 1:1 с upstream-конфигом баунсера, стиль не правим
+  files/crowdsec/crowdsec-firewall-bouncer.yaml
+
+rules:
+  # Длинные Jinja-выражения в одну строку — осознанный стиль репозитория.
+  line-length: disable
+  document-start: disable
+  comments:
+    min-spaces-from-content: 1
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true

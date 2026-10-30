@@ -21,6 +21,12 @@
         mode: "0644"
       when: bbr_enabled | bool
 
+    - name: Remove tcp_bbr module autoload entry when BBR is disabled
+      ansible.builtin.file:
+        path: "{{ bbr_module_file }}"
+        state: absent
+      when: not (bbr_enabled | bool)
+
     - name: Load tcp_bbr module now
       community.general.modprobe:
         name: tcp_bbr
@@ -28,7 +34,7 @@
       when: bbr_enabled | bool
 
     - name: Apply congestion control sysctl settings
-      ansible.builtin.sysctl:
+      ansible.posix.sysctl:
         name: "{{ item.key }}"
         value: "{{ item.value }}"
         sysctl_file: "{{ bbr_sysctl_file }}"

@@ -1,0 +1,17 @@
+---
+# Профиль min: ловит ошибки загрузки/синтаксиса и неизвестные параметры
+# модулей. Более строгие профили требуют массовых стилевых правок
+# (name[template], no-changed-when на read-only командах и т.п.) — поднимать
+# по мере наведения порядка.
+profile: min
+
+exclude_paths:
+  - .git/
+  - .github/
+  - collections/
+  - semaphore/
+  - files/
+
+# Плейбуки запускаются с -e target=..., без inventory в репо.
+extra_vars:
+  target: all

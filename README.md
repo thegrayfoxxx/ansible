@@ -8,7 +8,7 @@
 - Inventory ведётся в UI Semaphore, в репо его нет.
 - Секреты ведутся в UI Semaphore (Key Store / Environment), в репо их нет.
 - Плейбуки универсальные: хост/группа подставляется через `target` или `Limit`.
-- `roles/` пока не заводим, только плоские `playbooks/`.
+- Точки входа — плоские `playbooks/`; общая логика Remnawave вынесена в `roles/remnanode` и `roles/remnawave_panel`.
 - Новый шаблон → подраздел в доке своей зоны (см. Доки ниже), README не трогаем.
 
 ## Quickstart
@@ -48,18 +48,25 @@ inventory `prod_inventory`, шаблон `update_templates` → `Run` → все
 ```text
 ansible.cfg
 requirements.yml
-compose.yml          # semaphore:v2.19.12 + sqlite для чужого
+compose.yml          # semaphore:v2.19.12 + sqlite; UI на 127.0.0.1 (SEMAPHORE_BIND)
 .env.example         # свои креды -> .env (в git не коммитить)
 playbooks/           # плоские плейбуки, все требуют явный target
+roles/
+  remnanode/         # discovery/render/up ноды Remnawave (используется плейбуками remnawave_*)
+  remnawave_panel/   # API панели: health, auth, keygen
 scripts/
   hello.sh               # пример shell-задачи
+  syntax_check.sh        # --syntax-check всех плейбуков (локально и в CI)
   diagnostics.sh         # свои пробы ноды (facts/DNS/DPI/speed, без внешних тянучек)
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
 templates/
   crowdsec/          # j2 для ноды: compose.yml, .env, acquis.yaml
-  remnawave/         # j2 для ноды: compose.yml, .env
+  remnawave/         # j2 для ноды: compose.yml, .env, logrotate
+  nginx/             # j2: compose fallback/proxy, .env, конфиг nginx_proxy
 files/
   crowdsec/          # статика для ноды: crowdsec-firewall-bouncer.yaml (1:1 с configs)
+  nginx/             # конфиг заглушки fallback (envsubst-шаблон nginx)
+.github/workflows/   # CI: yamllint, ansible-lint, shellcheck, syntax-check
 semaphore/
   templates.json # источник правды: шаблоны + survey_vars + views (см. Доки)
 docs/
@@ -69,10 +76,10 @@ docs/
   observability.md   # logs, health, diagnostics, rsyslog
   diagnostics.md     # гибридная диагностика: свои пробы + pinned upstream
   system.md          # base, docker, bbr, ipv6, update, cleanup, reboot
-  security.md        # init_node, firewall, fail2ban
-  crowdsec.md        # register/node/update/unregister
-  remnawave.md       # node_add/update + группа remnawave_vars
-  nginx.md           # fallback-заглушка + LE-серт (вкладка Nginx)
+  security.md        # init_node, firewall, fail2ban, модель доверия Semaphore
+  crowdsec.md        # register/node/update/unregister/adopt/move/purge
+  remnawave.md       # node_add/deploy/config/update/move/remove/purge + группа remnawave_vars
+  nginx.md           # fallback-заглушка, nginx_proxy, LE-серт, adopt/move/update/purge
   dev.md             # локальная проверка плейбуков
   # GIF по шагам гайда (1920x1080) лежат в релизе media-v1, не в git
 ```

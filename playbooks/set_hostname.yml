@@ -103,6 +103,11 @@
         set_hosts_self_line: "{{ '127.0.1.1' ~ ((' ' ~ set_hostname_fqdn) if (set_hostname_fqdn | length > 0) else '') ~ (' ' ~ set_hostname_final) }}"
 
     - name: Assemble normalized /etc/hosts content
+      # Перевод строки передаётся переменной из YAML-строки в двойных кавычках:
+      # внутри блочного скаляра '\n' остаётся двумя символами и /etc/hosts
+      # склеивался в одну строку.
+      vars:
+        set_hosts_nl: "\n"
       ansible.builtin.set_fact:
         set_hosts_final: >-
           {%- set out = [] -%}
@@ -120,7 +125,7 @@
           {%- if done | length == 0 -%}
           {%- set _ = out.append(set_hosts_self_line) -%}
           {%- endif -%}
-          {{ out | join('\n') ~ '\n' }}
+          {{ out | join(set_hosts_nl) ~ set_hosts_nl }}
 
     - name: Detect /etc/hosts change
       ansible.builtin.set_fact:
@@ -148,8 +153,8 @@
 
     - name: Resolve backup timestamp
       ansible.builtin.set_fact:
-        set_hosts_ts: "{{ set_hosts_ts_cmd.stdout | trim }}"
-        set_hosts_backup_path: "{{ '/etc/hosts.bak-' ~ (set_hosts_ts_cmd.stdout | trim) if (set_hosts_changed | bool) else '' }}"
+        set_hosts_ts: "{{ set_hosts_ts_cmd.stdout | default('') | trim }}"
+        set_hosts_backup_path: "{{ ('/etc/hosts.bak-' ~ (set_hosts_ts_cmd.stdout | default('') | trim)) if (set_hosts_changed | bool) else '' }}"
 
     - name: Backup current /etc/hosts before edit
       ansible.builtin.copy:

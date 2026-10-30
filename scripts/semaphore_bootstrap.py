@@ -199,11 +199,27 @@ def build_payload(project_id, tpl, ids):
         "description": tpl.get("description", ""),
         "arguments": "[]",
         "survey_vars": tpl.get("survey_vars", []),
-        "survey": tpl.get("survey_vars", []),
     }
     if ids.get("view") is not None:
         payload["view_id"] = ids["view"]
     return payload
+
+
+def normalize_survey(items):
+    """Survey vars without empty/false fields.
+
+    The API omits empty values (omitempty): `"required": false`,
+    `"type": ""` and empty descriptions from templates.json never come back,
+    so a raw comparison reported a diff and PUT every template on every run.
+    """
+    out = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            out.append(item)
+            continue
+        clean = {k: v for k, v in item.items() if v not in (None, "", False, [], {})}
+        out.append(clean)
+    return out
 
 
 def payload_matches(current, payload):
@@ -213,7 +229,14 @@ def payload_matches(current, payload):
     does not force an update on every run.
     """
     for key, want in payload.items():
+        if want is None:
+            # dry-run: environment/view not created yet — not a real diff
+            continue
         got = current.get(key)
+        if key == "survey_vars":
+            if normalize_survey(got) != normalize_survey(want):
+                return False
+            continue
         if got is None and isinstance(want, str):
             got = ""
         elif got is None and isinstance(want, list):
@@ -258,7 +281,9 @@ def main():
 
     parser = argparse.ArgumentParser(description="Seed Semaphore templates from JSON")
     parser.add_argument("--url", default=kv.get("url") or os.environ.get("SEMAPHORE_URL", "http://localhost:3000/api"))
-    parser.add_argument("--token", default=kv.get("token") or os.environ.get("SEMAPHORE_TOKEN", ""))
+    parser.add_argument("--token", default=kv.get("token") or "",
+                        help="API token (prefer SEMAPHORE_TOKEN env or --token-stdin: CLI args are visible in ps)")
+    parser.add_argument("--token-stdin", action="store_true", help="read API token from stdin")
     parser.add_argument("--project-id", default=kv.get("project_id") or kv.get("project-id") or os.environ.get("SEMAPHORE_PROJECT_ID", ""))
     parser.add_argument("--templates", default=kv.get("templates") or os.environ.get("SEMAPHORE_TEMPLATES", default_templates))
     parser.add_argument("--inventory", default=kv.get("inventory") or os.environ.get("SEMAPHORE_INVENTORY", ""))
@@ -270,7 +295,15 @@ def main():
     args, _ = parser.parse_known_args()
 
     base = args.url.rstrip("/")
-    token = args.token.strip()
+    if args.token_stdin:
+        token = sys.stdin.readline().strip()
+    elif args.token:
+        if any(a == "--token" or a.startswith("--token=") for a in sys.argv[1:]):
+            print("WARNING: token passed as an argument is visible in the process list; "
+                  "prefer SEMAPHORE_TOKEN env or --token-stdin", file=sys.stderr)
+        token = args.token.strip()
+    else:
+        token = os.environ.get("SEMAPHORE_TOKEN", "").strip()
     if not token:
         print("ERROR: token is required (survey var `token` or SEMAPHORE_TOKEN env)", file=sys.stderr)
         return 1
