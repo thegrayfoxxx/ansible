@@ -535,6 +535,9 @@
     crowdsec_agent_container: crowdsec-agent
     crowdsec_bouncer_container: crowdsec-bouncer
     crowdsec_move_purge_backup: true
+    # Нужны записи в группу (play vars из первого плея сюда не переходят).
+    project_id: ""
+    crowdsec_group_name: crowdsec_nodes
   tasks:
     - name: Stop at inspect
       ansible.builtin.meta: end_play
