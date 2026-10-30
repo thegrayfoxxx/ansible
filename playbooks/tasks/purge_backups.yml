@@ -12,6 +12,9 @@
 #   purge_container_regex   — regex имён бэкап-контейнеров продукта
 #   purge_dir_regex         — regex (posix-extended, полный путь) бэкап-каталогов
 #   purge_dir_marker        — regex, который должен найтись в compose-файле каталога
+#   purge_dir_exclude       — (необяз.) regex: каталог с таким compose НЕ трогаем
+#   purge_image_regex       — (необяз.) regex образа контейнера (для adopt'нутых
+#                             контейнеров со своими именами)
 #   purge_containers_explicit / purge_dirs_explicit — явные значения
 #                             (через запятую или по строке); проверяются теми же regex
 #   purge_search_roots      — где искать каталоги
@@ -41,7 +44,7 @@
 
 - name: Discover backup containers
   ansible.builtin.command:
-    argv: ["docker", "ps", "-a", "--format", "{{ '{{.Names}}' }}"]
+    argv: ["docker", "ps", "-a", "--format", "{{ '{{.Names}}\t{{.Image}}' }}"]
   register: purge_ps
   changed_when: false
   failed_when: false
@@ -53,7 +56,10 @@
     find {{ purge_search_roots | map('quote') | join(' ') }} -mindepth 1 -maxdepth 3 -type d \
       -regextype posix-extended -regex "$PURGE_DIR_RE" 2>/dev/null | sort -u | while read -r d; do
       for f in compose.yml compose.yaml docker-compose.yml docker-compose.yaml; do
-        if [ -f "$d/$f" ] && grep -Eq -- "$PURGE_MARK" "$d/$f"; then echo "$d"; break; fi
+        if [ -f "$d/$f" ] && grep -Eq -- "$PURGE_MARK" "$d/$f"; then
+          if [ -n "$PURGE_EXCLUDE" ] && grep -Eq -- "$PURGE_EXCLUDE" "$d/$f"; then break; fi
+          echo "$d"; break
+        fi
       done
     done
   args:
@@ -61,6 +67,7 @@
   environment:
     PURGE_DIR_RE: "{{ purge_dir_regex }}"
     PURGE_MARK: "{{ purge_dir_marker }}"
+    PURGE_EXCLUDE: "{{ purge_dir_exclude | default('') }}"
   register: purge_find
   changed_when: false
   failed_when: false
@@ -68,7 +75,11 @@
 
 - name: Resolve purge targets
   ansible.builtin.set_fact:
-    purge_containers_found: "{{ purge_ps.stdout_lines | default([]) | select('match', purge_container_regex) | list }}"
+    purge_containers_found: >-
+      {{ purge_ps.stdout_lines | default([])
+         | select('match', '^[^\t]+\t(' ~ (purge_image_regex | default('.*', true)) ~ ')')
+         | map('regex_replace', '\t.*$', '')
+         | select('match', purge_container_regex) | list }}
     purge_dirs_found: "{{ purge_find.stdout_lines | default([]) | list }}"
 
 - name: Resolve purge targets (explicit wins)

@@ -14,6 +14,8 @@
     nginx_socket: /dev/shm/nginx.sock
     nginx_web_container: fallback-web
     nginx_acme_container: fallback-acme
+    # Как часто web-контейнер делает nginx -t && reload (подхват продлённого серта), секунд.
+    nginx_reload_interval: 43200
   tasks:
     - name: Normalize project dir
       ansible.builtin.set_fact:
@@ -59,7 +61,8 @@
       when: nginx_docker_bin.rc != 0
 
     - name: Check own web container is running
-      ansible.builtin.command: docker ps -q --filter name=fallback-web
+      ansible.builtin.command:
+        argv: ["docker", "ps", "-q", "--filter", "name=^{{ nginx_web_container }}$"]
       register: nginx_own_web
       changed_when: false
       failed_when: false
@@ -98,6 +101,7 @@
         src: "{{ playbook_dir }}/../templates/nginx/compose.yml.j2"
         dest: "{{ nginx_dir }}/compose.yml"
         mode: "0644"
+      register: nginx_compose_render
 
     - name: Render fallback env file
       ansible.builtin.template:
@@ -112,81 +116,17 @@
         src: "{{ playbook_dir }}/../files/nginx/fallback.conf.template"
         dest: "{{ nginx_dir }}/nginx/fallback.conf.template"
         mode: "0644"
+      register: nginx_conf_copy
 
     - name: Write fallback index page
       ansible.builtin.copy:
         content: "{{ nginx_html }}"
         dest: "{{ nginx_dir }}/html/index.html"
         mode: "0644"
+      register: nginx_html_copy
 
-    - name: Check LE certificate files
-      ansible.builtin.stat:
-        path: "{{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}/{{ item }}"
-      loop:
-        - fullchain.pem
-        - privkey.pem
-      register: nginx_cert_stat
-
-    - name: Resolve certificate state
-      ansible.builtin.set_fact:
-        nginx_cert_missing: "{{ (nginx_cert_stat.results | selectattr('stat.exists') | list | length) != 2 }}"
-
-    - name: Check certificate issuer
-      ansible.builtin.command: openssl x509 -noout -issuer -in {{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}/fullchain.pem
-      register: nginx_cert_issuer
-      changed_when: false
-      failed_when: false
-      when: not (nginx_cert_missing | bool)
-
-    - name: Resolve issue need
-      ansible.builtin.set_fact:
-        nginx_cert_is_staging: "{{ 'staging' in (nginx_cert_issuer.stdout | default('') | lower) }}"
-        nginx_issue_wanted: "{{ (nginx_cert_missing | bool) or (nginx_force_issue | bool) or (not (nginx_staging | bool) and ('staging' in (nginx_cert_issuer.stdout | default('') | lower))) }}"
-
-    - name: Require email for certificate issue
-      ansible.builtin.fail:
-        msg: "nginx_email is required to issue the first certificate (LE account). Fill it in survey"
-      when:
-        - nginx_issue_wanted | bool
-        - nginx_email | default('') | trim | length == 0
-
-    - name: Check openssl is available for temp certificate
-      ansible.builtin.shell: command -v openssl
-      args:
-        executable: /bin/bash
-      register: nginx_openssl_bin
-      changed_when: false
-      failed_when: false
-      when: nginx_cert_missing | bool
-
-    - name: Require openssl for temp certificate
-      ansible.builtin.fail:
-        msg: "openssl not found but a temporary self-signed certificate is needed to boot nginx before the first LE issue"
-      when:
-        - nginx_cert_missing | bool
-        - nginx_openssl_bin.rc | default(1) | int != 0
-
-    - name: Create temporary self-signed certificate
-      ansible.builtin.command:
-        argv:
-          - openssl
-          - req
-          - -x509
-          - -nodes
-          - -days
-          - "2"
-          - -newkey
-          - rsa:2048
-          - -keyout
-          - privkey.pem
-          - -out
-          - fullchain.pem
-          - -subj
-          - "/CN={{ nginx_domain | trim }}"
-      args:
-        chdir: "{{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}"
-      changed_when: true
-      when: nginx_cert_missing | bool
+    - name: Prepare certificate
+      ansible.builtin.include_tasks: tasks/nginx_cert_prepare.yml
 
     - name: Deploy fallback stack
       community.docker.docker_compose_v2:
@@ -194,6 +134,28 @@
         state: present
         pull: missing
       register: nginx_deploy
+
+    # Конфиг и index.html смонтированы файлами: после атомарной замены контейнер
+    # видел старый inode, а шаблон nginx обрабатывается только при старте.
+    - name: Restart web container to pick up changed config or page
+      ansible.builtin.command:
+        argv: ["docker", "restart", "{{ nginx_web_container }}"]
+      changed_when: true
+      when:
+        - (nginx_conf_copy is changed) or (nginx_html_copy is changed)
+        - not (nginx_deploy is changed)
+
+    - name: Check web containers are running
+      ansible.builtin.command:
+        argv: ["docker", "inspect", "-f", "{{ '{{' }}.State.Running{{ '}}' }}", "{{ item }}"]
+      loop:
+        - "{{ nginx_web_container }}"
+        - "{{ nginx_acme_container }}"
+      register: nginx_running
+      changed_when: false
+      retries: 6
+      delay: 3
+      until: nginx_running.rc == 0 and (nginx_running.stdout | trim) == 'true'
 
     - name: Wait for nginx socket
       ansible.builtin.stat:
@@ -203,44 +165,14 @@
       retries: 12
       delay: 5
 
+    # Права на сокет дальше держит фоновый цикл в web-контейнере (см. compose).
     - name: Allow xray to use the socket
       ansible.builtin.file:
         path: "{{ nginx_socket }}"
         mode: "0666"
 
-    - name: Issue LE certificate
-      ansible.builtin.command:
-        argv: "{{ ['docker', 'exec', nginx_acme_container, 'acme.sh', '--issue', '-d', (nginx_domain | trim), '--webroot', '/var/www/webroot', '--accountemail', (nginx_email | trim)] + (['--server', 'letsencrypt_test'] if (nginx_staging | bool) else ['--server', 'letsencrypt']) }}"
-      register: nginx_issue
-      changed_when: true
-      when: nginx_issue_wanted | bool
-
-    - name: Install LE certificate for nginx
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - "{{ nginx_acme_container }}"
-          - acme.sh
-          - --install-cert
-          - -d
-          - "{{ nginx_domain | trim }}"
-          - --key-file
-          - "/etc/letsencrypt/live/{{ nginx_domain | trim }}/privkey.pem"
-          - --fullchain-file
-          - "/etc/letsencrypt/live/{{ nginx_domain | trim }}/fullchain.pem"
-      register: nginx_install
-      changed_when: true
-      when: nginx_issue_wanted | bool
-
-    - name: Reload nginx with new certificate
-      ansible.builtin.command: docker exec {{ nginx_web_container }} nginx -s reload
-      changed_when: true
-      when: nginx_issue_wanted | bool
-
-    - name: Validate nginx config
-      ansible.builtin.command: docker exec {{ nginx_web_container }} nginx -t
-      changed_when: false
+    - name: Issue and install certificate
+      ansible.builtin.include_tasks: tasks/nginx_cert_issue.yml
 
     - name: Check ufw is available for auto open
       ansible.builtin.shell: command -v ufw
@@ -272,4 +204,4 @@
 
     - name: Show deploy summary
       ansible.builtin.debug:
-        msg: "domain={{ nginx_domain | trim }} dir={{ nginx_dir }} cert={{ 'issued' if (nginx_issue is defined and nginx_issue.changed | default(false)) else ((('existing (staging)' if (nginx_cert_is_staging | bool) else 'existing') if not (nginx_cert_missing | bool) else 'missing')) }}{{ ' (staging requested — re-run with staging=false for a trusted cert)' if (nginx_staging | bool) else '' }} socket={{ nginx_socket }} firewall={{ 'manual' if not (nginx_open_ports | bool) else ('open' if (nginx_ufw_bin.rc | default(1) | int == 0) else 'skipped (no ufw)') }} (port 443 goes live after Xray install)"
+        msg: "domain={{ nginx_domain | trim }} dir={{ nginx_dir }} cert={{ 'issued' if (nginx_issue is changed) else ('up to date (acme.sh skip)' if (nginx_issue.rc | default(-1)) == 2 else ((('existing (staging)' if (nginx_cert_is_staging | bool) else 'existing') if not (nginx_cert_missing | bool) else 'missing'))) }}{{ ' (staging requested — re-run with staging=false for a trusted cert)' if (nginx_staging | bool) else '' }} socket={{ nginx_socket }} firewall={{ 'manual' if not (nginx_open_ports | bool) else ('open' if (nginx_ufw_bin.rc | default(1) | int == 0) else 'skipped (no ufw)') }} (port 443 goes live after Xray install)"

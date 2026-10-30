@@ -1,20 +1,24 @@
 ---
-- name: Nginx node update (pull + down + up)
+- name: Nginx node update (pull + recreate only when an image changed)
   hosts: "{{ target }}"
   gather_facts: false
   become: true
+  # По одной ноде: сломанный образ не уронит заглушки всего флота разом.
+  serial: 1
   vars:
     nginx_dir: /opt/nginx
     nginx_web_container: fallback-web
+    nginx_socket: /dev/shm/nginx.sock
   tasks:
+    # Отдельная переменная: set_fact не может перекрыть пустое значение из survey (extra vars).
     - name: Normalize project dir
       ansible.builtin.set_fact:
-        nginx_dir: "{{ (nginx_dir | default('') | trim) or '/opt/nginx' }}"
+        nginx_dir_final: "{{ (nginx_dir | default('', true) | string | trim) or '/opt/nginx' }}"
 
     - name: Validate project dir
       ansible.builtin.fail:
-        msg: "nginx_dir must be an absolute path, got '{{ nginx_dir }}'"
-      when: not (nginx_dir is match('^/.+'))
+        msg: "nginx_dir must be an absolute path, got '{{ nginx_dir_final }}'"
+      when: not (nginx_dir_final is match('^/.+'))
 
     - name: Check docker is available
       ansible.builtin.shell: command -v docker
@@ -23,6 +27,7 @@
       register: nginx_docker_bin
       changed_when: false
       failed_when: false
+      check_mode: false
 
     - name: Require docker on node
       ansible.builtin.fail:
@@ -31,33 +36,54 @@
 
     - name: Check compose file exists
       ansible.builtin.stat:
-        path: "{{ nginx_dir }}/compose.yml"
+        path: "{{ nginx_dir_final }}/compose.yml"
       register: nginx_compose
 
     - name: Require deployed stack
       ansible.builtin.fail:
-        msg: "No compose.yml in {{ nginx_dir }}. Run nginx_fallback first"
+        msg: "No compose.yml in {{ nginx_dir_final }}. Run nginx_fallback first"
       when: not nginx_compose.stat.exists
 
-    - name: Pull latest images
-      ansible.builtin.command: docker compose pull
-      args:
-        chdir: "{{ nginx_dir }}"
-      register: nginx_pull
-      changed_when: "'Downloaded' in (nginx_pull.stdout + nginx_pull.stderr)"
-
-    - name: Recreate stack (down, volumes kept)
+    # Раньше: проверка 'Downloaded' (в compose v2 такой строки нет) и безусловный
+    # down/up на всём флоте.
+    - name: Pull images and recreate only changed containers
       community.docker.docker_compose_v2:
-        project_src: "{{ nginx_dir }}"
-        state: absent
-      register: nginx_down
-
-    - name: Recreate stack (up -d)
-      community.docker.docker_compose_v2:
-        project_src: "{{ nginx_dir }}"
+        project_src: "{{ nginx_dir_final }}"
         state: present
+        pull: always
       register: nginx_up
+
+    - name: Check web container is running
+      ansible.builtin.command:
+        argv: ["docker", "inspect", "-f", "{{ '{{' }}.State.Running{{ '}}' }}", "{{ nginx_web_container }}"]
+      register: nginx_running
+      changed_when: false
+      retries: 10
+      delay: 3
+      until: nginx_running.rc == 0 and (nginx_running.stdout | trim) == 'true'
+      check_mode: false
+
+    # Сокет пересоздаётся при старте nginx; права 0666 держит фоновый цикл
+    # в web-контейнере (compose), здесь — проверка и страховка для старых compose.
+    - name: Wait for nginx socket
+      ansible.builtin.stat:
+        path: "{{ nginx_socket }}"
+      register: nginx_sock
+      until: nginx_sock.stat.exists
+      retries: 12
+      delay: 5
+
+    - name: Allow xray to use the socket
+      ansible.builtin.file:
+        path: "{{ nginx_socket }}"
+        mode: "0666"
+
+    - name: Validate nginx config
+      ansible.builtin.command:
+        argv: ["docker", "exec", "{{ nginx_web_container }}", "nginx", "-t"]
+      changed_when: false
+      check_mode: false
 
     - name: Show update summary
       ansible.builtin.debug:
-        msg: "updated {{ nginx_dir }} (pull changed={{ nginx_pull.changed }})"
+        msg: "updated {{ nginx_dir_final }}: {{ 'images changed, containers recreated' if (nginx_up is changed) else 'already up to date' }}"
