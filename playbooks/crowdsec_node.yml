@@ -13,6 +13,8 @@
     crowdsec_tz: ""
     crowdsec_dir: /opt/crowdsec
     crowdsec_agent_container: crowdsec-agent
+    # Цепочки iptables для баунсера; DOCKER-USER закрывает и опубликованные порты контейнеров.
+    crowdsec_bouncer_iptables_chains: [INPUT, DOCKER-USER]
     crowdsec_base_collections:
       - crowdsecurity/linux
       - crowdsecurity/sshd
@@ -61,19 +63,21 @@
 
     - name: Resolve node credentials
       ansible.builtin.set_fact:
-        crowdsec_agent_username: "{{ crowdsec_resolved_name }}-agent"
+        crowdsec_agent_username: "{{ lookup('vars', 'crowdsec_node_' + crowdsec_key + '_agent_username', default='') or (crowdsec_resolved_name ~ '-agent') }}"
         crowdsec_agent_password: "{{ lookup('vars', 'crowdsec_node_' + crowdsec_key + '_agent_password', default='') }}"
         crowdsec_api_key: "{{ lookup('vars', 'crowdsec_node_' + crowdsec_key + '_api_key', default='') }}"
         crowdsec_api_url: "{{ crowdsec_api_url | default('') }}"
       vars:
         crowdsec_key: "{{ crowdsec_resolved_name | lower | regex_replace('-', '_') }}"
-      when: crowdsec_action != 'status'
+      # remove идёт после unregister (креды уже удалены из группы) — им креды не нужны.
+      when: crowdsec_action not in ['status', 'remove']
+      no_log: true
 
     - name: Require registration before deploy
       ansible.builtin.fail:
         msg: "No credentials for node '{{ crowdsec_resolved_name }}' in the crowdsec_nodes group. Run crowdsec_register for '{{ crowdsec_resolved_name }}' first"
       when:
-        - crowdsec_action != 'status'
+        - crowdsec_action not in ['status', 'remove']
           and (crowdsec_agent_password | length == 0 or crowdsec_api_key | length == 0 or crowdsec_api_url | length == 0)
 
     - name: Check Debian family
@@ -134,11 +138,15 @@
         crowdsec_collections: "{{ crowdsec_base_collections + ((crowdsec_extra_collections | default([], true)).replace(',', '\n').splitlines() | map('trim') | select | list if (crowdsec_extra_collections | default([], true)) is string else (crowdsec_extra_collections | default([], true))) }}"
         crowdsec_extra_logs_list: "{{ (crowdsec_extra_logs | default([], true)).replace(',', '\n').splitlines() | map('trim') | select | list if (crowdsec_extra_logs | default([], true)) is string else (crowdsec_extra_logs | default([], true)) }}"
 
+    # Формат: path или path:type (type — парсер CrowdSec, по умолчанию syslog).
     - name: Require extra logs under /var/log
       ansible.builtin.fail:
-        msg: "Extra log {{ item }} is outside /var/log and would need a manual volume mount. Keep logs under /var/log (e.g. /var/log/nginx/access.log)"
+        msg: "Extra log {{ item }} must be /var/log/...[:type] (type a-z0-9_-). Paths outside /var/log would need a manual volume mount"
       loop: "{{ crowdsec_extra_logs_list }}"
-      when: not item.startswith('/var/log/')
+      when: >-
+        not ((item.split(':', 1)[0] | trim) is match('^/var/log/[^:]+$'))
+        or ('..' in item)
+        or ((':' in item) and not ((item.split(':', 1)[1] | trim) is match('^[a-z0-9_-]+$')))
 
     - name: Stat host log files
       ansible.builtin.stat:
@@ -207,6 +215,7 @@
         src: "{{ playbook_dir }}/../templates/crowdsec/dotenv.j2"
         dest: "{{ crowdsec_dir }}/.env"
         mode: "0600"
+      diff: false  # AGENT_PASSWORD / API_KEY
       when: crowdsec_action in ['deploy', 'restart']
 
     - name: Render acquis config
@@ -214,13 +223,15 @@
         src: "{{ playbook_dir }}/../templates/crowdsec/acquis.yaml.j2"
         dest: "{{ crowdsec_dir }}/config/acquis.yaml"
         mode: "0644"
+      register: crowdsec_acquis_render
       when: crowdsec_action in ['deploy', 'restart']
 
-    - name: Copy bouncer config
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../files/crowdsec/crowdsec-firewall-bouncer.yaml"
+    - name: Render bouncer config
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/crowdsec/crowdsec-firewall-bouncer.yaml.j2"
         dest: "{{ crowdsec_dir }}/config/crowdsec-firewall-bouncer.yaml"
         mode: "0644"
+      register: crowdsec_bouncer_render
       when: crowdsec_action in ['deploy', 'restart']
 
     - name: Deploy crowdsec stack
@@ -231,11 +242,27 @@
       register: crowdsec_deploy
       when: crowdsec_action == 'deploy'
 
+    # Конфиги смонтированы файлами и читаются при старте: изменение acquis.yaml
+    # или конфига баунсера без рестарта не применялось.
+    - name: Restart containers whose config changed
+      ansible.builtin.command:
+        argv: ["docker", "restart", "{{ item.name }}"]
+      loop:
+        - {name: crowdsec-agent, changed: "{{ crowdsec_acquis_render is changed }}"}
+        - {name: crowdsec-bouncer, changed: "{{ crowdsec_bouncer_render is changed }}"}
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true
+      when:
+        - crowdsec_action == 'deploy'
+        - item.changed | bool
+        - not (crowdsec_deploy is changed)
+
+    # У docker_compose_v2 нет параметра restarted — нужен state: restarted.
     - name: Restart crowdsec stack
       community.docker.docker_compose_v2:
         project_src: "{{ crowdsec_dir }}"
-        state: present
-        restarted: true
+        state: restarted
       register: crowdsec_deploy
       when: crowdsec_action == 'restart'
 
@@ -252,6 +279,16 @@
       retries: 6
       delay: 10
       until: crowdsec_agent_status.rc == 0
+      when: crowdsec_action in ['deploy', 'restart']
+
+    - name: Check bouncer is running
+      ansible.builtin.command:
+        argv: ["docker", "inspect", "-f", "{{ '{{' }}.State.Running{{ '}}' }}", "crowdsec-bouncer"]
+      register: crowdsec_bouncer_running
+      changed_when: false
+      retries: 6
+      delay: 5
+      until: crowdsec_bouncer_running.rc == 0 and (crowdsec_bouncer_running.stdout | trim) == 'true'
       when: crowdsec_action in ['deploy', 'restart']
 
     - name: Show node containers
@@ -290,3 +327,13 @@
     - name: Display node summary
       ansible.builtin.debug:
         msg: "node={{ crowdsec_resolved_name }} action={{ crowdsec_action }} mode={{ crowdsec_mode }} api={{ crowdsec_api_url | default('n/a') }}"
+
+    # Раньше status собирал ps/lapi/ipset/nft, но ничего из этого не показывал.
+    - name: Display node status
+      ansible.builtin.debug:
+        msg:
+          - "containers: {{ crowdsec_ps.stdout_lines | default(['n/a']) }}"
+          - "lapi (rc={{ crowdsec_lapi_check.rc | default('n/a') }}): {{ ((crowdsec_lapi_check.stdout | default('')) ~ ' ' ~ (crowdsec_lapi_check.stderr | default(''))) | trim | default('n/a', true) }}"
+          - "ipset: {{ crowdsec_ipset.stdout | default('') | trim | default('n/a', true) }}"
+          - "nftables blocked IPs: {{ crowdsec_nft.stdout | default('') | trim | default('n/a', true) }}"
+      when: crowdsec_action == 'status'

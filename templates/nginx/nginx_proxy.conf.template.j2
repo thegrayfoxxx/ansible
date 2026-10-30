@@ -1,3 +1,6 @@
+# {{ ansible_managed }}
+# Рендерится Ansible (Jinja: real_ip и upstream), затем nginx:alpine подставляет ${...} из env.
+#
 # Nginx reverse proxy: терминирует TLS на 443, маршрутит заданный путь на сокет/upstream Xray,
 # всё остальное отдаёт как fallback-заглушку (правдоподобный сайт для сканеров).
 # Шаблон для nginx:alpine: ${DOMAIN}, ${XRAY_PATH}, ${XRAY_UPSTREAM} подставятся из environment.
@@ -11,15 +14,23 @@
 #   - HTTP/2 для alpn h2
 #   - Большие заголовки (XHTTP передаёт данные в X-Cache и др.)
 #   - Отключение буферизации и кэша на маршруте Xray
-#   - Keep-alive к upstream
+#   - Keep-alive к upstream (upstream-блок ниже)
 #
 # Требования:
 # - Xray должен слушать на сокете/upstream, указанном в XRAY_UPSTREAM
 # - LE-сертификат для ${DOMAIN}
 
+{% set nginx_up = (nginx_proxy_upstream | trim | regex_search('^(https?)://(unix:/[^:]+|[^/]+)(/.*)?$', '\\1', '\\2', '\\3')) %}
+# --- Xray upstream с keepalive-пулом ---
+upstream xray_backend {
+    server {{ nginx_up[1] }};
+    keepalive 32;
+}
+
 # --- 443: основной сервер ---
 server {
-    listen 443 ssl http2;
+    listen 443 ssl;
+    http2 on;
     server_name ${DOMAIN};
 
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
@@ -33,18 +44,23 @@ server {
     access_log off;
     error_log stderr warn;
 
-    # Извлекаем реальный IP клиента из X-Forwarded-For
-    # (CDN, reverse proxy или любой промежуточный прокси перед nginx)
-    set_real_ip_from 0.0.0.0/0;
+{% if nginx_real_ip_from | default([]) | length > 0 %}
+    # Реальный IP клиента из X-Forwarded-For — только от доверенных прокси/CDN
+    # (nginx_real_ip_from). С 0.0.0.0/0 любой клиент подделывал свой IP заголовком.
+{% for cidr in nginx_real_ip_from %}
+    set_real_ip_from {{ cidr }};
+{% endfor %}
     real_ip_header X-Forwarded-For;
     real_ip_recursive on;
+{% endif %}
 
     # Большие заголовки для XHTTP packet-up (данные в X-Cache и др.)
     large_client_header_buffers 4 32k;
     client_header_buffer_size 8k;
     client_max_body_size 10m;
 
-    # TCP-оптимизации
+    # TCP-оптимизации (tcp_nopush работает только с sendfile)
+    sendfile on;
     tcp_nodelay on;
     tcp_nopush on;
 
@@ -53,9 +69,9 @@ server {
 
     # --- Маршрут на Xray (сокет или upstream) ---
     # XRAY_PATH — путь запроса (например /xray, /data/, /api)
-    # XRAY_UPSTREAM — адрес Xray (http://unix:/dev/shm/xray.sock или http://127.0.0.1:PORT)
+    # XRAY_UPSTREAM — адрес Xray (http://unix:/dev/shm/xray.sock или http://127.0.0.1:PORT), см. upstream выше
     location ${XRAY_PATH} {
-        proxy_pass ${XRAY_UPSTREAM};
+        proxy_pass {{ nginx_up[0] }}://xray_backend{{ nginx_up[2] or '' }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -101,13 +117,13 @@ server {
 
     # robots/sitemap — живые, 200
     location = /robots.txt {
-        add_header Content-Type text/plain;
+        default_type text/plain;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
         return 200 "User-agent: *\nAllow: /\nSitemap: https://${DOMAIN}/sitemap.xml\n";
     }
 
     location = /sitemap.xml {
-        add_header Content-Type application/xml;
+        default_type application/xml;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
         return 200 '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://${DOMAIN}/</loc></url></urlset>';
     }

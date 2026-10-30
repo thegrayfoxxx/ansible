@@ -46,23 +46,24 @@
       when:
         - not (journal_max_size is regex('^[0-9]+[BKMGTP]?$'))
 
+    # journalctl всегда пишет "Vacuuming done, freed X"; изменение — только если X не 0B.
     - name: Vacuum systemd journal by time
       ansible.builtin.command: "journalctl --vacuum-time={{ journal_max_age }}"
       register: journal_time
-      changed_when: "'Vacuuming done' in journal_time.stderr"
-      failed_when: false
+      changed_when: journal_time.stderr is not search('freed 0B')
 
     - name: Vacuum systemd journal by size
       ansible.builtin.command: "journalctl --vacuum-size={{ journal_max_size }}"
       register: journal_size
-      changed_when: "'Vacuuming done' in journal_size.stderr"
-      failed_when: false
+      changed_when: journal_size.stderr is not search('freed 0B')
 
+    # `command -v` — встроенная команда shell, через модуль command она не запускается.
     - name: Check if Docker exists
-      ansible.builtin.command: command -v docker
+      ansible.builtin.shell: command -v docker
       register: docker_bin
       changed_when: false
       failed_when: false
+      check_mode: false
 
     - name: Validate docker_prune_until format
       ansible.builtin.fail:
@@ -72,17 +73,20 @@
         - docker_prune_until | length > 0
         - not (docker_prune_until is regex('^[0-9]+[smhd]$'))
 
-    - name: Prune Docker objects
-      ansible.builtin.command: "docker system prune -af{{ ' --filter \"until=' + docker_prune_until + '\"' if docker_prune_until | length > 0 else '' }}"
+    # Не `docker system prune`: он удаляет и остановленные контейнеры
+    # (например, намеренно остановленную ноду или бэкап-контейнер после move/adopt).
+    - name: Prune unused Docker images, networks and build cache
+      ansible.builtin.command: "docker {{ item }} prune -f{{ ' -a' if item == 'image' else '' }}{{ (' --filter until=' + docker_prune_until) if (docker_prune_until | length > 0) else '' }}"
+      loop: [image, network, builder]
       register: docker_prune_out
-      changed_when: docker_prune_out.stdout is not search('Total reclaimed space:\s*0\s*B(\s|$)')
+      changed_when: docker_prune_out.stdout is search('Total reclaimed space:\s*[1-9]') or docker_prune_out.stdout is search('^Deleted', multiline=True)
       when:
         - docker_prune | bool
         - docker_bin.rc == 0
 
     - name: Show Docker prune result
       ansible.builtin.debug:
-        var: docker_prune_out.stdout_lines
+        msg: "{{ docker_prune_out.results | map(attribute='stdout_lines') | list }}"
       when:
         - docker_prune | bool
         - docker_bin.rc == 0

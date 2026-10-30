@@ -2,7 +2,7 @@
 
 ## `playbooks/logs.yml` (read-only — безопасен на любом охвате)
 
-- `log_source: journal` -> `file` для хвоста файла (Enum)
+- `log_source: journal` -> `file` для хвоста файла (Enum); `log_file` — только файлы под `/var/log/` без `..`
 - `log_file: /var/log/syslog` (только для `source=file`, String)
 - `log_unit: ""` (только journal, например `ssh`; пусто — все юниты)
 - `log_priority: info` (только journal: уровень и срочнее; Enum)
@@ -44,6 +44,7 @@
 
 - `rsyslog_remote: ""` (String, пусто — только локальные логи; например `192.0.2.10:514`)
 - `rsyslog_proto: tcp` (или `udp`; Enum)
+- пересылка через `action(type="omfwd")` с дисковой очередью (`LinkedList`, до 256 МБ, `resumeRetryCount=-1`): пока сервер недоступен, логи копятся и досылаются, а не теряются; конфиг проверяется `rsyslogd -N1` до установки
 
 С форвардингом на центральный сервер:
 

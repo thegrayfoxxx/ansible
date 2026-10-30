@@ -7,6 +7,8 @@
     crowdsec_adopt_action: inspect
     crowdsec_agent_container: crowdsec-agent
     crowdsec_bouncer_container: crowdsec-bouncer
+    # false — бэкап старого стека остаётся для отката (удалить потом crowdsec_node_purge).
+    crowdsec_adopt_purge_backup: false
     crowdsec_node_name: ""
     crowdsec_old_dir: ""
     project_id: ""
@@ -221,7 +223,16 @@
     - name: Resolve collections and extra logs
       ansible.builtin.set_fact:
         crowdsec_collections: "{{ crowdsec_base_collections + ((crowdsec_env_collections | default('')).split(' ') | map('trim') | select | difference(crowdsec_base_collections) | list) }}"
-        crowdsec_extra_logs_list: "{{ (((crowdsec_old_acquis_content.content | default('') | b64decode | from_yaml).filenames | default([])) | difference(crowdsec_host_logs) | list) if ((crowdsec_old_acquis_content.content | default('')) | length > 0) else [] }}"
+        # acquis может быть многодокументным (свой type на каждый лог): восстанавливаем path[:type].
+        crowdsec_extra_logs_list: >-
+          {%- set out = [] -%}
+          {%- for d in ((crowdsec_old_acquis_content.content | default('') | b64decode | from_yaml_all | select | list) if ((crowdsec_old_acquis_content.content | default('')) | length > 0) else []) -%}
+          {%-   set t = ((d.labels | default({})).type | default('syslog')) if d is mapping else 'syslog' -%}
+          {%-   for f in ((d.filenames | default([])) if d is mapping else []) if f not in crowdsec_host_logs -%}
+          {%-     set _ = out.append(f if t == 'syslog' else f ~ ':' ~ t) -%}
+          {%-   endfor -%}
+          {%- endfor -%}
+          {{ out }}
 
     - name: Require extra logs under /var/log
       ansible.builtin.fail:
@@ -311,6 +322,7 @@
         crowdsec_group: "{{ (semaphore_envs.json | selectattr('name', 'equalto', crowdsec_group_name) | list | first) | default({}) }}"
       delegate_to: localhost
       become: false
+      no_log: true
 
     - name: Create crowdsec_nodes group when missing
       ansible.builtin.uri:
@@ -336,6 +348,7 @@
         crowdsec_group_json: "{{ ((crowdsec_group.json | default('', true)) | trim or '{}') | from_json }}"
       delegate_to: localhost
       become: false
+      no_log: true
 
     - name: Refuse conflicting LAPI URL in group
       ansible.builtin.fail:
@@ -366,9 +379,15 @@
         crowdsec_group_id: "{{ crowdsec_group.id | default(crowdsec_group_created.json.id) }}"
         crowdsec_node_key: "{{ crowdsec_resolved_name | lower | regex_replace('-', '_') }}"
         crowdsec_api_url_final: "{{ crowdsec_group_json.crowdsec_api_url | default(crowdsec_api_url) }}"
-        crowdsec_new_creds:
-          "{{ 'crowdsec_node_' + crowdsec_node_key + '_agent_password' }}": "{{ crowdsec_agent_password }}"
-          "{{ 'crowdsec_node_' + crowdsec_node_key + '_api_key' }}": "{{ crowdsec_api_key }}"
+        # Ключи YAML-словаря не шаблонизируются: раньше в группу уходил буквальный
+        # ключ "{{ 'crowdsec_node_' + ... }}" и креды терялись.
+        # Имя агента хранится явно: после adopt/move оно не равно <name>-agent.
+        crowdsec_new_creds: >-
+          {{ dict([
+               ['crowdsec_node_' ~ crowdsec_node_key ~ '_agent_password', crowdsec_agent_password],
+               ['crowdsec_node_' ~ crowdsec_node_key ~ '_api_key', crowdsec_api_key],
+               ['crowdsec_node_' ~ crowdsec_node_key ~ '_agent_username', crowdsec_agent_username]
+             ]) }}
       delegate_to: localhost
       become: false
       no_log: true
@@ -424,9 +443,9 @@
             dest: "{{ crowdsec_dir }}/config/acquis.yaml"
             mode: "0644"
 
-        - name: Copy bouncer config
-          ansible.builtin.copy:
-            src: "{{ playbook_dir }}/../files/crowdsec/crowdsec-firewall-bouncer.yaml"
+        - name: Render bouncer config
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../templates/crowdsec/crowdsec-firewall-bouncer.yaml.j2"
             dest: "{{ crowdsec_dir }}/config/crowdsec-firewall-bouncer.yaml"
             mode: "0644"
 
@@ -437,36 +456,28 @@
             pull: missing
           register: crowdsec_deploy
 
+        # Новый стек поднимается из шаблона с фиксированными именами контейнеров;
+        # crowdsec_agent_container — имя СТАРОГО контейнера.
         - name: Check agent answers LAPI
-          ansible.builtin.command: docker exec {{ crowdsec_agent_container }} cscli lapi status
+          ansible.builtin.command: docker exec crowdsec-agent cscli lapi status
           register: crowdsec_agent_status
           changed_when: false
           retries: 6
           delay: 10
           until: crowdsec_agent_status.rc == 0
 
+        - name: Check bouncer is running
+          ansible.builtin.command:
+            argv: ["docker", "inspect", "-f", "{{ '{{' }}.State.Running{{ '}}' }}", "crowdsec-bouncer"]
+          register: crowdsec_bouncer_running
+          changed_when: false
+          retries: 6
+          delay: 5
+          until: crowdsec_bouncer_running.rc == 0 and (crowdsec_bouncer_running.stdout | trim) == 'true'
+
         - name: Show adopt summary
           ansible.builtin.debug:
-            msg: "adopted {{ crowdsec_old_dir_final }} -> {{ crowdsec_dir }} node={{ crowdsec_resolved_name }} mode={{ crowdsec_mode }} group={{ crowdsec_group_name }} updated backup_agent={{ crowdsec_backup_agent }} backup_bouncer={{ crowdsec_backup_bouncer }}{{ (' backup_dir=' + crowdsec_backup_dir) if crowdsec_old_compose.stat.exists else '' }} (backups auto-purged after verify)"
-        - name: Purge adopted source backup after successful adopt
-          when: crowdsec_old_compose.stat.exists | bool
-          block:
-            - name: Remove adopted source backup containers
-              ansible.builtin.command:
-                argv: ["docker", "rm", "-f", "{{ item }}"]
-              loop:
-                - "{{ crowdsec_backup_agent }}"
-                - "{{ crowdsec_backup_bouncer }}"
-              changed_when: true
-              failed_when: false
-
-            - name: Remove adopted source backup dir
-              ansible.builtin.file:
-                path: "{{ crowdsec_backup_dir }}"
-                state: absent
-              become: true
-              failed_when: false
-
+            msg: "adopted {{ crowdsec_old_dir_final }} -> {{ crowdsec_dir }} node={{ crowdsec_resolved_name }} mode={{ crowdsec_mode }} group={{ crowdsec_group_name }} updated backup_agent={{ crowdsec_backup_agent }} backup_bouncer={{ crowdsec_backup_bouncer }}{{ (' backup_dir=' + crowdsec_backup_dir) if crowdsec_old_compose.stat.exists else '' }} {{ ' (backups purged after verify)' if (crowdsec_adopt_purge_backup | bool) else ' (backups kept for rollback; purge later with crowdsec_node_purge)' }}"
       rescue:
         - name: Take down partial new stack
           community.docker.docker_compose_v2:
@@ -503,3 +514,23 @@
         - name: Fail with rollback note
           ansible.builtin.fail:
             msg: "Adopt failed ({{ ansible_failed_result.msg | default('see above') }}); rollback attempted — verify old containers manually"
+
+    # Вне block/rescue: ошибка удаления бэкапа не должна откатывать рабочий стек.
+    - name: Purge adopted source backup after successful adopt
+      when: crowdsec_adopt_purge_backup | bool
+      block:
+        - name: Remove adopted source backup containers
+          ansible.builtin.command:
+            argv: ["docker", "rm", "-f", "{{ item }}"]
+          loop:
+            - "{{ crowdsec_backup_agent }}"
+            - "{{ crowdsec_backup_bouncer }}"
+          changed_when: true
+          failed_when: false
+
+        - name: Remove adopted source backup dir
+          ansible.builtin.file:
+            path: "{{ crowdsec_backup_dir }}"
+            state: absent
+          become: true
+          failed_when: false

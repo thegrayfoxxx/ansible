@@ -1,0 +1,12 @@
+---
+# Понятная ошибка API панели без утечки токена: uri-задачи идут с no_log,
+# поэтому их собственный fail показывал только "censored".
+# Вход: remnawave_api_resp (register uri-задачи), remnawave_api_what, remnawave_api_ok (список кодов).
+- name: Fail on panel API error
+  ansible.builtin.fail:
+    msg: >-
+      Panel API {{ remnawave_api_what }} failed: HTTP {{ remnawave_api_resp.status | default('n/a') }}
+      {{ (remnawave_api_resp.json.message | default(remnawave_api_resp.msg | default(''))) | string | truncate(300) }}.
+      {{ 'Check REMNAWAVE_TOKEN (401/403).' if (remnawave_api_resp.status | default(0) | int) in [401, 403] else '' }}
+      {{ 'Check the panel URL/TLS (remnawave_validate_certs).' if (remnawave_api_resp.status | default(0) | int) <= 0 else '' }}
+  when: (remnawave_api_resp.status | default(-1) | int) not in (remnawave_api_ok | default([200]))

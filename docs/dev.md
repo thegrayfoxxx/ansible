@@ -1,44 +1,18 @@
 # Локальная проверка и контрибьюшн
 
-Требуется установленный `ansible` (например `pip install ansible-core`).
+Требуется установленный `ansible` (например `pip install ansible-core ansible-lint yamllint shellcheck-py`).
 `target` обязателен для host-шаблонов (дефолта нет) — для проверок подставляем `-e '{"target":"all"}'`. Исключения: `remnawave_node_add` работает только с панелью, а `remnawave_node_remove` может работать без `target` при `scope=panel`.
 
 ```bash
-ansible-playbook --syntax-check playbooks/ping.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/update.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/base.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/run_script.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/run_cmd.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/logs.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/health.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/reboot.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/init_node.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/firewall.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/fail2ban.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/crowdsec_register.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/crowdsec_node.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/crowdsec_node_update.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/crowdsec_unregister.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/crowdsec_node_adopt.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/crowdsec_node_move.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/docker.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/bbr.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/cleanup.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/rsyslog.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/set_hostname.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/remnawave_node_add.yml
-ansible-playbook --syntax-check playbooks/remnawave_node_deploy.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/remnawave_node_config.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/remnawave_node_update.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/remnawave_node_move.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/remnawave_node_remove.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/nginx_fallback.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/nginx_adopt.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/nginx_move.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/diagnostics.yml -e '{"target":"all"}'
-ansible-playbook --syntax-check playbooks/ipv6.yml -e '{"target":"all"}'
 ansible-galaxy collection install -r requirements.yml
+scripts/syntax_check.sh          # --syntax-check всех playbooks/*.yml
+yamllint .
+ansible-lint
+shellcheck scripts/*.sh
+python3 -m py_compile scripts/semaphore_bootstrap.py
 ```
+
+Это же гоняет CI (`.github/workflows/lint.yml`) на каждый push и PR. `syntax_check.sh` подставляет `target=all` и `*_move_dest=localhost` (их требуют `*_move`), поэтому новый плейбук проверяется без правки списка.
 
 Правила для новых шаблонов:
 

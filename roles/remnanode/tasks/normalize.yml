@@ -1,26 +1,29 @@
 ---
 - name: Normalize project dir
   ansible.builtin.set_fact:
-    remnanode_dir: "{{ (remnanode_dir | default('') | trim) or '/opt/remnanode' }}"
+    # *_effective вместо set_fact поверх remnanode_dir: значения survey приходят
+    # extra vars, и set_fact не может их перекрыть — пустое поле оставалось "".
+    remnanode_dir_effective: "{{ (remnanode_dir | default('', true) | string | trim) or '/opt/remnanode' }}"
 
 - name: Validate project dir
   ansible.builtin.fail:
-    msg: "remnanode_dir must be an absolute path, got '{{ remnanode_dir }}'"
-  when: not (remnanode_dir is match('^/.+'))
+    msg: "remnanode_dir must be an absolute path, got '{{ remnanode_dir_effective }}'"
+  when: not (remnanode_dir_effective is match('^/.+'))
 
 - name: Resolve geodata paths
   ansible.builtin.set_fact:
-    remnanode_geo_dir: "{{ (remnanode_dir | regex_replace('/+$', '')) }}/xray/share"
-    remnanode_zapret_file: "{{ (remnanode_dir | regex_replace('/+$', '')) }}/xray/share/zapret.dat"
+    remnanode_geo_dir: "{{ (remnanode_dir_effective | regex_replace('/+$', '')) }}/xray/share"
+    remnanode_zapret_file: "{{ (remnanode_dir_effective | regex_replace('/+$', '')) }}/xray/share/zapret.dat"
 
 - name: Normalize agent container name
   ansible.builtin.set_fact:
-    remnanode_agent_container: "{{ (remnanode_agent_container | default('') | trim) or 'remnanode' }}"
+    remnanode_agent_container_effective: "{{ (remnanode_agent_container | default('', true) | string | trim) or 'remnanode' }}"
+    remnanode_node_image_effective: "{{ remnanode_node_image | default('', true) | string | trim }}"
 
 - name: Validate agent container name
   ansible.builtin.fail:
-    msg: "Remnanode container name must match ^[a-zA-Z0-9_.-]+$, got '{{ remnanode_agent_container }}'"
-  when: remnanode_agent_container is not match('^[a-zA-Z0-9_.-]+$')
+    msg: "Remnanode container name must match ^[a-zA-Z0-9_.-]+$, got '{{ remnanode_agent_container_effective }}'"
+  when: remnanode_agent_container_effective is not match('^[a-zA-Z0-9_.-]+$')
 
 - name: Normalize xray log dir
   ansible.builtin.set_fact:

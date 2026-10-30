@@ -16,6 +16,10 @@
     nginx_web_container: nginx-proxy-web
     nginx_acme_container: nginx-proxy-acme
     nginx_socket: /dev/shm/xray.sock
+    # Доверенные прокси/CDN перед nginx (CIDR через запятую или по строке).
+    # Пусто — X-Forwarded-For не используется (иначе любой клиент подделывает IP).
+    nginx_real_ip_from: ""
+    nginx_reload_interval: 43200
   tasks:
     - name: Normalize project dir
       ansible.builtin.set_fact:
@@ -32,15 +36,30 @@
       when: nginx_domain | default('') | trim | length == 0
         or not (nginx_domain | trim is match('^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$'))
 
+    # Значения попадают в конфиг nginx: строгие regex, чтобы `;`/`{`/пробел не
+    # дописали в конфиг свои директивы.
     - name: Validate proxy path
       ansible.builtin.fail:
-        msg: "nginx_proxy_path must start with /, got '{{ nginx_proxy_path }}'"
-      when: not (nginx_proxy_path | default('') | trim | regex_search('^/'))
+        msg: "nginx_proxy_path must look like /xray or /api/v1/ (letters, digits, . _ ~ / -), got '{{ nginx_proxy_path }}'"
+      when: not (nginx_proxy_path | default('') | trim is match('^/[A-Za-z0-9._~/-]*$'))
 
     - name: Validate proxy upstream
       ansible.builtin.fail:
-        msg: "nginx_proxy_upstream must be a valid URL (http://unix:/path or http://host:port), got '{{ nginx_proxy_upstream }}'"
-      when: not (nginx_proxy_upstream | default('') | trim | regex_search('^https?://'))
+        msg: "nginx_proxy_upstream must be http(s)://unix:/path.sock, http(s)://host:port or http(s)://[ipv6]:port (optional /path), got '{{ nginx_proxy_upstream }}'"
+      when: >-
+        not (nginx_proxy_upstream | default('') | trim is match(
+          '^https?://(unix:/[A-Za-z0-9._/-]+|[A-Za-z0-9.-]+:[0-9]{1,5}(/[A-Za-z0-9._~/-]*)?|\\[[0-9A-Fa-f:]+\\]:[0-9]{1,5}(/[A-Za-z0-9._~/-]*)?)$'))
+
+    - name: Normalize trusted real-ip sources
+      ansible.builtin.set_fact:
+        nginx_real_ip_from_list: "{{ ((nginx_real_ip_from | default('', true)).replace(',', '\n').splitlines() if (nginx_real_ip_from | default('', true)) is string else (nginx_real_ip_from | default([], true))) | map('trim') | select | list }}"
+
+    - name: Validate trusted real-ip sources
+      ansible.builtin.fail:
+        msg: "nginx_real_ip_from must be IPv4/IPv6 addresses or CIDRs, got: {{ nginx_bad | join(', ') }}"
+      vars:
+        nginx_bad: "{{ nginx_real_ip_from_list | reject('match', '^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$') | list }}"
+      when: nginx_bad | length > 0
 
     - name: Require fallback HTML
       ansible.builtin.fail:
@@ -71,7 +90,8 @@
       when: nginx_docker_bin.rc != 0
 
     - name: Check own web container is running
-      ansible.builtin.command: docker ps -q --filter name={{ nginx_web_container }}
+      ansible.builtin.command:
+        argv: ["docker", "ps", "-q", "--filter", "name=^{{ nginx_web_container }}$"]
       register: nginx_own_web
       changed_when: false
       failed_when: false
@@ -90,6 +110,22 @@
       when:
         - nginx_own_web.stdout | default('') | trim | length == 0
         - nginx_port_busy.stdout | length > 0
+
+    - name: Check port 443 is free for nginx
+      ansible.builtin.shell: "ss -tlnp | grep -E ':(443)\\s' || true"
+      args:
+        executable: /bin/bash
+      register: nginx_port443_busy
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Refuse busy port 443
+      ansible.builtin.fail:
+        msg: "Port 443 is already listening on this host ({{ nginx_port443_busy.stdout | trim }}). nginx_proxy stands in front on 443 — stop that service first"
+      when:
+        - nginx_own_web.stdout | default('') | trim | length == 0
+        - nginx_port443_busy.stdout | length > 0
 
     - name: Ensure project dir
       ansible.builtin.file:
@@ -116,18 +152,23 @@
         src: "{{ playbook_dir }}/../templates/nginx/compose_proxy.yml.j2"
         dest: "{{ nginx_dir }}/compose.yml"
         mode: "0644"
+      register: nginx_compose_render
 
     - name: Render nginx config
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../files/nginx/nginx_proxy.conf.template"
+        src: "{{ playbook_dir }}/../templates/nginx/nginx_proxy.conf.template.j2"
         dest: "{{ nginx_dir }}/nginx/nginx_proxy.conf.template"
         mode: "0644"
+      vars:
+        nginx_real_ip_from: "{{ nginx_real_ip_from_list }}"
+      register: nginx_conf_copy
 
     - name: Render index.html
       ansible.builtin.copy:
         content: "{{ nginx_html }}"
         dest: "{{ nginx_dir }}/html/index.html"
         mode: "0644"
+      register: nginx_html_copy
 
     - name: Render dotenv
       ansible.builtin.template:
@@ -136,81 +177,10 @@
         mode: "0600"
       vars:
         nginx_acme_server: "{{ 'https://acme-staging-v02.api.letsencrypt.org/directory' if (nginx_staging | bool) else 'https://acme-v02.api.letsencrypt.org/directory' }}"
-        nginx_domain: "{{ nginx_domain }}"
-        nginx_email: "{{ nginx_email }}"
-        nginx_staging: "{{ nginx_staging }}"
-        nginx_socket: "{{ nginx_socket }}"
-        nginx_proxy_path: "{{ nginx_proxy_path }}"
-        nginx_proxy_upstream: "{{ nginx_proxy_upstream }}"
+      diff: false
 
-    - name: Check LE certificate files
-      ansible.builtin.stat:
-        path: "{{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}/{{ item }}"
-      loop:
-        - fullchain.pem
-        - privkey.pem
-      register: nginx_cert_stat
-
-    - name: Resolve certificate state
-      ansible.builtin.set_fact:
-        nginx_cert_missing: "{{ (nginx_cert_stat.results | selectattr('stat.exists') | list | length) != 2 }}"
-
-    - name: Check certificate issuer
-      ansible.builtin.command: openssl x509 -noout -issuer -in {{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}/fullchain.pem
-      register: nginx_cert_issuer
-      changed_when: false
-      failed_when: false
-      when: not (nginx_cert_missing | bool)
-
-    - name: Resolve issue need
-      ansible.builtin.set_fact:
-        nginx_cert_is_staging: "{{ 'staging' in (nginx_cert_issuer.stdout | default('') | lower) }}"
-        nginx_issue_wanted: "{{ (nginx_cert_missing | bool) or (nginx_force_issue | bool) or (not (nginx_staging | bool) and ('staging' in (nginx_cert_issuer.stdout | default('') | lower))) }}"
-
-    - name: Require email for certificate issue
-      ansible.builtin.fail:
-        msg: "nginx_email is required to issue the first certificate (LE account). Fill it in survey"
-      when:
-        - nginx_issue_wanted | bool
-        - nginx_email | default('') | trim | length == 0
-
-    - name: Check openssl is available for temp certificate
-      ansible.builtin.shell: command -v openssl
-      args:
-        executable: /bin/bash
-      register: nginx_openssl_bin
-      changed_when: false
-      failed_when: false
-      when: nginx_cert_missing | bool
-
-    - name: Require openssl for temp certificate
-      ansible.builtin.fail:
-        msg: "openssl not found but a temporary self-signed certificate is needed to boot nginx before the first LE issue"
-      when:
-        - nginx_cert_missing | bool
-        - nginx_openssl_bin.rc | default(1) | int != 0
-
-    - name: Create temporary self-signed certificate
-      ansible.builtin.command:
-        argv:
-          - openssl
-          - req
-          - -x509
-          - -nodes
-          - -days
-          - "2"
-          - -newkey
-          - rsa:2048
-          - -keyout
-          - privkey.pem
-          - -out
-          - fullchain.pem
-          - -subj
-          - "/CN={{ nginx_domain | trim }}"
-      args:
-        chdir: "{{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}"
-      changed_when: true
-      when: nginx_cert_missing | bool
+    - name: Prepare certificate
+      ansible.builtin.include_tasks: tasks/nginx_cert_prepare.yml
 
     - name: Deploy proxy stack
       community.docker.docker_compose_v2:
@@ -219,52 +189,22 @@
         pull: missing
       register: nginx_deploy
 
+    - name: Restart web container to pick up changed config or page
+      ansible.builtin.command:
+        argv: ["docker", "restart", "{{ nginx_web_container }}"]
+      changed_when: true
+      when:
+        - (nginx_conf_copy is changed) or (nginx_html_copy is changed)
+        - not (nginx_deploy is changed)
+
     - name: Wait for nginx to be ready
       ansible.builtin.wait_for:
         port: 443
         delay: 2
         timeout: 30
 
-    - name: Issue LE certificate
-      ansible.builtin.command:
-        argv: "{{ ['docker', 'exec', nginx_acme_container, 'acme.sh', '--issue', '-d', (nginx_domain | trim), '--webroot', '/var/www/webroot', '--accountemail', (nginx_email | trim)] + (['--server', 'letsencrypt_test'] if (nginx_staging | bool) else ['--server', 'letsencrypt']) }}"
-      register: nginx_issue
-      changed_when: true
-      when: nginx_issue_wanted | bool
-
-    - name: Install LE certificate for nginx
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - "{{ nginx_acme_container }}"
-          - acme.sh
-          - --install-cert
-          - -d
-          - "{{ nginx_domain | trim }}"
-          - --key-file
-          - "/etc/letsencrypt/live/{{ nginx_domain | trim }}/privkey.pem"
-          - --fullchain-file
-          - "/etc/letsencrypt/live/{{ nginx_domain | trim }}/fullchain.pem"
-      register: nginx_install
-      changed_when: true
-      when: nginx_issue_wanted | bool
-
-    - name: Reload nginx with new certificate
-      ansible.builtin.command: docker exec {{ nginx_web_container }} nginx -s reload
-      changed_when: true
-      when: nginx_issue_wanted | bool
-
-    - name: Validate nginx config
-      ansible.builtin.command: docker exec {{ nginx_web_container }} nginx -t
-      register: nginx_config_test
-      changed_when: false
-      failed_when: false
-
-    - name: Require valid nginx config
-      ansible.builtin.fail:
-        msg: "nginx config validation failed: {{ nginx_config_test.stderr | default('') }}"
-      when: nginx_config_test.rc != 0
+    - name: Issue and install certificate
+      ansible.builtin.include_tasks: tasks/nginx_cert_issue.yml
 
     - name: Check ufw is available for auto open
       ansible.builtin.shell: command -v ufw
@@ -283,12 +223,17 @@
         - nginx_ufw_bin.rc | default(1) | int != 0
 
     - name: Open 80 and 443 in ufw
-      ansible.builtin.command: ufw allow proto tcp from any to any port 80,443
-      changed_when: true
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "80"
+        - "443"
       when:
         - nginx_open_ports | bool
         - nginx_ufw_bin.rc | default(1) | int == 0
 
     - name: Show deploy summary
       ansible.builtin.debug:
-        msg: "deployed nginx_proxy {{ nginx_dir }} domain={{ nginx_domain }} path={{ nginx_proxy_path }} upstream={{ nginx_proxy_upstream }} ports={{ 'open' if (nginx_open_ports | bool) else 'manual' }} cert={{ 'issued' if (nginx_issue is defined and nginx_issue.changed | default(false)) else ((('existing (staging)' if (nginx_cert_is_staging | bool) else 'existing') if not (nginx_cert_missing | bool) else 'missing')) }}{{ ' (staging requested — re-run with staging=false for a trusted cert)' if (nginx_staging | bool) else '' }}"
+        msg: "deployed nginx_proxy {{ nginx_dir }} domain={{ nginx_domain }} path={{ nginx_proxy_path }} upstream={{ nginx_proxy_upstream }} ports={{ 'open' if (nginx_open_ports | bool) else 'manual' }} cert={{ 'issued' if (nginx_issue is changed) else ((('existing (staging)' if (nginx_cert_is_staging | bool) else 'existing') if not (nginx_cert_missing | bool) else 'missing')) }}{{ ' (staging requested — re-run with staging=false for a trusted cert)' if (nginx_staging | bool) else '' }}"

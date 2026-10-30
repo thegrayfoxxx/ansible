@@ -1,7 +1,7 @@
 ---
 - name: Ensure project dir
   ansible.builtin.file:
-    path: "{{ remnanode_dir }}"
+    path: "{{ remnanode_dir_effective }}"
     state: directory
     mode: "0755"
 
@@ -24,21 +24,20 @@
 - name: Render compose file
   ansible.builtin.template:
     src: "{{ role_path }}/../../templates/remnawave/compose.yml.j2"
-    dest: "{{ remnanode_dir }}/compose.yml"
+    dest: "{{ remnanode_dir_effective }}/compose.yml"
     mode: "0644"
 
 - name: Render node env file
   ansible.builtin.template:
     src: "{{ role_path }}/../../templates/remnawave/dotenv.j2"
-    dest: "{{ remnanode_dir }}/.env"
+    dest: "{{ remnanode_dir_effective }}/.env"
     mode: "0600"
+  diff: false  # SECRET_KEY
 
 - name: Ensure logrotate is installed
   ansible.builtin.apt:
     name: logrotate
     state: present
-    update_cache: true
-    cache_valid_time: 3600
   when: remnanode_mount_logs_effective | bool
 
 - name: Render xray logrotate config

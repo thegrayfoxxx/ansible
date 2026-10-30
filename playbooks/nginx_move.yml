@@ -179,8 +179,12 @@
 
     - name: Resolve acme state source
       ansible.builtin.set_fact:
-        nginx_acme_src: "{{ (((nginx_acme_inspect_raw.stdout | from_json | first) | default({})).Config.Mounts | default([]) | selectattr('Destination', 'equalto', '/acme.sh') | list | first | default({})).Source | default('') }}"
-      when: nginx_acme_found | bool
+        # Монтирования у docker inspect лежат в .Mounts, а не в .Config.Mounts:
+        # раньше /acme.sh не находился, учётка acme.sh не переносилась и продление ломалось.
+        nginx_acme_src: "{{ (((nginx_acme_inspect_raw.stdout | from_json | first) | default({})).Mounts | default([]) | selectattr('Destination', 'equalto', '/acme.sh') | list | first | default({})).Source | default('') }}"
+      when:
+        - nginx_acme_found | bool
+        - nginx_acme_inspect_raw.rc | default(1) | int == 0
 
     - name: Warn when acme state is not portable
       ansible.builtin.debug:
@@ -386,6 +390,7 @@
             - html
             - nginx
             - letsencrypt
+            - acme.sh  # tar ниже пакует его всегда — без каталога архивация падала
           delegate_to: "{{ nginx_move_src.source }}"
           no_log: true
 
@@ -613,6 +618,25 @@
         - name: Fail with source intact note
           ansible.builtin.fail:
             msg: "Move failed ({{ ansible_failed_result.msg | default('see above') }}); source node untouched — fix and re-run"
+      always:
+        # В архиве приватные ключи LE и учётка acme.sh — не оставляем их в /tmp.
+        - name: Remove staging dir and archive on source
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}"
+            - "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}.tgz"
+          delegate_to: "{{ nginx_move_src.source }}"
+          no_log: true
+
+        - name: Remove state archive on controller
+          ansible.builtin.file:
+            path: "/tmp/nginx-move-{{ nginx_ts.stdout | trim }}.tgz"
+            state: absent
+          delegate_to: localhost
+          become: false
+          no_log: true
 
     - name: Show move summary
       ansible.builtin.debug:
@@ -625,10 +649,16 @@
   vars:
     nginx_move_action: inspect
     nginx_web_container: ""
+    nginx_move_purge_backup: true
   tasks:
     - name: Stop at inspect
       ansible.builtin.meta: end_play
       when: nginx_move_action != 'move'
+
+    # Раньше плей шёл и после провала на цели — источник гасился без замены.
+    - name: Stop unless destination was verified
+      ansible.builtin.meta: end_play
+      when: not (hostvars['localhost']['nginx_move_ok'] | default(false) | bool)
 
     - name: Timestamp for backup
       ansible.builtin.command: date +%Y%m%d%H%M%S
@@ -667,11 +697,6 @@
           loop: "{{ [nginx_web_final | default('')] + ([nginx_acme_name] if (nginx_acme_found | default(false) | bool) else []) | select | list }}"
           changed_when: true
           when: (nginx_web_final | default('') | length) > 0
-
-        - name: Remove moved source backup dir
-          ansible.builtin.file:
-            path: "{{ nginx_old_dir_final }}.move-bak-{{ nginx_ts.stdout | trim }}"
-            state: absent
 
     - name: Show decommission summary
       ansible.builtin.debug:

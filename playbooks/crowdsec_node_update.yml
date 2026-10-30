@@ -1,8 +1,10 @@
 ---
-- name: CrowdSec node update (pull + down + up)
+- name: CrowdSec node update (pull + recreate only when an image changed)
   hosts: "{{ target }}"
   gather_facts: false
   become: true
+  # По одной ноде: down/up снимал правила баунсера сразу на всём флоте.
+  serial: 1
   vars:
     crowdsec_dir: /opt/crowdsec
     crowdsec_agent_container: crowdsec-agent
@@ -39,23 +41,13 @@
         msg: "No compose.yml in {{ crowdsec_dir }}. Run crowdsec_node with action deploy first"
       when: not crowdsec_compose.stat.exists
 
-    - name: Pull latest images
-      ansible.builtin.command: docker compose pull
-      args:
-        chdir: "{{ crowdsec_dir }}"
-      register: crowdsec_pull
-      changed_when: "'Downloaded' in (crowdsec_pull.stdout + crowdsec_pull.stderr)"
-
-    - name: Recreate stack (down, volumes kept)
-      community.docker.docker_compose_v2:
-        project_src: "{{ crowdsec_dir }}"
-        state: absent
-      register: crowdsec_down
-
-    - name: Recreate stack (up -d)
+    # Раньше: проверка 'Downloaded' (в compose v2 такой строки нет) и безусловный
+    # down/up — баунсер снимал правила на каждом прогоне.
+    - name: Pull images and recreate only changed containers
       community.docker.docker_compose_v2:
         project_src: "{{ crowdsec_dir }}"
         state: present
+        pull: always
       register: crowdsec_up
 
     - name: Check agent answers LAPI
@@ -66,6 +58,15 @@
       delay: 10
       until: crowdsec_agent_status.rc == 0
 
+    - name: Check bouncer is running
+      ansible.builtin.command:
+        argv: ["docker", "inspect", "-f", "{{ '{{' }}.State.Running{{ '}}' }}", "crowdsec-bouncer"]
+      register: crowdsec_bouncer_running
+      changed_when: false
+      retries: 6
+      delay: 5
+      until: crowdsec_bouncer_running.rc == 0 and (crowdsec_bouncer_running.stdout | trim) == 'true'
+
     - name: Show update summary
       ansible.builtin.debug:
-        msg: "updated {{ crowdsec_dir }} (pull changed={{ crowdsec_pull.changed }})"
+        msg: "updated {{ crowdsec_dir }}: {{ 'images changed, containers recreated' if (crowdsec_up is changed) else 'already up to date' }}"

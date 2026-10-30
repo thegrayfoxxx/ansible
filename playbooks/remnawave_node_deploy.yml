@@ -60,17 +60,30 @@
 
     - name: Refuse a stack that lives in another directory
       ansible.builtin.fail:
-        msg: "Existing remnanode stack lives in {{ remnanode_old_dir_final }}, not in {{ remnanode_dir }}. Use remnawave_node_move scope=local to relocate it, or set remnanode_dir to the existing directory"
+        msg: "Existing remnanode stack lives in {{ remnanode_old_dir_final }}, not in {{ remnanode_dir_effective }}. Use remnawave_node_move scope=local to relocate it, or set remnanode_dir to the existing directory"
       when:
         - remnanode_container_exists | bool
-        - (remnanode_old_dir_final | regex_replace('/+$', '')) != (remnanode_dir | regex_replace('/+$', ''))
+        - (remnanode_old_dir_final | regex_replace('/+$', '')) != (remnanode_dir_effective | regex_replace('/+$', ''))
 
     - name: Refuse to overwrite an existing stack without force
       ansible.builtin.fail:
-        msg: "Stack already exists in {{ remnanode_dir }}. Use remnawave_node_config for mounts/logs/xray, remnawave_node_update for the image, remnawave_node_move to relocate, or set remnanode_force=true to re-render in place"
+        msg: "Stack already exists in {{ remnanode_dir_effective }}. Use remnawave_node_config for mounts/logs/xray, remnawave_node_update for the image, remnawave_node_move to relocate, or set remnanode_force=true to re-render in place"
       when:
         - remnanode_stack_exists | bool
         - not (remnanode_force | bool)
+
+    # compose up рядом с контейнером, запущенным вручную (docker run), падает
+    # на конфликте имени: такой контейнер надо сначала принять в compose.
+    - name: Refuse force over a container not managed by compose
+      ansible.builtin.fail:
+        msg: >-
+          Container '{{ remnanode_agent_container_effective }}' is not managed by docker compose
+          (no com.docker.compose labels). Deploy with force cannot take it over — use
+          remnawave_node_move scope=local (with remnanode_old_dir) to adopt it into {{ remnanode_dir_effective }}
+      when:
+        - remnanode_force | bool
+        - remnanode_container_exists | bool
+        - (remnanode_compose_labels | default({}))['com.docker.compose.project'] is not defined
 
     - name: Resolve desired geodata settings
       ansible.builtin.set_fact:
@@ -141,7 +154,7 @@
       block:
         - name: Require node name for panel handoff
           ansible.builtin.fail:
-            msg: "First deploy has no usable NODE_PORT/SECRET_KEY in {{ remnanode_dir }}/.env. Set remnawave_node_name and remnawave_token (or REMNAWAVE_TOKEN) so the panel can supply them"
+            msg: "First deploy has no usable NODE_PORT/SECRET_KEY in {{ remnanode_dir_effective }}/.env. Set remnawave_node_name and remnawave_token (or REMNAWAVE_TOKEN) so the panel can supply them"
           when: remnawave_node_name | default('') | trim | length == 0
 
         - name: Resolve panel credentials
@@ -204,7 +217,7 @@
 
     - name: Resolve node image
       ansible.builtin.set_fact:
-        remnanode_node_image: "{{ (remnanode_node_image | default('', true) | string | trim) or (remnanode_image_current | default('', true) | string | trim) or 'remnawave/node:latest' }}"
+        remnanode_node_image_effective: "{{ (remnanode_node_image | default('', true) | string | trim) or (remnanode_image_current | default('', true) | string | trim) or 'remnawave/node:latest' }}"
 
     - name: Resolve xray intent
       ansible.builtin.include_role:
@@ -250,4 +263,4 @@
 
     - name: Show deploy summary
       ansible.builtin.debug:
-        msg: "node={{ remnawave_node_name | default('(local .env)', true) }} host={{ inventory_hostname }} dir={{ remnanode_dir }} image={{ remnanode_node_image }} port={{ remnanode_port_final }} force={{ remnanode_force }} creds_from={{ remnanode_creds_source }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }}({{ remnanode_zapret_mode_norm }}) xray={{ remnanode_xray_summary }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} connected={{ remnawave_node_connected if (remnanode_panel_used | bool) else 'n/a' }}"
+        msg: "node={{ remnawave_node_name | default('(local .env)', true) }} host={{ inventory_hostname }} dir={{ remnanode_dir_effective }} image={{ remnanode_node_image_effective }} port={{ remnanode_port_final }} force={{ remnanode_force }} creds_from={{ remnanode_creds_source }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }}({{ remnanode_zapret_mode_norm }}) xray={{ remnanode_xray_summary }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} connected={{ remnawave_node_connected if (remnanode_panel_used | bool) else 'n/a' }}"

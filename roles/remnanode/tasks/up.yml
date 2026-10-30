@@ -17,29 +17,27 @@
 
 - name: Deploy remnawave stack
   community.docker.docker_compose_v2:
-    project_src: "{{ remnanode_dir }}"
+    project_src: "{{ remnanode_dir_effective }}"
     state: present
     pull: missing
     recreate: "{{ 'always' if (remnanode_xray_changed | bool) or (remnanode_zapret_changed | default(false) | bool) else 'auto' }}"
   register: remnanode_compose_up
 
+# Только State.Running: полный inspect содержит env с SECRET_KEY и попадал в лог.
 - name: Check remnanode container is running
-  ansible.builtin.command: docker inspect {{ remnanode_agent_container }}
+  ansible.builtin.command:
+    argv: ["docker", "inspect", "-f", "{{ '{{' }}.State.Running{{ '}}' }}", "{{ remnanode_agent_container_effective }}"]
   register: remnanode_verify
   changed_when: false
   failed_when: false
-  until: >-
-    remnanode_verify.rc == 0 and
-    ((remnanode_verify.stdout | from_json | first).State.Running | default(false) | bool)
+  until: remnanode_verify.rc == 0 and (remnanode_verify.stdout | trim) == 'true'
   retries: 6
   delay: 2
 
 - name: Require running remnanode container
   ansible.builtin.fail:
-    msg: "Container '{{ remnanode_agent_container }}' is not running after compose up. Check docker logs in {{ remnanode_dir }}"
-  when: >-
-    remnanode_verify.rc != 0 or
-    not ((remnanode_verify.stdout | from_json | first).State.Running | default(false) | bool)
+    msg: "Container '{{ remnanode_agent_container_effective }}' is not running after compose up. Check docker logs in {{ remnanode_dir_effective }}"
+  when: remnanode_verify.rc != 0 or (remnanode_verify.stdout | trim) != 'true'
 
 - name: Wait for node port to listen
   ansible.builtin.wait_for:
@@ -52,7 +50,7 @@
 - name: Record installed xray version
   ansible.builtin.copy:
     content: "{{ remnanode_xray_version_norm }}\n"
-    dest: "{{ remnanode_dir }}/.xray-core.version"
+    dest: "{{ remnanode_dir_effective }}/.xray-core.version"
     mode: "0644"
   when:
     - remnanode_xray_mode_effective | default(remnanode_xray_mode) == 'version'

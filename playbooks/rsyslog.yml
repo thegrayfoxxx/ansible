@@ -19,11 +19,26 @@
         update_cache: true
         cache_valid_time: 3600
 
+    - name: Validate rsyslog_remote value
+      ansible.builtin.fail:
+        msg: "rsyslog_remote must be host or host:port, got {{ rsyslog_remote }}"
+      when:
+        - rsyslog_remote | length > 0
+        - not (rsyslog_remote is match('^[A-Za-z0-9.-]+(:[0-9]{1,5})?$'))
+
+    # Дисковая очередь + бесконечные повторы: при недоступном сервере логи
+    # копятся и досылаются, а не теряются и не блокируют локальную запись.
+    # Конфиг проверяется rsyslogd -N1 до установки.
     - name: Configure remote forwarding
       ansible.builtin.copy:
-        content: "*.* {{ '@@' if (rsyslog_proto | lower) == 'tcp' else '@' }}{{ rsyslog_remote }}\n"
+        content: |
+          # Managed by Ansible (rsyslog.yml)
+          *.* action(type="omfwd" target="{{ rsyslog_remote.split(':')[0] }}" port="{{ rsyslog_remote.split(':')[1] if (':' in rsyslog_remote) else '514' }}" protocol="{{ rsyslog_proto | lower }}"
+                     queue.type="LinkedList" queue.filename="fwd_remote" queue.maxDiskSpace="256m"
+                     queue.saveOnShutdown="on" action.resumeRetryCount="-1" action.resumeInterval="10")
         dest: /etc/rsyslog.d/49-remote.conf
         mode: "0644"
+        validate: rsyslogd -N1 -f %s
       when: rsyslog_remote | length > 0
       notify: Validate and restart rsyslog
 
