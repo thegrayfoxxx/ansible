@@ -10,6 +10,8 @@
     project_id: ""
     crowdsec_lapi_container: crowdsec-lapi
     crowdsec_group_name: crowdsec_nodes
+    # Куда сохранить новые креды, если запись в группу Semaphore не удалась.
+    crowdsec_register_rescue_dir: /tmp/semaphore
   tasks:
     - name: Normalize LAPI container name
       ansible.builtin.set_fact:
@@ -88,6 +90,75 @@
         msg: "LAPI container {{ crowdsec_lapi_container }} is not running or not answering. Start the LAPI stack first"
       when: crowdsec_lapi_status.rc != 0
 
+    # Доступ к Semaphore и группа проверяются ДО ротации: раньше старые
+    # machines/bouncers удалялись, а при сбое PUT новые креды терялись.
+    - name: Read Semaphore API credentials
+      ansible.builtin.set_fact:
+        semaphore_token: "{{ lookup('env', 'SEMAPHORE_TOKEN') }}"
+        semaphore_base: "{{ lookup('env', 'SEMAPHORE_URL') | default('http://localhost:3000/api', true) }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Require Semaphore API token
+      ansible.builtin.fail:
+        msg: "SEMAPHORE_TOKEN is empty. Attach the service_vars group to the crowdsec_register template"
+      when: semaphore_token | length == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Find crowdsec_nodes group
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment?sort=name&order=asc"
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        return_content: true
+      register: semaphore_envs
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Resolve group state
+      ansible.builtin.set_fact:
+        crowdsec_group: "{{ (semaphore_envs.json | selectattr('name', 'equalto', crowdsec_group_name) | list | first) | default({}) }}"
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Resolve group JSON and API URL
+      ansible.builtin.set_fact:
+        crowdsec_group_json: "{{ ((crowdsec_group.json | default('', true)) | trim or '{}') | from_json }}"
+        crowdsec_api_url_final: "{{ crowdsec_api_url if (crowdsec_api_url | default('') | length > 0) else (((crowdsec_group.json | default('', true)) | trim or '{}') | from_json).crowdsec_api_url | default('') }}"
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Require API URL on first registration
+      ansible.builtin.fail:
+        msg: "crowdsec_api_url is empty and the group has no value yet. Provide the public LAPI URL (https://crowdsec.example.com)"
+      when: crowdsec_api_url_final | length == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Create crowdsec_nodes group when missing
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        body_format: json
+        body:
+          project_id: "{{ project_id | int }}"
+          name: "{{ crowdsec_group_name }}"
+        status_code: 201
+        return_content: true
+      register: crowdsec_group_created
+      when: crowdsec_group | length == 0
+      delegate_to: localhost
+      become: false
+      no_log: true
+
     - name: Remove previous agent registration (rotation)
       ansible.builtin.command: docker exec {{ crowdsec_lapi_container }} cscli machines delete {{ item }}-agent
       loop: "{{ crowdsec_names_list }}"
@@ -150,7 +221,7 @@
 
     - name: Collect node credentials
       ansible.builtin.set_fact:
-        crowdsec_new_creds: "{{ crowdsec_new_creds | default({}) | combine({'crowdsec_node_' + node_key + '_agent_password': crowdsec_passwords.results[idx].stdout, 'crowdsec_node_' + node_key + '_api_key': crowdsec_keys.results[idx].stdout}) }}"
+        crowdsec_new_creds: "{{ crowdsec_new_creds | default({}) | combine({'crowdsec_node_' + node_key + '_agent_password': crowdsec_passwords.results[idx].stdout, 'crowdsec_node_' + node_key + '_api_key': crowdsec_keys.results[idx].stdout, 'crowdsec_node_' + node_key + '_agent_username': item + '-agent'}) }}"
       vars:
         node_key: "{{ item | lower | regex_replace('-', '_') }}"
       loop: "{{ crowdsec_names_list }}"
@@ -158,92 +229,54 @@
         index_var: idx
       no_log: true
 
-    - name: Read Semaphore API credentials
-      ansible.builtin.set_fact:
-        semaphore_token: "{{ lookup('env', 'SEMAPHORE_TOKEN') }}"
-        semaphore_base: "{{ lookup('env', 'SEMAPHORE_URL') | default('http://localhost:3000/api', true) }}"
-      delegate_to: localhost
-      become: false
+    - name: Store credentials in Semaphore
+      block:
+        - name: Write credentials to crowdsec_nodes group
+          ansible.builtin.uri:
+            url: "{{ semaphore_base }}/project/{{ project_id }}/environment/{{ crowdsec_group_id }}"
+            method: PUT
+            headers:
+              Authorization: "Bearer {{ semaphore_token }}"
+              Accept: application/json
+            body_format: json
+            body:
+              id: "{{ crowdsec_group_id }}"
+              project_id: "{{ project_id | int }}"
+              name: "{{ crowdsec_group_name }}"
+              json: "{{ (crowdsec_group_json | combine({'crowdsec_api_url': crowdsec_api_url_final}) | combine(crowdsec_new_creds)) | to_json }}"
+              env: "{{ crowdsec_group.env | default('', true) }}"
+              secrets: []
+            status_code: 204
+          register: crowdsec_put
+          retries: 3
+          delay: 5
+          until: crowdsec_put.status | default(0) == 204
+          vars:
+            crowdsec_group_id: "{{ crowdsec_group.id | default(crowdsec_group_created.json.id) }}"
+          delegate_to: localhost
+          become: false
+          no_log: true
 
-    - name: Require Semaphore API token
-      ansible.builtin.fail:
-        msg: "SEMAPHORE_TOKEN is empty. Attach the service_vars group to the crowdsec_register template"
-      when: semaphore_token | length == 0
-      delegate_to: localhost
-      become: false
+      rescue:
+        # Секреты в лог не выводим: новые креды — в файл 0600 на контроллере
+        # (том semaphore_tmp переживает перезапуск контейнера).
+        - name: Save new credentials to a root-only file on the controller
+          ansible.builtin.copy:
+            content: "{{ crowdsec_new_creds | combine({'crowdsec_api_url': crowdsec_api_url_final}) | to_nice_json }}"
+            dest: "{{ crowdsec_register_rescue_dir }}/crowdsec-register-{{ now(fmt='%Y%m%d%H%M%S') }}.json"
+            mode: "0600"
+          register: crowdsec_rescue_file
+          delegate_to: localhost
+          become: false
+          no_log: true
 
-    - name: Find crowdsec_nodes group
-      ansible.builtin.uri:
-        url: "{{ semaphore_base }}/project/{{ project_id }}/environment?sort=name&order=asc"
-        headers:
-          Authorization: "Bearer {{ semaphore_token }}"
-          Accept: application/json
-        return_content: true
-      register: semaphore_envs
-      delegate_to: localhost
-      become: false
-      no_log: true
-
-    - name: Resolve group state
-      ansible.builtin.set_fact:
-        crowdsec_group: "{{ (semaphore_envs.json | selectattr('name', 'equalto', crowdsec_group_name) | list | first) | default({}) }}"
-      delegate_to: localhost
-      become: false
-
-    - name: Resolve group JSON and API URL
-      ansible.builtin.set_fact:
-        crowdsec_group_json: "{{ ((crowdsec_group.json | default('', true)) | trim or '{}') | from_json }}"
-        crowdsec_api_url_final: "{{ crowdsec_api_url if (crowdsec_api_url | default('') | length > 0) else (((crowdsec_group.json | default('', true)) | trim or '{}') | from_json).crowdsec_api_url | default('') }}"
-      delegate_to: localhost
-      become: false
-
-    - name: Require API URL on first registration
-      ansible.builtin.fail:
-        msg: "crowdsec_api_url is empty and the group has no value yet. Provide the public LAPI URL (https://crowdsec.example.com)"
-      when: crowdsec_api_url_final | length == 0
-      delegate_to: localhost
-      become: false
-
-    - name: Create crowdsec_nodes group when missing
-      ansible.builtin.uri:
-        url: "{{ semaphore_base }}/project/{{ project_id }}/environment"
-        method: POST
-        headers:
-          Authorization: "Bearer {{ semaphore_token }}"
-          Accept: application/json
-        body_format: json
-        body:
-          project_id: "{{ project_id | int }}"
-          name: "{{ crowdsec_group_name }}"
-        status_code: 201
-        return_content: true
-      register: crowdsec_group_created
-      when: crowdsec_group | length == 0
-      delegate_to: localhost
-      become: false
-      no_log: true
-
-    - name: Write credentials to crowdsec_nodes group
-      ansible.builtin.uri:
-        url: "{{ semaphore_base }}/project/{{ project_id }}/environment/{{ crowdsec_group_id }}"
-        method: PUT
-        headers:
-          Authorization: "Bearer {{ semaphore_token }}"
-          Accept: application/json
-        body_format: json
-        body:
-          id: "{{ crowdsec_group_id }}"
-          project_id: "{{ project_id | int }}"
-          name: "{{ crowdsec_group_name }}"
-          json: "{{ (crowdsec_group_json | combine({'crowdsec_api_url': crowdsec_api_url_final}) | combine(crowdsec_new_creds)) | to_json }}"
-          env: "{{ crowdsec_group.env | default('', true) }}"
-          secrets: []
-        status_code: 204
-      vars:
-        crowdsec_group_id: "{{ crowdsec_group.id | default(crowdsec_group_created.json.id) }}"
-      delegate_to: localhost
-      become: false
-      no_log: true
+        - name: Fail with path to saved credentials
+          ansible.builtin.fail:
+            msg: >-
+              LAPI already has NEW credentials for {{ crowdsec_names_list | join(', ') }}, but writing them
+              to the {{ crowdsec_group_name }} group failed (HTTP {{ crowdsec_put.status | default('n/a') }}).
+              They are saved to {{ crowdsec_rescue_file.dest | default('(save failed)') }} on the controller (mode 0600):
+              copy the keys into the group JSON manually, then delete the file
 
     - name: Show registration summary
       ansible.builtin.debug:

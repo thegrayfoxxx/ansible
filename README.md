@@ -60,11 +60,10 @@ scripts/
   diagnostics.sh         # свои пробы ноды (facts/DNS/DPI/speed, без внешних тянучек)
   semaphore_bootstrap.py # сидинг шаблонов в UI (stdlib, без pip)
 templates/
-  crowdsec/          # j2 для ноды: compose.yml, .env, acquis.yaml
+  crowdsec/          # j2 для ноды: compose.yml, .env, acquis.yaml, конфиг баунсера (upstream + iptables_chains)
   remnawave/         # j2 для ноды: compose.yml, .env, logrotate
   nginx/             # j2: compose fallback/proxy, .env, конфиг nginx_proxy
 files/
-  crowdsec/          # статика для ноды: crowdsec-firewall-bouncer.yaml (1:1 с configs)
   nginx/             # конфиг заглушки fallback (envsubst-шаблон nginx)
 .github/workflows/   # CI: yamllint, ansible-lint, shellcheck, syntax-check
 semaphore/

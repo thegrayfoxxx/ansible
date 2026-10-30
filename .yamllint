@@ -5,7 +5,7 @@ ignore: |
   .git/
   collections/
   # 1:1 с upstream-конфигом баунсера, стиль не правим
-  files/crowdsec/crowdsec-firewall-bouncer.yaml
+  templates/crowdsec/crowdsec-firewall-bouncer.yaml.j2
 
 rules:
   # Длинные Jinja-выражения в одну строку — осознанный стиль репозитория.

@@ -231,7 +231,16 @@
     - name: Resolve collections and extra logs
       ansible.builtin.set_fact:
         crowdsec_collections: "{{ crowdsec_base_collections + ((crowdsec_env_collections | default('')).split(' ') | map('trim') | select | difference(crowdsec_base_collections) | list) }}"
-        crowdsec_extra_logs_list: "{{ (((crowdsec_old_acquis_content.content | default('') | b64decode | from_yaml).filenames | default([])) | difference(crowdsec_host_logs) | list) if ((crowdsec_old_acquis_content.content | default('')) | length > 0) else [] }}"
+        # acquis может быть многодокументным (свой type на каждый лог): восстанавливаем path[:type].
+        crowdsec_extra_logs_list: >-
+          {%- set out = [] -%}
+          {%- for d in ((crowdsec_old_acquis_content.content | default('') | b64decode | from_yaml_all | select | list) if ((crowdsec_old_acquis_content.content | default('')) | length > 0) else []) -%}
+          {%-   set t = ((d.labels | default({})).type | default('syslog')) if d is mapping else 'syslog' -%}
+          {%-   for f in ((d.filenames | default([])) if d is mapping else []) if f not in crowdsec_host_logs -%}
+          {%-     set _ = out.append(f if t == 'syslog' else f ~ ':' ~ t) -%}
+          {%-   endfor -%}
+          {%- endfor -%}
+          {{ out }}
 
     - name: Require extra logs under /var/log
       ansible.builtin.fail:
@@ -291,6 +300,7 @@
       delegate_to: localhost
       become: false
       when: crowdsec_move_action == 'move'
+      no_log: true
 
     - name: Create crowdsec_nodes group when missing
       ansible.builtin.uri:
@@ -319,6 +329,7 @@
       delegate_to: localhost
       become: false
       when: crowdsec_move_action == 'move'
+      no_log: true
 
     - name: Refuse conflicting LAPI URL in group
       ansible.builtin.fail:
@@ -330,34 +341,6 @@
         - crowdsec_group_url | length > 0 and crowdsec_group_url != (crowdsec_api_url | trim).rstrip('/')
       delegate_to: localhost
       become: false
-
-    - name: Write credentials to crowdsec_nodes group
-      ansible.builtin.uri:
-        url: "{{ semaphore_base }}/project/{{ project_id }}/environment/{{ crowdsec_group_id }}"
-        method: PUT
-        headers:
-          Authorization: "Bearer {{ semaphore_token }}"
-          Accept: application/json
-        body_format: json
-        body:
-          id: "{{ crowdsec_group_id }}"
-          project_id: "{{ project_id | int }}"
-          name: "{{ crowdsec_group_name }}"
-          json: "{{ (crowdsec_group_json | combine({'crowdsec_api_url': crowdsec_api_url_final}) | combine(crowdsec_new_creds)) | to_json }}"
-          env: "{{ crowdsec_group.env | default('', true) }}"
-          secrets: []
-        status_code: 204
-      vars:
-        crowdsec_group_id: "{{ crowdsec_group.id | default(crowdsec_group_created.json.id) }}"
-        crowdsec_node_key: "{{ crowdsec_resolved_name | lower | regex_replace('-', '_') }}"
-        crowdsec_api_url_final: "{{ crowdsec_group_json.crowdsec_api_url | default(crowdsec_api_url) }}"
-        crowdsec_new_creds:
-          "{{ 'crowdsec_node_' + crowdsec_node_key + '_agent_password' }}": "{{ crowdsec_agent_password }}"
-          "{{ 'crowdsec_node_' + crowdsec_node_key + '_api_key' }}": "{{ crowdsec_api_key }}"
-      delegate_to: localhost
-      become: false
-      no_log: true
-      when: crowdsec_move_action == 'move'
 
     - name: Publish state for destination play
       ansible.builtin.set_fact:
@@ -374,6 +357,7 @@
           bouncer_container: "{{ crowdsec_bouncer_container }}"
           source: "{{ inventory_hostname }}"
           old_dir: "{{ crowdsec_old_dir_final }}"
+          node_name: "{{ crowdsec_resolved_name }}"
         crowdsec_move_ok: false
       delegate_to: localhost
       delegate_facts: true
@@ -417,8 +401,10 @@
         crowdsec_mode: "{{ hostvars['localhost']['crowdsec_move_bundle']['mode'] }}"
         crowdsec_collections: "{{ hostvars['localhost']['crowdsec_move_bundle']['collections'] }}"
         crowdsec_extra_logs_list: "{{ hostvars['localhost']['crowdsec_move_bundle']['extra_logs'] }}"
-        crowdsec_agent_container: "{{ hostvars['localhost']['crowdsec_move_bundle']['agent_container'] }}"
-        crowdsec_bouncer_container: "{{ hostvars['localhost']['crowdsec_move_bundle']['bouncer_container'] }}"
+        # На цели стек поднимается из templates/crowdsec/compose.yml.j2 с фиксированными
+        # именами; имена источника (могли быть свои) тут не при чём.
+        crowdsec_agent_container: crowdsec-agent
+        crowdsec_bouncer_container: crowdsec-bouncer
         crowdsec_resolved_name: "{{ hostvars['localhost']['crowdsec_move_bundle']['node_name'] }}"
         crowdsec_move_source: "{{ hostvars['localhost']['crowdsec_move_bundle']['source'] }}"
       no_log: true
@@ -487,9 +473,9 @@
         dest: "{{ crowdsec_dir }}/config/acquis.yaml"
         mode: "0644"
 
-    - name: Copy bouncer config
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../files/crowdsec/crowdsec-firewall-bouncer.yaml"
+    - name: Render bouncer config
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/crowdsec/crowdsec-firewall-bouncer.yaml.j2"
         dest: "{{ crowdsec_dir }}/config/crowdsec-firewall-bouncer.yaml"
         mode: "0644"
 
@@ -509,6 +495,15 @@
           retries: 6
           delay: 10
           until: crowdsec_agent_status.rc == 0
+
+        - name: Check bouncer is running
+          ansible.builtin.command:
+            argv: ["docker", "inspect", "-f", "{{ '{{' }}.State.Running{{ '}}' }}", "{{ crowdsec_bouncer_container }}"]
+          register: crowdsec_bouncer_running
+          changed_when: false
+          retries: 6
+          delay: 5
+          until: crowdsec_bouncer_running.rc == 0 and (crowdsec_bouncer_running.stdout | trim) == 'true'
 
         - name: Mark move verified
           ansible.builtin.set_fact:
@@ -539,10 +534,53 @@
     crowdsec_move_action: inspect
     crowdsec_agent_container: crowdsec-agent
     crowdsec_bouncer_container: crowdsec-bouncer
+    crowdsec_move_purge_backup: true
   tasks:
     - name: Stop at inspect
       ansible.builtin.meta: end_play
       when: crowdsec_move_action != 'move'
+
+    # Раньше плей шёл и после провала на цели: источник останавливался,
+    # хотя новый стек не поднялся.
+    - name: Stop unless destination was verified
+      ansible.builtin.meta: end_play
+      when: not (hostvars['localhost']['crowdsec_move_ok'] | default(false) | bool)
+
+    # Запись в группу — только после проверки цели, иначе при провале move
+    # группа уже переписана под новое имя.
+    - name: Write credentials to crowdsec_nodes group
+      ansible.builtin.uri:
+        url: "{{ semaphore_base }}/project/{{ project_id }}/environment/{{ crowdsec_group_id }}"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ semaphore_token }}"
+          Accept: application/json
+        body_format: json
+        body:
+          id: "{{ crowdsec_group_id }}"
+          project_id: "{{ project_id | int }}"
+          name: "{{ crowdsec_group_name }}"
+          json: "{{ (crowdsec_group_json | combine({'crowdsec_api_url': crowdsec_api_url_final}) | combine(crowdsec_new_creds)) | to_json }}"
+          env: "{{ crowdsec_group.env | default('', true) }}"
+          secrets: []
+        status_code: 204
+      vars:
+        crowdsec_group_id: "{{ crowdsec_group.id | default(crowdsec_group_created.json.id) }}"
+        crowdsec_node_key: "{{ crowdsec_resolved_name | lower | regex_replace('-', '_') }}"
+        crowdsec_api_url_final: "{{ crowdsec_group_json.crowdsec_api_url | default(crowdsec_api_url) }}"
+        # Ключи YAML-словаря не шаблонизируются: раньше в группу уходил буквальный
+        # ключ "{{ 'crowdsec_node_' + ... }}" и креды терялись.
+        # Имя агента хранится явно: после adopt/move оно не равно <name>-agent.
+        crowdsec_new_creds: >-
+          {{ dict([
+               ['crowdsec_node_' ~ crowdsec_node_key ~ '_agent_password', crowdsec_agent_password],
+               ['crowdsec_node_' ~ crowdsec_node_key ~ '_api_key', crowdsec_api_key],
+               ['crowdsec_node_' ~ crowdsec_node_key ~ '_agent_username', crowdsec_agent_username]
+             ]) }}
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when: crowdsec_move_action == 'move'
 
     - name: Timestamp for backup
       ansible.builtin.command: date +%Y%m%d%H%M%S
@@ -568,6 +606,7 @@
       loop: "{{ [crowdsec_agent_container | default('crowdsec-agent')] + ([crowdsec_bouncer_container | default('crowdsec-bouncer')] if ((crowdsec_bouncer_container | default('')) | length > 0) else []) }}"
       changed_when: true
 
+    # Каталог *.move-bak-* при remote move не создаётся — удаляем только контейнеры.
     - name: Purge moved source backup after successful move
       when:
         - crowdsec_move_action == 'move'
@@ -578,11 +617,6 @@
             argv: ["docker", "rm", "-f", "{{ item }}-moved-bak-{{ crowdsec_ts.stdout | trim }}"]
           loop: "{{ [crowdsec_agent_container | default('crowdsec-agent')] + ([crowdsec_bouncer_container | default('crowdsec-bouncer')] if ((crowdsec_bouncer_container | default('')) | length > 0) else []) }}"
           changed_when: true
-
-        - name: Remove moved source backup dir
-          ansible.builtin.file:
-            path: "{{ crowdsec_old_dir_final }}.move-bak-{{ crowdsec_ts.stdout | trim }}"
-            state: absent
 
     - name: Show decommission summary
       ansible.builtin.debug:
