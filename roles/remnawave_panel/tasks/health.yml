@@ -3,8 +3,6 @@
   ansible.builtin.fail:
     msg: "Node UUID is unknown — cannot check panel connectivity"
   when: remnawave_node_uuid | default('') | trim | length == 0
-  delegate_to: localhost
-  become: false
 
 - name: Check node answers panel
   ansible.builtin.uri:
@@ -29,13 +27,11 @@
     msg: >-
       Node '{{ remnawave_node_name | default(remnawave_node_uuid) }}' did not connect to the panel
       ({{ (remnawave_health_retries | default(12) | int) * (remnawave_health_delay | default(10) | int) }}s timeout).
-      Check the node address/port in the panel, ufw on the node and docker logs.
+      Last answer: HTTP {{ remnawave_node_state.status | default('n/a') }}
+      {{ (remnawave_node_state.json.message | default(remnawave_node_state.msg | default(''))) | string | truncate(200) }}.
+      {{ 'Check REMNAWAVE_TOKEN (401/403).' if (remnawave_node_state.status | default(0) | int) in [401, 403] else ('Node UUID not found in panel (404).' if (remnawave_node_state.status | default(0) | int) == 404 else 'Check the node address/port in the panel, ufw on the node and docker logs.') }}
   when: not (remnawave_node_state.json.response.isConnected | default(false))
-  delegate_to: localhost
-  become: false
 
 - name: Record panel connectivity
   ansible.builtin.set_fact:
     remnawave_node_connected: "{{ remnawave_node_state.json.response.isConnected | default(false) }}"
-  delegate_to: localhost
-  become: false

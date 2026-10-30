@@ -1,19 +1,21 @@
 ---
-- name: Remnawave node update (pull + down + up)
+- name: Remnawave node update (pull + recreate only when the image changed)
   hosts: "{{ target }}"
   gather_facts: false
   become: true
+  # По одной ноде: при сломанном образе падает одна, а не весь флот.
+  serial: 1
   vars:
     remnanode_dir: /opt/remnanode
+    remnanode_agent_container: remnanode
+    # true — пересоздать контейнер даже без нового образа (перечитать
+    # geodata/zapret.dat, обновлённые вручную).
+    remnanode_update_recreate: false
   tasks:
-    - name: Normalize project dir
-      ansible.builtin.set_fact:
-        remnanode_dir: "{{ (remnanode_dir | default('') | trim) or '/opt/remnanode' }}"
-
-    - name: Validate project dir
-      ansible.builtin.fail:
-        msg: "remnanode_dir must be an absolute path, got '{{ remnanode_dir }}'"
-      when: not (remnanode_dir is match('^/.+'))
+    - name: Normalize node settings
+      ansible.builtin.include_role:
+        name: remnanode
+        tasks_from: normalize
 
     - name: Check docker is available
       ansible.builtin.shell: command -v docker
@@ -22,6 +24,7 @@
       register: remnawave_docker_bin
       changed_when: false
       failed_when: false
+      check_mode: false
 
     - name: Require docker on node
       ansible.builtin.fail:
@@ -30,33 +33,56 @@
 
     - name: Check compose file exists
       ansible.builtin.stat:
-        path: "{{ remnanode_dir }}/compose.yml"
+        path: "{{ remnanode_dir_effective }}/compose.yml"
       register: remnawave_compose
 
     - name: Require deployed stack
       ansible.builtin.fail:
-        msg: "No compose.yml in {{ remnanode_dir }}. Run remnawave_node_deploy first"
+        msg: "No compose.yml in {{ remnanode_dir_effective }}. Run remnawave_node_deploy first"
       when: not remnawave_compose.stat.exists
 
-    - name: Pull latest images
-      ansible.builtin.command: docker compose pull
-      args:
-        chdir: "{{ remnanode_dir }}"
-      register: remnawave_pull
-      changed_when: "'Downloaded' in (remnawave_pull.stdout + remnawave_pull.stderr)"
-
-    - name: Recreate stack (down, volumes kept)
+    # Раньше: `docker compose pull` + проверка 'Downloaded' (в compose v2 такой
+    # строки нет, changed всегда false) и безусловные down/up на всём флоте.
+    - name: Pull image and recreate only if it changed
       community.docker.docker_compose_v2:
-        project_src: "{{ remnanode_dir }}"
-        state: absent
-      register: remnawave_down
-
-    - name: Recreate stack (up -d)
-      community.docker.docker_compose_v2:
-        project_src: "{{ remnanode_dir }}"
+        project_src: "{{ remnanode_dir_effective }}"
         state: present
+        pull: always
+        recreate: "{{ 'always' if (remnanode_update_recreate | bool) else 'auto' }}"
       register: remnawave_up
+
+    - name: Read node port
+      ansible.builtin.shell: "set -o pipefail; grep -E '^NODE_PORT=' {{ (remnanode_dir_effective ~ '/.env') | quote }} | cut -d= -f2"
+      args:
+        executable: /bin/bash
+      register: remnawave_update_port
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Check remnanode container is running
+      ansible.builtin.command:
+        argv: ["docker", "inspect", "-f", "{{ '{{' }}.State.Running{{ '}}' }}", "{{ remnanode_agent_container_effective }}"]
+      register: remnawave_update_running
+      changed_when: false
+      failed_when: false
+      until: remnawave_update_running.rc == 0 and (remnawave_update_running.stdout | trim) == 'true'
+      retries: 10
+      delay: 3
+      check_mode: false
+
+    - name: Require running remnanode container
+      ansible.builtin.fail:
+        msg: "Container '{{ remnanode_agent_container_effective }}' is not running after update. Check: docker logs {{ remnanode_agent_container_effective }}"
+      when: remnawave_update_running.rc != 0 or (remnawave_update_running.stdout | trim) != 'true'
+
+    - name: Wait for node port to listen
+      ansible.builtin.wait_for:
+        port: "{{ remnawave_update_port.stdout | trim | int }}"
+        state: started
+        timeout: 60
+      when: remnawave_update_port.stdout | trim is match('^[0-9]+$')
 
     - name: Show update summary
       ansible.builtin.debug:
-        msg: "updated {{ remnanode_dir }} (pull changed={{ remnawave_pull.changed }})"
+        msg: "updated {{ remnanode_dir_effective }}: {{ 'image changed, container recreated' if (remnawave_up is changed) else 'already up to date' }}; running={{ remnawave_update_running.stdout | trim }} port={{ remnawave_update_port.stdout | trim | default('?', true) }}"

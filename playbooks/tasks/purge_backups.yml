@@ -1,0 +1,107 @@
+---
+# Общая логика *_purge: найти и удалить бэкапы ОДНОГО продукта, оставленные
+# adopt/move (контейнеры *-adopt-bak-*/*-move-bak-*/*-moved-bak-* и каталоги
+# *.adopt-bak-*/*.move-bak-*).
+#
+# Раньше purge искал любые `-bak-` на хосте (в т.ч. бэкапы других продуктов),
+# брал первый попавшийся и выбирал контейнер и каталог независимо друг от друга.
+#
+# Входные переменные:
+#   purge_label             — имя продукта для сообщений
+#   purge_action            — inspect | purge
+#   purge_container_regex   — regex имён бэкап-контейнеров продукта
+#   purge_dir_regex         — regex (posix-extended, полный путь) бэкап-каталогов
+#   purge_dir_marker        — regex, который должен найтись в compose-файле каталога
+#   purge_containers_explicit / purge_dirs_explicit — явные значения
+#                             (через запятую или по строке); проверяются теми же regex
+#   purge_search_roots      — где искать каталоги
+
+- name: Normalize explicit purge targets
+  ansible.builtin.set_fact:
+    purge_containers_explicit_list: "{{ (purge_containers_explicit | default('', true) | string).replace(',', '\n').splitlines() | map('trim') | select | list }}"
+    purge_dirs_explicit_list: "{{ (purge_dirs_explicit | default('', true) | string).replace(',', '\n').splitlines() | map('trim') | map('regex_replace', '/+$', '') | select | list }}"
+
+- name: Refuse explicit containers of another product
+  ansible.builtin.fail:
+    msg: "{{ purge_label }}: container(s) {{ purge_bad | join(', ') }} do not look like {{ purge_label }} backups (expected {{ purge_container_regex }})"
+  vars:
+    purge_bad: "{{ purge_containers_explicit_list | reject('match', purge_container_regex) | list }}"
+  when: purge_bad | length > 0
+
+- name: Refuse unsafe explicit dirs
+  ansible.builtin.fail:
+    msg: "{{ purge_label }}: refusing to purge {{ purge_bad | join(', ') }} — expected an absolute backup dir matching {{ purge_dir_regex }}"
+  vars:
+    purge_bad: >-
+      {{ purge_dirs_explicit_list
+         | reject('match', purge_dir_regex) | list
+         + (purge_dirs_explicit_list | select('search', '\.\.') | list)
+         + (purge_dirs_explicit_list | reject('match', '^/[^/]+/.+') | list) }}
+  when: purge_bad | length > 0
+
+- name: Discover backup containers
+  ansible.builtin.command:
+    argv: ["docker", "ps", "-a", "--format", "{{ '{{.Names}}' }}"]
+  register: purge_ps
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Discover backup directories
+  ansible.builtin.shell: |
+    set -o pipefail
+    find {{ purge_search_roots | map('quote') | join(' ') }} -mindepth 1 -maxdepth 3 -type d \
+      -regextype posix-extended -regex "$PURGE_DIR_RE" 2>/dev/null | sort -u | while read -r d; do
+      for f in compose.yml compose.yaml docker-compose.yml docker-compose.yaml; do
+        if [ -f "$d/$f" ] && grep -Eq -- "$PURGE_MARK" "$d/$f"; then echo "$d"; break; fi
+      done
+    done
+  args:
+    executable: /bin/bash
+  environment:
+    PURGE_DIR_RE: "{{ purge_dir_regex }}"
+    PURGE_MARK: "{{ purge_dir_marker }}"
+  register: purge_find
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Resolve purge targets
+  ansible.builtin.set_fact:
+    purge_containers_found: "{{ purge_ps.stdout_lines | default([]) | select('match', purge_container_regex) | list }}"
+    purge_dirs_found: "{{ purge_find.stdout_lines | default([]) | list }}"
+
+- name: Resolve purge targets (explicit wins)
+  ansible.builtin.set_fact:
+    purge_containers_final: "{{ purge_containers_explicit_list if (purge_containers_explicit_list | length > 0 or purge_dirs_explicit_list | length > 0) else purge_containers_found }}"
+    purge_dirs_final: "{{ purge_dirs_explicit_list if (purge_containers_explicit_list | length > 0 or purge_dirs_explicit_list | length > 0) else purge_dirs_found }}"
+
+- name: Show purge inspection
+  ansible.builtin.debug:
+    msg: >-
+      {{ purge_label }} action={{ purge_action }} host={{ inventory_hostname }}
+      containers={{ purge_containers_final | join(', ') or '(none)' }}
+      dirs={{ purge_dirs_final | join(', ') or '(none)' }}
+      {{ '(explicit)' if (purge_containers_explicit_list | length > 0 or purge_dirs_explicit_list | length > 0) else '(auto-discovered: all ' ~ purge_label ~ ' backups; pass container/dir explicitly to purge only some)' }}
+
+- name: Stop after inspect or when nothing to purge (this host only)
+  ansible.builtin.meta: end_host
+  when: >-
+    (purge_action == 'inspect')
+    or ((purge_containers_final | length == 0) and (purge_dirs_final | length == 0))
+
+- name: Remove backup containers
+  ansible.builtin.command:
+    argv: ["docker", "rm", "-f", "{{ item }}"]
+  loop: "{{ purge_containers_final }}"
+  changed_when: true
+
+- name: Remove backup dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ purge_dirs_final }}"
+
+- name: Show purge summary
+  ansible.builtin.debug:
+    msg: "{{ purge_label }}: purged containers={{ purge_containers_final | join(', ') or '(none)' }} dirs={{ purge_dirs_final | join(', ') or '(none)' }} on {{ inventory_hostname }}"

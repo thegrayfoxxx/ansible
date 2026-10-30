@@ -85,8 +85,19 @@
 
     - name: Resolve port for a new node
       ansible.builtin.set_fact:
-        remnawave_port_final: "{{ remnawave_node_port | int if (remnawave_node_port | default('') | string | length > 0) else (range(1024, 65536) | random) }}"
+        remnawave_port_final: "{{ remnawave_node_port | int if (remnawave_node_port | default('') | string | length > 0) else (range(1024, 65536) | difference(remnawave_ports_taken) | random) }}"
+      vars:
+        # Случайный порт не должен совпасть с портом другой ноды на том же адресе.
+        remnawave_ports_taken: "{{ remnawave_nodes | default([]) | selectattr('address', 'defined') | selectattr('address', 'equalto', remnawave_node_address | default('') | trim) | map(attribute='port') | select | map('int') | list }}"
       when: remnawave_existing | length == 0
+
+    - name: Refuse explicit port already used on the same address
+      ansible.builtin.fail:
+        msg: "Port {{ remnawave_port_final }} is already used by another panel node on address {{ remnawave_node_address | trim }}"
+      when:
+        - remnawave_existing | length == 0
+        - remnawave_node_port | default('') | string | length > 0
+        - (remnawave_port_final | int) in (remnawave_nodes | default([]) | selectattr('address', 'defined') | selectattr('address', 'equalto', remnawave_node_address | default('') | trim) | map(attribute='port') | select | map('int') | list)
 
     - name: Warn about privileged explicit port
       ansible.builtin.debug:
@@ -138,13 +149,15 @@
         remnawave_profile_uuid: "{{ (remnawave_exact | first).uuid if (remnawave_exact | length == 1) else ((remnawave_contains | first).uuid if (remnawave_contains | length == 1 and remnawave_exact | length == 0) else '') }}"
         remnawave_profile_candidates: "{{ (remnawave_exact + remnawave_contains) | map(attribute='name') | list }}"
       vars:
-        remnawave_exact: "{{ remnawave_profile_match | selectattr('name', 'equalto', 'default') | list + remnawave_profile_match | selectattr('name', 'equalto', 'Default') | list + remnawave_profile_match | selectattr('name', 'equalto', 'DEFAULT') | list }}"
-        remnawave_contains: "{{ remnawave_profile_match | selectattr('name', 'search', '(?i)default') | list + remnawave_profile_match | selectattr('name', 'search', 'дефолт') | list | unique(attribute='uuid') }}"
+        # Скобки обязательны: фильтр связывает сильнее `+`, и unique применялся
+        # только к последнему списку.
+        remnawave_exact: "{{ (remnawave_profile_match | selectattr('name', 'equalto', 'default') | list + remnawave_profile_match | selectattr('name', 'equalto', 'Default') | list + remnawave_profile_match | selectattr('name', 'equalto', 'DEFAULT') | list) | unique(attribute='uuid') | list }}"
+        remnawave_contains: "{{ (remnawave_profile_match | selectattr('name', 'search', '(?i)default') | list + remnawave_profile_match | selectattr('name', 'search', '(?i)дефолт') | list) | unique(attribute='uuid') | list }}"
       when: remnawave_profile_want | default('') | length == 0
 
     - name: Fail when default profile is ambiguous or missing
       ansible.builtin.fail:
-        msg: "No unique default config profile (candidates: {{ remnawave_profile_candidates | join(', ') | default('none — available: ' + (remnawave_profile_match | map(attribute='name') | join(', '))) }}). Set remnawave_config_profile explicitly (UUID or name)"
+        msg: "No unique default config profile (candidates: {{ remnawave_profile_candidates | join(', ') | default('none — available: ' + (remnawave_profile_match | map(attribute='name') | join(', ')), true) }}). Set remnawave_config_profile explicitly (UUID or name)"
       when:
         - remnawave_profile_want | default('') | length == 0
         - remnawave_profile_uuid | default('') | length == 0
@@ -171,7 +184,9 @@
         remnawave_profile_uuid: "{{ remnawave_profile_want if (remnawave_profile_want is match(remnawave_uuid_re)) else ((remnawave_named | first).uuid if (remnawave_named | length == 1) else '') }}"
         remnawave_profile_candidates: "{{ remnawave_named | map(attribute='name') | list }}"
       vars:
-        remnawave_named: "{{ remnawave_named_all | selectattr('name', 'equalto', remnawave_profile_want) | list + remnawave_named_all | selectattr('name', 'search', '(?i)' + remnawave_profile_want) | list | unique(attribute='uuid') }}"
+        # Точное совпадение имени важнее подстроки; имя экранируется для regex.
+        remnawave_named_exact: "{{ remnawave_named_all | selectattr('name', 'equalto', remnawave_profile_want) | list }}"
+        remnawave_named: "{{ remnawave_named_exact if (remnawave_named_exact | length == 1) else (remnawave_named_all | selectattr('name', 'search', '(?i)' ~ (remnawave_profile_want | regex_escape)) | list | unique(attribute='uuid') | list) }}"
         remnawave_named_all: "{{ (remnawave_profiles_explicit | default({})).json.response.configProfiles | default([]) }}"
       when:
         - remnawave_profile_want | default('') | length > 0
@@ -186,7 +201,7 @@
 
     - name: Fail when explicit profile reference is ambiguous or missing
       ansible.builtin.fail:
-        msg: "Config profile '{{ remnawave_profile_want }}' not found or ambiguous (candidates: {{ remnawave_profile_candidates | join(', ') | default('none') }}). Use exact UUID or unique name"
+        msg: "Config profile '{{ remnawave_profile_want }}' not found or ambiguous (candidates: {{ remnawave_profile_candidates | join(', ') | default('none', true) }}). Use exact UUID or unique name"
       when:
         - remnawave_profile_want | default('') | length > 0
         - remnawave_profile_uuid | default('') | length == 0

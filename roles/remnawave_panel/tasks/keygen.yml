@@ -9,23 +9,36 @@
     timeout: 30
     validate_certs: "{{ remnawave_validate_certs | bool }}"
   register: remnawave_secret_resp
+  failed_when: false
   delegate_to: localhost
   become: false
   no_log: true
 
-- name: Validate node secret key
+- name: Check keygen response
+  ansible.builtin.include_tasks: api_check.yml
+  vars:
+    remnawave_api_resp: "{{ remnawave_secret_resp }}"
+    remnawave_api_what: GET /api/keygen
+
+# secretKey — base64 от JSON с nodeCertPem. Проверяем формат до декодирования,
+# чтобы мусор в ответе давал понятную ошибку, а не исключение b64decode/from_json.
+- name: Validate node secret key format
+  ansible.builtin.set_fact:
+    remnawave_secret_valid: >-
+      {{ (remnawave_secret_key is string)
+         and (remnawave_secret_key | length > 0)
+         and (remnawave_secret_key is match('^[A-Za-z0-9+/]+={0,2}$'))
+         and ((remnawave_secret_key | length) % 4 == 0)
+         and ((remnawave_secret_key | b64decode) is search('"nodeCertPem"')) }}
+  vars:
+    remnawave_secret_key: "{{ remnawave_secret_resp.json.response.secretKey | default('') }}"
+
+- name: Require a valid node secret key
   ansible.builtin.fail:
-    msg: "Panel returned empty or invalid node SECRET_KEY"
-  when:
-    - (remnawave_secret_resp.json.response.secretKey | default('') | length == 0)
-      or ((remnawave_secret_resp.json.response.secretKey | b64decode | from_json).nodeCertPem is not defined)
-  delegate_to: localhost
-  become: false
-  no_log: true
+    msg: "Panel returned an empty or unexpected node SECRET_KEY (expected base64 JSON with nodeCertPem). Check the panel version/API"
+  when: not (remnawave_secret_valid | bool)
 
 - name: Store node secret key
   ansible.builtin.set_fact:
     remnawave_node_secret: "{{ remnawave_secret_resp.json.response.secretKey }}"
-  delegate_to: localhost
-  become: false
   no_log: true

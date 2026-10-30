@@ -5,14 +5,14 @@
 
 - name: Ensure project dir exists for xray handling
   ansible.builtin.file:
-    path: "{{ remnanode_dir }}"
+    path: "{{ remnanode_dir_effective }}"
     state: directory
     mode: "0755"
 
 - name: Resolve xray mount import state
   ansible.builtin.set_fact:
     remnanode_xray_mount_source_norm: "{{ remnanode_xray_mount_source | default('', true) | regex_replace('/+$', '') }}"
-    remnanode_xray_target_path_norm: "{{ (remnanode_dir ~ '/xray-core') | regex_replace('/+$', '') }}"
+    remnanode_xray_target_path_norm: "{{ (remnanode_dir_effective ~ '/xray-core') | regex_replace('/+$', '') }}"
   when: remnanode_existing_mount_xray | bool
 
 - name: Resolve whether the mounted binary must be imported
@@ -47,19 +47,19 @@
   block:
     - name: Extract custom xray from container
       ansible.builtin.command:
-        argv: ["docker", "cp", "{{ remnanode_agent_container }}:/usr/local/bin/xray", "{{ remnanode_dir }}/.xray-core.preserve"]
+        argv: ["docker", "cp", "{{ remnanode_agent_container_effective }}:/usr/local/bin/xray", "{{ remnanode_dir_effective }}/.xray-core.preserve"]
       changed_when: false
 
     - name: Install preserved xray binary
       ansible.builtin.copy:
-        src: "{{ remnanode_dir }}/.xray-core.preserve"
-        dest: "{{ remnanode_dir }}/xray-core"
+        src: "{{ remnanode_dir_effective }}/.xray-core.preserve"
+        dest: "{{ remnanode_dir_effective }}/xray-core"
         remote_src: true
         mode: "0755"
 
     - name: Remove xray preservation temp
       ansible.builtin.file:
-        path: "{{ remnanode_dir }}/.xray-core.preserve"
+        path: "{{ remnanode_dir_effective }}/.xray-core.preserve"
         state: absent
   when:
     - remnanode_xray_preserve_existing | bool
@@ -68,7 +68,7 @@
 
 - name: Remove custom xray marker when switching to image
   ansible.builtin.file:
-    path: "{{ remnanode_dir }}/.xray-core.version"
+    path: "{{ remnanode_dir_effective }}/.xray-core.version"
     state: absent
   when:
     - remnanode_xray_mode_effective == 'image'
@@ -111,7 +111,7 @@
         - name: Download xray release archive
           ansible.builtin.get_url:
             url: "https://github.com/XTLS/Xray-core/releases/download/v{{ remnanode_xray_version_norm }}/Xray-linux-{{ remnanode_xray_asset }}.zip"
-            dest: "{{ remnanode_dir }}/.xray-core.zip"
+            dest: "{{ remnanode_dir_effective }}/.xray-core.zip"
             checksum: "sha256:{{ remnanode_xray_sha256 }}"
             force: true
             mode: "0644"
@@ -134,27 +134,27 @@
 
         - name: Reset xray extraction dir
           ansible.builtin.file:
-            path: "{{ remnanode_dir }}/.xray-extract"
+            path: "{{ remnanode_dir_effective }}/.xray-extract"
             state: absent
 
         - name: Create xray extraction dir
           ansible.builtin.file:
-            path: "{{ remnanode_dir }}/.xray-extract"
+            path: "{{ remnanode_dir_effective }}/.xray-extract"
             state: directory
             mode: "0755"
 
         - name: Extract xray binary
           ansible.builtin.unarchive:
-            src: "{{ remnanode_dir }}/.xray-core.zip"
-            dest: "{{ remnanode_dir }}/.xray-extract"
+            src: "{{ remnanode_dir_effective }}/.xray-core.zip"
+            dest: "{{ remnanode_dir_effective }}/.xray-extract"
             remote_src: true
             include:
               - xray
 
         - name: Install xray binary
           ansible.builtin.copy:
-            src: "{{ remnanode_dir }}/.xray-extract/xray"
-            dest: "{{ remnanode_dir }}/xray-core"
+            src: "{{ remnanode_dir_effective }}/.xray-extract/xray"
+            dest: "{{ remnanode_dir_effective }}/xray-core"
             remote_src: true
             mode: "0755"
       when: >-
@@ -163,11 +163,11 @@
       always:
         - name: Remove xray release archive
           ansible.builtin.file:
-            path: "{{ remnanode_dir }}/.xray-core.zip"
+            path: "{{ remnanode_dir_effective }}/.xray-core.zip"
             state: absent
 
         - name: Remove xray extraction dir
           ansible.builtin.file:
-            path: "{{ remnanode_dir }}/.xray-extract"
+            path: "{{ remnanode_dir_effective }}/.xray-extract"
             state: absent
   when: remnanode_xray_mode_effective == 'version'
