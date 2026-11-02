@@ -2,13 +2,24 @@
 # Nginx reverse proxy: nginx впереди на 443, маршрутит заданный путь на сокет Xray,
 # всё остальное — fallback-заглушка. Xray запускается ОТДЕЛЬНО.
 services:
-
   nginx-proxy-web:
     image: nginx:alpine
     container_name: nginx-proxy-web
     network_mode: host
+    # Фоновый nginx -t && reload раз в NGINX_RELOAD_INTERVAL: подхватить серт,
+    # который acme.sh продлил в ./letsencrypt (из acme-контейнера до nginx не достучаться).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        (
+          while sleep "$${NGINX_RELOAD_INTERVAL:-43200}"; do
+            nginx -t -q && nginx -s reload
+          done
+        ) &
+        exec /docker-entrypoint.sh nginx -g 'daemon off;'
     environment:
       - DOMAIN=${DOMAIN}
+      - NGINX_RELOAD_INTERVAL={{ nginx_reload_interval | default(43200) }}
       - XRAY_PATH=${XRAY_PATH}
       - XRAY_UPSTREAM=${XRAY_UPSTREAM}
       - ACME_SERVER=${ACME_SERVER}

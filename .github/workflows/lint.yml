@@ -1,0 +1,41 @@
+---
+name: lint
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ansible-core>=2.17,<2.20" ansible-lint yamllint shellcheck-py
+          ansible-galaxy collection install -r requirements.yml
+
+      - name: yamllint
+        run: yamllint .
+
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+      - name: python compile
+        run: python -m py_compile scripts/semaphore_bootstrap.py
+
+      - name: syntax-check all playbooks
+        run: scripts/syntax_check.sh
+
+      - name: ansible-lint
+        run: ansible-lint

@@ -23,7 +23,7 @@
     remnanode_host_arch_asset: "{{ remnanode_xray_arch_map[remnanode_uname.stdout | trim] | default('') }}"
 
 - name: Inspect remnanode container
-  ansible.builtin.command: docker inspect {{ remnanode_agent_container }}
+  ansible.builtin.command: docker inspect {{ remnanode_agent_container_effective }}
   register: remnanode_inspect_raw
   changed_when: false
   failed_when: false
@@ -31,7 +31,7 @@
 
 - name: Fail when docker inspect fails unexpectedly
   ansible.builtin.fail:
-    msg: "docker inspect {{ remnanode_agent_container }} failed: {{ remnanode_inspect_raw.stderr | default('unknown error') }}"
+    msg: "docker inspect {{ remnanode_agent_container_effective }} failed: {{ remnanode_inspect_raw.stderr | default('unknown error') }}"
   when:
     - remnanode_inspect_raw.rc | default(1) != 0
     - not ((remnanode_inspect_raw.stderr | default('') | lower) is search('no such object|no such container'))
@@ -103,11 +103,11 @@
     remnanode_old_dir_final: >-
       {{ (remnanode_old_dir | default('') | trim)
          or remnanode_old_dir_discovered
-         or (remnanode_dir if not (remnanode_require_discovered_old_dir | default(false) | bool) else '') }}
+         or (remnanode_dir_effective if not (remnanode_require_discovered_old_dir | default(false) | bool) else '') }}
 
 - name: Require a source project dir
   ansible.builtin.fail:
-    msg: "No compose metadata found for '{{ remnanode_agent_container }}' (manual docker run?). Set remnanode_old_dir explicitly"
+    msg: "No compose metadata found for '{{ remnanode_agent_container_effective }}' (manual docker run?). Set remnanode_old_dir explicitly"
   when: remnanode_old_dir_final | default('') | trim | length == 0
 
 - name: Validate source project dir
@@ -136,17 +136,17 @@
 
 - name: Stat target project dir
   ansible.builtin.stat:
-    path: "{{ remnanode_dir }}"
+    path: "{{ remnanode_dir_effective }}"
   register: remnanode_target_dir_stat
 
 - name: Stat target compose file
   ansible.builtin.stat:
-    path: "{{ remnanode_dir }}/compose.yml"
+    path: "{{ remnanode_dir_effective }}/compose.yml"
   register: remnanode_target_compose_stat
 
 - name: Stat target env file
   ansible.builtin.stat:
-    path: "{{ remnanode_dir }}/.env"
+    path: "{{ remnanode_dir_effective }}/.env"
   register: remnanode_target_env_stat
 
 - name: Stat source compose file
@@ -177,17 +177,17 @@
 
 - name: Stat target custom xray binary
   ansible.builtin.stat:
-    path: "{{ remnanode_dir }}/xray-core"
+    path: "{{ remnanode_dir_effective }}/xray-core"
   register: remnanode_target_xray_binary
 
 - name: Stat target custom xray marker
   ansible.builtin.stat:
-    path: "{{ remnanode_dir }}/.xray-core.version"
+    path: "{{ remnanode_dir_effective }}/.xray-core.version"
   register: remnanode_target_xray_marker_stat
 
 - name: Read target custom xray marker
   ansible.builtin.slurp:
-    src: "{{ remnanode_dir }}/.xray-core.version"
+    src: "{{ remnanode_dir_effective }}/.xray-core.version"
   register: remnanode_target_xray_marker
   when: remnanode_target_xray_marker_stat.stat.exists
 

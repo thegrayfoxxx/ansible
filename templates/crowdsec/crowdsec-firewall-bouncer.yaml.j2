@@ -1,3 +1,6 @@
+# {{ ansible_managed }}
+# Основа — upstream-конфиг cs-firewall-bouncer; ${MODE}/${API_URL}/${API_KEY}
+# подставляет контейнер из env. Через Jinja задаются только iptables_chains.
 mode: ${MODE}
 update_frequency: 10s
 log_mode: file
@@ -27,10 +30,12 @@ blacklists_ipv6: crowdsec6-blacklists
 #type of ipset to use
 ipset_type: nethash
 #if present, insert rule in those chains
+# DOCKER-USER: опубликованные порты контейнеров идут через FORWARD мимо INPUT,
+# без этой цепочки баны их не закрывали (crowdsec_bouncer_iptables_chains).
 iptables_chains:
-  - INPUT
-#  - FORWARD
-#  - DOCKER-USER
+{% for chain in crowdsec_bouncer_iptables_chains | default(['INPUT', 'DOCKER-USER']) %}
+  - {{ chain }}
+{% endfor %}
 iptables_add_rule_comments: true
 
 ## nftables

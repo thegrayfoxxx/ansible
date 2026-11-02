@@ -11,6 +11,8 @@
     sshd_pubkey_auth: "yes"
     sshd_password_auth: "no"
     sshd_permit_empty: "no"
+    # Разрешить ssh_user, отличный от пользователя подключения, при отключении паролей.
+    init_node_allow_user_mismatch: false
   tasks:
     - name: Require exactly one node host
       ansible.builtin.fail:
@@ -27,9 +29,14 @@
           or ansible_port is defined and (ansible_port | string) | length == 0
       tags: [keys, sshd]
 
+    # Ключи по строкам; запятая считается разделителем только перед типом ключа
+    # (ssh-*, ecdsa-*, sk-*), чтобы не ломать опции вида from="10.0.0.1,10.0.0.2".
+    # Ключи с опциями (restrict,command=...) передавай по одному на строку.
     - name: Normalize ssh_keys to list
       ansible.builtin.set_fact:
-        ssh_keys_list: "{{ (ssh_keys | default([], true)).replace(',', '\n').splitlines() | map('trim') | select | list if (ssh_keys | default([], true)) is string else (ssh_keys | default([], true)) }}"
+        ssh_keys_list: >-
+          {{ ((ssh_keys | default('', true)) | regex_replace(',\s*(?=(ssh-|ecdsa-|sk-))', '\n')).splitlines() | map('trim') | select | list
+             if (ssh_keys | default([], true)) is string else (ssh_keys | default([], true)) }}
       tags: [keys, sshd]
 
     - name: Validate ssh_keys is not empty
@@ -47,7 +54,54 @@
       loop: "{{ ssh_keys_list }}"
       tags: [keys]
 
-    - name: Harden sshd_config
+    - name: Guard against lockout when disabling password auth
+      ansible.builtin.fail:
+        msg: >-
+          Отключение PasswordAuthentication при подключении по паролю как '{{ ansible_user | default('root') }}',
+          а ключи добавляются для '{{ ssh_user }}'. После перезапуска sshd войти этим пользователем будет нельзя.
+          Укажи ssh_user = пользователю подключения или init_node_allow_user_mismatch=true.
+      when:
+        - not (skip_sshd | bool)
+        - (sshd_password_auth | string | lower) in ['no', 'false']
+        - ansible_password is defined
+        - (ansible_user | default('root')) != ssh_user
+        - not (init_node_allow_user_mismatch | bool)
+      tags: [sshd]
+
+    # На Debian 12+/Ubuntu cloud-init кладёт sshd_config.d/50-cloud-init.conf
+    # (PasswordAuthentication yes), а у sshd побеждает первое значение — правка
+    # sshd_config ниже Include не действует. Поэтому пишем drop-in 00-ansible.conf.
+    - name: Check sshd_config includes sshd_config.d
+      ansible.builtin.command: grep -Eiq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/' /etc/ssh/sshd_config
+      register: sshd_include
+      changed_when: false
+      failed_when: sshd_include.rc not in [0, 1]
+      check_mode: false
+      when: not (skip_sshd | bool)
+      tags: [sshd]
+
+    - name: Write sshd hardening drop-in
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/00-ansible.conf
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+        content: |
+          # Managed by Ansible (init_node.yml). Первый найденный параметр побеждает.
+          PermitRootLogin {{ sshd_permit_root_login }}
+          PubkeyAuthentication {{ sshd_pubkey_auth }}
+          PasswordAuthentication {{ sshd_password_auth }}
+          PermitEmptyPasswords {{ sshd_permit_empty }}
+        validate: sshd -t -f %s
+      register: sshd_dropin
+      notify: Restart ssh
+      when:
+        - not (skip_sshd | bool)
+        - sshd_include.rc == 0
+      tags: [sshd]
+
+    - name: Harden sshd_config (no sshd_config.d Include)
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
         regexp: "^#?{{ item.key }}\\b.*"
@@ -60,7 +114,36 @@
         - {key: PasswordAuthentication, value: "{{ sshd_password_auth }}"}
         - {key: PermitEmptyPasswords, value: "{{ sshd_permit_empty }}"}
       notify: Restart ssh
+      when:
+        - not (skip_sshd | bool)
+        - sshd_include.rc != 0
+      tags: [sshd]
+
+    - name: Validate full sshd configuration
+      ansible.builtin.command: sshd -t
+      register: sshd_full_test
+      changed_when: false
+      failed_when: false
+      check_mode: false
       when: not (skip_sshd | bool)
+      tags: [sshd]
+
+    - name: Roll back drop-in when full config is invalid
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/00-ansible.conf
+        state: absent
+      when:
+        - not (skip_sshd | bool)
+        - sshd_full_test.rc != 0
+        - sshd_dropin is changed
+      tags: [sshd]
+
+    - name: Fail on invalid sshd configuration
+      ansible.builtin.fail:
+        msg: "sshd -t failed, drop-in rolled back: {{ sshd_full_test.stderr | default('') }}"
+      when:
+        - not (skip_sshd | bool)
+        - sshd_full_test.rc != 0
       tags: [sshd]
 
     - name: Apply sshd restart now
@@ -68,7 +151,34 @@
       when: not (skip_sshd | bool)
       tags: [sshd]
 
-    - name: Confirm SSH still reachable
+    - name: Read effective sshd settings
+      ansible.builtin.command: sshd -T
+      register: sshd_effective
+      changed_when: false
+      check_mode: false
+      when: not (skip_sshd | bool)
+      tags: [sshd]
+
+    - name: Assert effective sshd settings
+      ansible.builtin.assert:
+        that:
+          - ("passwordauthentication " ~ (sshd_password_auth | string | lower)) in sshd_effective.stdout_lines
+          - ("pubkeyauthentication " ~ (sshd_pubkey_auth | string | lower)) in sshd_effective.stdout_lines
+          - ("permitemptypasswords " ~ (sshd_permit_empty | string | lower)) in sshd_effective.stdout_lines
+        fail_msg: "sshd -T показывает другие значения — их перебивает другой файл в sshd_config.d или Match-блок"
+      when:
+        - not (skip_sshd | bool)
+        - not ansible_check_mode
+      tags: [sshd]
+
+    # Иначе проверка идёт через уже открытый ControlMaster-сокет и проходит,
+    # даже если новый логин сломан.
+    - name: Drop persistent SSH connection
+      ansible.builtin.meta: reset_connection
+      when: not (skip_sshd | bool)
+      tags: [sshd]
+
+    - name: Confirm SSH still reachable with a fresh login
       ansible.builtin.wait_for_connection:
         timeout: 60
       when: not (skip_sshd | bool)

@@ -1,0 +1,88 @@
+---
+# Общая подготовка сертификата для nginx_fallback / nginx_proxy (до compose up).
+# Вход: nginx_dir, nginx_domain, nginx_email, nginx_staging, nginx_force_issue.
+# Выход: nginx_cert_missing, nginx_cert_selfsigned, nginx_cert_is_staging,
+#        nginx_issue_wanted, nginx_issue_force.
+
+- name: Check LE certificate files
+  ansible.builtin.stat:
+    path: "{{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}/{{ item }}"
+  loop:
+    - fullchain.pem
+    - privkey.pem
+  register: nginx_cert_stat
+
+- name: Resolve certificate presence
+  ansible.builtin.set_fact:
+    nginx_cert_missing: "{{ (nginx_cert_stat.results | selectattr('stat.exists') | list | length) != 2 }}"
+
+- name: Check certificate issuer and subject
+  ansible.builtin.command:
+    argv: ["openssl", "x509", "-noout", "-issuer", "-subject", "-nameopt", "RFC2253", "-in", "{{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}/fullchain.pem"]
+  register: nginx_cert_issuer
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not (nginx_cert_missing | bool)
+
+# Временный self-signed остаётся «existing» навсегда, если первый --issue упал:
+# считаем серт отсутствующим, если издатель не Let's Encrypt или issuer == subject.
+- name: Resolve issue need
+  ansible.builtin.set_fact:
+    nginx_cert_selfsigned: "{{ (not (nginx_cert_missing | bool)) and ((nginx_cert_issuer_line is not search(\"Let's Encrypt|\\(STAGING\\)\", ignorecase=True)) or (nginx_cert_issuer_line | regex_replace('^issuer=', '') == nginx_cert_subject_line | regex_replace('^subject=', ''))) }}"
+    nginx_cert_is_staging: "{{ nginx_cert_issuer_line is search('staging', ignorecase=True) }}"
+  vars:
+    nginx_cert_issuer_line: "{{ nginx_cert_issuer.stdout_lines | default([]) | select('match', '^issuer=') | first | default('') }}"
+    nginx_cert_subject_line: "{{ nginx_cert_issuer.stdout_lines | default([]) | select('match', '^subject=') | first | default('') }}"
+
+- name: Resolve issue mode
+  ansible.builtin.set_fact:
+    nginx_issue_wanted: "{{ (nginx_cert_missing | bool) or (nginx_cert_selfsigned | bool) or (nginx_force_issue | bool) or (not (nginx_staging | bool) and (nginx_cert_is_staging | bool)) }}"
+    # Без --force acme.sh отвечает "Skip, Next renewal" и не перевыпускает staging -> prod.
+    nginx_issue_force: "{{ (nginx_force_issue | bool) or (not (nginx_staging | bool) and (nginx_cert_is_staging | bool)) or (nginx_cert_selfsigned | bool) }}"
+
+- name: Require email for certificate issue
+  ansible.builtin.fail:
+    msg: "nginx_email is required to issue the certificate (LE account). Fill it in survey"
+  when:
+    - nginx_issue_wanted | bool
+    - nginx_email | default('') | trim | length == 0
+
+- name: Check openssl is available for temp certificate
+  ansible.builtin.shell: command -v openssl
+  args:
+    executable: /bin/bash
+  register: nginx_openssl_bin
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: nginx_cert_missing | bool
+
+- name: Require openssl for temp certificate
+  ansible.builtin.fail:
+    msg: "openssl not found but a temporary self-signed certificate is needed to boot nginx before the first LE issue"
+  when:
+    - nginx_cert_missing | bool
+    - nginx_openssl_bin.rc | default(1) | int != 0
+
+- name: Create temporary self-signed certificate
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -x509
+      - -nodes
+      - -days
+      - "2"
+      - -newkey
+      - rsa:2048
+      - -keyout
+      - privkey.pem
+      - -out
+      - fullchain.pem
+      - -subj
+      - "/CN={{ nginx_domain | trim }}"
+  args:
+    chdir: "{{ nginx_dir }}/letsencrypt/live/{{ nginx_domain | trim }}"
+  changed_when: true
+  when: nginx_cert_missing | bool

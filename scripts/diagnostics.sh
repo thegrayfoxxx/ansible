@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# `cond && result ... || result ...` безопасен: result() всегда возвращает 0.
+# shellcheck disable=SC2015
 # Own node diagnostics: facts, DNS/DPI probes, perf baseline.
 # Non-interactive by design (for Ansible `script` runs). Every probe has a
 # timeout and never aborts the whole run; missing tools are SKIPped.
@@ -32,13 +34,21 @@ result() { # name status detail
 section() { printf '\n### %s\n' "$1"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+need_value() {
+    # Без значения `shift 2` не сдвигает аргументы, и цикл ниже не завершается.
+    if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "Missing value for $1" >&2
+        exit 2
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --iperf-server) DIAG_IPERF_SERVER="${2:-}"; shift 2 ;;
-        --panel-url) DIAG_PANEL_URL="${2:-}"; shift 2 ;;
+        --iperf-server) need_value "$@"; DIAG_IPERF_SERVER="$2"; shift 2 ;;
+        --panel-url) need_value "$@"; DIAG_PANEL_URL="$2"; shift 2 ;;
         --full) DIAG_FULL=1; shift ;;
-        --sni-list) DIAG_SNI_LIST="${2:-}"; # shellcheck disable=SC2206
-            DIAG_SNI_ARR=($DIAG_SNI_LIST); shift 2 ;;
+        --sni-list) need_value "$@"; DIAG_SNI_LIST="$2"
+            read -r -a DIAG_SNI_ARR <<<"$DIAG_SNI_LIST"; shift 2 ;;
         *) echo "Unknown arg: $1" >&2; exit 2 ;;
     esac
 done
@@ -47,7 +57,8 @@ echo "diagnostics (full=${DIAG_FULL}) at $(date -u +%FT%TZ)"
 
 # ---------- facts ----------
 section "facts"
-CPU_MODEL="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs || echo unknown)"
+CPU_MODEL="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs)"
+CPU_MODEL="${CPU_MODEL:-unknown}"
 CPU_N="$(nproc 2>/dev/null || echo unknown)"
 MEM_MB="$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo unknown)"
 DISK_ROOT="$(df -h / 2>/dev/null | awk 'NR==2 {print $2 " total, " $4 " avail (" $5 " used)"}' || echo unknown)"
@@ -93,7 +104,7 @@ for dom in example.com youtube.com; do
     fi
 done
 if have dig; then
-    for srv in ${DIAG_DNS_ARR[@]}; do
+    for srv in "${DIAG_DNS_ARR[@]}"; do
         for dom in example.com youtube.com; do
             A="$(timeout 6 dig +short +time=3 +tries=1 "@${srv}" "$dom" A 2>/dev/null | grep -E '^[0-9.]+$' | head -1 || true)"
             [ -z "$A" ] && result "dns@${srv}/$dom" FAIL "no A" || result "dns@${srv}/$dom" OK "$A"
@@ -116,7 +127,7 @@ fi
 
 # ---------- telegram ----------
 section "telegram"
-for dc in ${DIAG_TG_ARR[@]}; do
+for dc in "${DIAG_TG_ARR[@]}"; do
     if timeout 5 bash -c "cat < /dev/null > /dev/tcp/${dc}/443" 2>/dev/null; then
         result "tg-dc/$dc" OK "443 open"
     else
@@ -127,9 +138,11 @@ done
 # ---------- SNI probes (differential: same IP, different SNI) ----------
 section "sni"
 if have openssl; then
-    for sni in ${DIAG_SNI_ARR[@]}; do
+    for sni in "${DIAG_SNI_ARR[@]}"; do
         OUT="$(timeout 10 openssl s_client -connect 1.1.1.1:443 -servername "$sni" </dev/null 2>&1 || true)"
-        if grep -q "Verify return code" <<<"$OUT"; then
+        # "Verify return code" печатается и при оборванном рукопожатии; успех —
+        # только если от сервера пришли данные и согласован шифр.
+        if grep -Eq "SSL handshake has read [1-9][0-9]* bytes" <<<"$OUT" && ! grep -q "Cipher is (NONE)" <<<"$OUT"; then
             result "sni/$sni" OK "tls handshake completed"
         elif grep -qi "reset\|connection refused" <<<"$OUT"; then
             result "sni/$sni" FAIL "connection reset (possible DPI)"
@@ -183,8 +196,8 @@ section "disk"
 if have fio; then
     SZ="$([ "$DIAG_FULL" = "1" ] && echo 1G || echo 256M)"
     RT="$([ "$DIAG_FULL" = "1" ] && echo 30 || echo 15)"
-    FIO_OUT="$(timeout 120 fio --name=q --rw=randrw --rwmixread=50 --bs=4k --iodepth=32 --numjobs=1 --size="$SZ" --runtime="$RT" --time_based --direct=1 --filename=/tmp/diag-fio-test --output-format=json 2>/dev/null || true)"
-    rm -f /tmp/diag-fio-test
+    FIO_OUT="$(timeout 120 fio --name=q --rw=randrw --rwmixread=50 --bs=4k --iodepth=32 --numjobs=1 --size="$SZ" --runtime="$RT" --time_based --direct=1 --filename=/var/tmp/diag-fio-test --output-format=json 2>/dev/null || true)"
+    rm -f /var/tmp/diag-fio-test
     if [ -z "$FIO_OUT" ]; then
         result fio FAIL "no result"
     elif have python3; then
@@ -203,7 +216,7 @@ if [ -n "$DIAG_IPERF_SERVER" ]; then
     if have iperf3; then
         T="$([ "$DIAG_FULL" = "1" ] && echo 30 || echo 10)"
         IPERF_OUT="$(timeout 90 iperf3 -c "$DIAG_IPERF_SERVER" -t "$T" -J 2>/dev/null || true)"
-        if [ -z "$IPERF_OUT" ] && have python3; then
+        if [ -z "$IPERF_OUT" ]; then
             result iperf FAIL "no result from $DIAG_IPERF_SERVER"
         elif have python3; then
             IPERF_SUM="$(python3 -c 'import json,sys; d=json.load(sys.stdin); s=d["end"]["sum_sent"]["bits_per_second"]/1e6; r=d["end"]["sum_received"]["bits_per_second"]/1e6; print("sent %.1fMbit/s recv %.1fMbit/s" % (s, r))' <<<"$IPERF_OUT" 2>/dev/null || true)"

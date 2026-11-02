@@ -193,7 +193,7 @@ vps-stage-01 ansible_host=203.0.113.20 ansible_user=debian ansible_port=22
 ```text
 [update] ping (id=1, playbooks/ping.yml)
 ...
-done: created=31 updated=0 unchanged=0 would_create=0 would_update=0 dry_run=False
+done: created=41 updated=0 unchanged=0 would_create=0 would_update=0 dry_run=False
 ```
 
 ![запуск update_templates](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/10-run-bootstrap.gif)
@@ -241,12 +241,12 @@ SEMAPHORE_URL=http://localhost:3000/api SEMAPHORE_TOKEN=xxx SEMAPHORE_PROJECT_ID
 
 ![запуск ping](https://github.com/thegrayfoxxx/ansible/releases/download/media-v1/12-run-ping.gif)
 
-Готово — стенд рабочий. Дальше смотрите `README.md`: описание переменных
-и survey-полей каждого плейбука.
+Готово — стенд рабочий. Описание переменных и survey-полей каждого плейбука —
+в `docs/` по зонам (список в разделе «Структура» `README.md`).
 
 > Осторожно с `init_node` и `reboot`: первый прогон `init_node` — строго с `Limit`
-> на одну тестовую ноду (подробности в `README.md`), а `reboot` не спрашивает
-> подтверждения — не запускайте его на `all` без нужды.
+> на одну тестовую ноду (подробности в `docs/security.md`), а `reboot` на несколько
+> хостов требует `reboot_confirmed=true` — не запускайте его на `all` без нужды.
 
 ## Обновление шаблонов
 

@@ -1,14 +1,17 @@
 ---
-- name: Nginx node purge — backup container + dir
+- name: Nginx fallback purge — backup containers + dirs
   hosts: "{{ target | default('localhost', true) }}"
   gather_facts: false
-  become: false
+  # docker и find по /root без root молча возвращают пусто → "nothing to purge".
+  become: true
   serial: 1
   vars:
     nginx_purge_action: inspect
     nginx_purge_confirm: false
     nginx_purge_confirmed: false
     nginx_dir: /opt/nginx
+    # Явно: имена контейнеров / пути каталогов через запятую или по строке.
+    # Пусто — все бэкапы nginx на хосте (inspect покажет список).
     nginx_purge_container: ""
     nginx_purge_dir: ""
   tasks:
@@ -32,92 +35,17 @@
         - nginx_purge_action == 'purge'
         - not (nginx_purge_confirm | bool)
 
-    - name: Auto-discover backup containers
-      ansible.builtin.shell: >-
-        docker ps -a --format "{{ '{{.Names}}' }}" | grep -- '-bak-' || true
-      register: nginx_purge_discovered_containers
-      changed_when: false
-      failed_when: false
-      no_log: true
-
-    - name: Auto-discover backup directories
-      ansible.builtin.shell: >-
-        find /opt /home /root /srv /var -maxdepth 3 -type d -name "*-bak-*" 2>/dev/null | sort -u || true
-      register: nginx_purge_discovered_dirs
-      changed_when: false
-      failed_when: false
-
-    - name: Show purge inspection
-      when: nginx_purge_action == 'inspect'
-      ansible.builtin.debug:
-        msg: >-
-          action={{ nginx_purge_action }} host={{ inventory_hostname }}
-          discovered_containers={{ nginx_purge_discovered_containers.stdout_lines | default([]) | join(', ') or '(none)' }}
-          discovered_dirs={{ nginx_purge_discovered_dirs.stdout_lines | default([]) | join(', ') or '(none)' }}
-          explicit_container={{ nginx_purge_container | default('', true) }}
-          explicit_dir={{ nginx_purge_dir | default('', true) }}
-
-    - name: Stop after inspect (this host only)
-      when: nginx_purge_action == 'inspect'
-      ansible.builtin.meta: end_host
-
-    - name: Resolve purge container (explicit or auto-discovered)
-      when: nginx_purge_action == 'purge'
-      ansible.builtin.set_fact:
-        nginx_purge_container_resolved: >-
-          {{ nginx_purge_container | default('', true) | trim
-             if (nginx_purge_container | default('', true) | trim | length) > 0
-             else (nginx_purge_discovered_containers.stdout_lines | default([]) | first | default('', true)) }}
-
-    - name: Resolve purge dir (explicit or auto-discovered)
-      when: nginx_purge_action == 'purge'
-      ansible.builtin.set_fact:
-        nginx_purge_dir_resolved: >-
-          {{ nginx_purge_dir | default('', true) | trim
-             if (nginx_purge_dir | default('', true) | trim | length) > 0
-             else (nginx_purge_discovered_dirs.stdout_lines | default([]) | first | default('', true)) }}
-
-    - name: Nothing to purge
-      ansible.builtin.debug:
-        msg: "nothing to purge on {{ inventory_hostname }} — no backup containers or directories found"
-      when:
-        - nginx_purge_action == 'purge'
-        - (nginx_purge_container_resolved | default('', true) | trim | length) == 0
-        - (nginx_purge_dir_resolved | default('', true) | trim | length) == 0
-
-    - name: Skip host with nothing to purge
-      ansible.builtin.meta: end_host
-      when:
-        - nginx_purge_action == 'purge'
-        - (nginx_purge_container_resolved | default('', true) | trim | length) == 0
-        - (nginx_purge_dir_resolved | default('', true) | trim | length) == 0
-
-    - name: Purge backup artifacts
-      when: nginx_purge_action == 'purge'
-      block:
-        - name: Validate purge dir
-          ansible.builtin.fail:
-            msg: "Refusing to purge unsafe path '{{ nginx_purge_dir_resolved }}'. Set nginx_purge_dir to the backup dir"
-          when: >-
-            (nginx_purge_dir_resolved | length == 0)
-            or (not (nginx_purge_dir_resolved is match('^/.+')))
-            or ('..' in nginx_purge_dir_resolved)
-            or ((nginx_purge_dir_resolved | regex_replace('/+$', '') | split('/') | length) < 3)
-
-        - name: Remove purge container
-          ansible.builtin.command:
-            argv: ["docker", "rm", "-f", "{{ nginx_purge_container_resolved }}"]
-          changed_when: true
-          when: (nginx_purge_container_resolved | default('', true) | trim | length) > 0
-
-        - name: Remove purge dir
-          ansible.builtin.file:
-            path: "{{ nginx_purge_dir_resolved | regex_replace('/+$', '') }}"
-            state: absent
-          when: (nginx_purge_dir_resolved | default('', true) | trim | length) > 0
-          become: true
-
-    - name: Show purge summary
-      when: nginx_purge_action == 'purge'
-      ansible.builtin.debug:
-        msg: "purged backup container={{ nginx_purge_container_resolved }} dir={{ nginx_purge_dir_resolved }} on {{ inventory_hostname }}"
+    - name: Find and purge nginx backups
+      ansible.builtin.include_tasks: tasks/purge_backups.yml
+      vars:
+        purge_label: nginx
+        purge_action: "{{ nginx_purge_action }}"
+        # adopt сохраняет старые контейнеры под их собственными именами — отбираем по образу.
+        purge_container_regex: '^.+-(adopt|move|moved)-bak-[0-9]+$'
+        purge_image_regex: '(docker\.io/)?(library/)?nginx(:|@|$)|(docker\.io/)?neilpang/acme\.sh(:|@|$)'
+        purge_dir_marker: 'nginx|acme\.sh'
+        purge_dir_exclude: 'nginx-proxy-web'
+        purge_dir_regex: '^/.*\.(adopt|move)-bak-[0-9]+$'
+        purge_containers_explicit: "{{ nginx_purge_container }}"
+        purge_dirs_explicit: "{{ nginx_purge_dir }}"
+        purge_search_roots: [/opt, /srv, /root, /home]

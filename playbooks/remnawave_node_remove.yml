@@ -86,7 +86,7 @@
               {{ (remnanode_old_dir_discovered if ((remnanode_container_exists | bool)
                                                    and (remnanode_old_dir_discovered | default('', true) | length > 0)
                                                    and (remnanode_old_compose_exists | bool))
-                  else (remnanode_dir if (remnanode_target_compose_exists | bool)
+                  else (remnanode_dir_effective if (remnanode_target_compose_exists | bool)
                         else (remnanode_old_dir_final if (remnanode_old_compose_exists | bool) else ''))) }}
 
     - name: Inspect panel state
@@ -119,7 +119,7 @@
             msg: >-
               {{ [
                 'scope=' + remnawave_remove_scope + ' action=inspect host=' + inventory_hostname,
-                ('container=' + remnanode_agent_container + ' exists=' + (remnanode_container_exists | default(false) | string) + ' running=' + (remnanode_container_running | default(false) | string) + ' dir=' + (remnanode_old_dir_final | default('?', true)) + ' compose=' + (remnanode_remove_compose_dir | default('(none)', true) | string) + ' port=' + (remnanode_port_final | default('?', true) | string) + ' creds_from=' + (remnanode_creds_source | default('n/a', true) | string) + ' purge=' + (remnawave_remove_purge | string)) if (remnawave_remove_scope in ['host', 'both']) else 'host=not touched',
+                ('container=' + remnanode_agent_container_effective + ' exists=' + (remnanode_container_exists | default(false) | string) + ' running=' + (remnanode_container_running | default(false) | string) + ' dir=' + (remnanode_old_dir_final | default('?', true)) + ' compose=' + (remnanode_remove_compose_dir | default('(none)', true) | string) + ' port=' + (remnanode_port_final | default('?', true) | string) + ' creds_from=' + (remnanode_creds_source | default('n/a', true) | string) + ' purge=' + (remnawave_remove_purge | string)) if (remnawave_remove_scope in ['host', 'both']) else 'host=not touched',
                 ('panel_node=' + remnawave_node_name + ' found=' + (remnawave_remove_panel_present | default(false) | string) + ((' uuid=' + remnawave_existing.uuid | default('', true)) if (remnawave_remove_panel_present | default(false) | bool) else '')) if (remnawave_remove_scope in ['panel', 'both']) else 'panel=not touched',
                 ('WARNING: panel removal disconnects and drops the users bound to this node') if (remnawave_remove_scope in ['panel', 'both'] and (remnawave_remove_panel_present | default(false) | bool)) else '',
                 ('WARNING: ufw rules are not touched; remove the node port rule manually if needed') if (remnawave_remove_scope in ['host', 'both'] and (remnanode_port_fw | default('') == 'allowed')) else ''
@@ -140,20 +140,20 @@
 
         - name: Stop container after compose removal
           ansible.builtin.command:
-            argv: ["docker", "stop", "{{ remnanode_agent_container }}"]
+            argv: ["docker", "stop", "{{ remnanode_agent_container_effective }}"]
           changed_when: true
           failed_when: false
           when: remnanode_container_exists | bool
 
         - name: Force-remove leftover container
           ansible.builtin.command:
-            argv: ["docker", "rm", "-f", "{{ remnanode_agent_container }}"]
+            argv: ["docker", "rm", "-f", "{{ remnanode_agent_container_effective }}"]
           changed_when: true
           failed_when: false
           when: remnanode_container_exists | bool
 
         - name: Verify container is gone
-          ansible.builtin.command: docker inspect {{ remnanode_agent_container }}
+          ansible.builtin.command: docker inspect {{ remnanode_agent_container_effective }}
           register: remnanode_remove_container_check
           changed_when: false
           failed_when: false
@@ -162,7 +162,7 @@
         - name: Require container removal before panel delete
           ansible.builtin.fail:
             msg: >-
-              Container '{{ remnanode_agent_container }}' is still on {{ inventory_hostname }}
+              Container '{{ remnanode_agent_container_effective }}' is still on {{ inventory_hostname }}
               ({{ remnanode_remove_container_check.stderr | default('docker inspect returned unexpected output') | trim }}).
               Panel entry was not deleted; remove the container manually and re-run
           when: >-
@@ -199,7 +199,7 @@
             remnanode_purge_dir: >-
               {{ (remnanode_remove_compose_dir | default('', true) | trim)
                  or (remnanode_old_dir_final | default('', true) | trim)
-                 or (remnanode_dir | default('/opt/remnanode', true) | trim) }}
+                 or (remnanode_dir_effective | default('/opt/remnanode', true) | trim) }}
 
         - name: Validate purge dir
           ansible.builtin.fail:
@@ -208,7 +208,7 @@
             (remnanode_purge_dir | length == 0)
             or (not (remnanode_purge_dir is match('^/.+')))
             or ('..' in remnanode_purge_dir)
-            or ((remnanode_purge_dir | regex_replace('/+$', '').split('/') | length) < 3)
+            or ((remnanode_purge_dir | regex_replace('/+$', '') | split('/') | length) < 3)
 
         - name: Remove logrotate config
           ansible.builtin.file:
@@ -233,7 +233,7 @@
         msg: >-
           {{ [
             'action=remove scope=' + remnawave_remove_scope,
-            ('host=' + inventory_hostname + ' stack_removed=true') if (remnawave_remove_scope in ['host', 'both']) else 'host=not touched',
+            ('host=' + inventory_hostname + ' stack_removed=' + ('true' if ((remnanode_container_exists | default(false) | bool) or (remnanode_remove_compose_dir | default('') | length > 0)) else 'false (nothing found)')) if (remnawave_remove_scope in ['host', 'both']) else 'host=not touched',
             ('panel_node=' + remnawave_node_name + ' removed=' + ((remnawave_node_deleted | default(false)) | string)) if (remnawave_remove_scope in ['panel', 'both']) else 'panel=not touched',
             ('purged=' + (remnawave_remove_purge | string)) if (remnawave_remove_scope in ['host', 'both']) else '',
             'NOTE: xray logs under the log dir and ufw rules are not deleted automatically'

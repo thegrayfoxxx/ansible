@@ -5,6 +5,8 @@
   become: true
   # Rolling config: process one node at a time even when target is a group.
   serial: 1
+  # Без этого падение одной ноды при serial: 1 останавливало весь прогон.
+  max_fail_percentage: 100
   vars:
     remnawave_config_action: show
     remnanode_config_confirmed: false
@@ -62,18 +64,18 @@
 
     - name: Require a deployed stack
       ansible.builtin.fail:
-        msg: "No compose.yml in {{ remnanode_dir }}. Run remnawave_node_deploy first"
+        msg: "No compose.yml in {{ remnanode_dir_effective }}. Run remnawave_node_deploy first"
       when: not (remnanode_target_compose_exists | bool)
 
     - name: Require a stack container
       ansible.builtin.fail:
-        msg: "Container '{{ remnanode_agent_container }}' not found. Run remnawave_node_deploy with remnanode_force=true to recreate the stack"
+        msg: "Container '{{ remnanode_agent_container_effective }}' not found. Run remnawave_node_deploy with remnanode_force=true to recreate the stack"
       when: not (remnanode_container_exists | bool)
 
     - name: Refuse a stack that lives in another directory
       ansible.builtin.fail:
-        msg: "Existing remnanode stack lives in {{ remnanode_old_dir_final }}, not in {{ remnanode_dir }}. Use remnawave_node_move scope=local first"
-      when: (remnanode_old_dir_final | regex_replace('/+$', '')) != (remnanode_dir | regex_replace('/+$', ''))
+        msg: "Existing remnanode stack lives in {{ remnanode_old_dir_final }}, not in {{ remnanode_dir_effective }}. Use remnawave_node_move scope=local first"
+      when: (remnanode_old_dir_final | regex_replace('/+$', '')) != (remnanode_dir_effective | regex_replace('/+$', ''))
 
     - name: Warn about unmanaged geodata mounts
       ansible.builtin.debug:
@@ -238,7 +240,7 @@
         - name: Show config summary
           ansible.builtin.debug:
             msg:
-              - "host={{ inventory_hostname }} dir={{ remnanode_dir }} container={{ remnanode_agent_container }} running={{ remnanode_container_running }}"
+              - "host={{ inventory_hostname }} dir={{ remnanode_dir_effective }} container={{ remnanode_agent_container_effective }} running={{ remnanode_container_running }}"
               - "image={{ remnanode_image_current }} port={{ remnanode_port_final | default('?') }} creds_from={{ remnanode_creds_source }}"
               - "mounts: shm={{ remnanode_existing_mount_shm }} logs={{ remnanode_existing_mount_logs }} xray={{ remnanode_existing_mount_xray }} log_dir={{ remnanode_log_dir_current | default('(none)') }}"
               - "geo: files={{ remnanode_geo_files_current | join(', ') or '(none)' }} dir={{ remnanode_geo_dir }} missing={{ remnanode_cfg_geo_missing | default([]) | join(', ') or '(none)' }}"
@@ -264,7 +266,7 @@
 
     - name: Report no changes
       ansible.builtin.debug:
-        msg: "No config changes for {{ inventory_hostname }} ({{ remnanode_dir }})"
+        msg: "No config changes for {{ inventory_hostname }} ({{ remnanode_dir_effective }})"
       when: not (remnanode_cfg_changed | bool)
 
     - name: Stop this host when there is nothing to apply
@@ -300,12 +302,12 @@
 
     - name: Keep the current image
       ansible.builtin.set_fact:
-        remnanode_node_image: "{{ remnanode_image_current }}"
+        remnanode_node_image_effective: "{{ remnanode_image_current }}"
 
     - name: Require a known current image
       ansible.builtin.fail:
-        msg: "Cannot determine the current image for '{{ remnanode_agent_container }}'. Use remnawave_node_update or remnawave_node_deploy remnanode_force=true"
-      when: remnanode_node_image | default('') | trim | length == 0
+        msg: "Cannot determine the current image for '{{ remnanode_agent_container_effective }}'. Use remnawave_node_update or remnawave_node_deploy remnanode_force=true"
+      when: remnanode_node_image_effective | default('') | trim | length == 0
 
     - name: Ensure geodata and zapret files
       ansible.builtin.include_role:
@@ -324,4 +326,4 @@
 
     - name: Show apply summary
       ansible.builtin.debug:
-        msg: "applied host={{ inventory_hostname }} dir={{ remnanode_dir }} shm={{ remnanode_mount_shm_effective }} logs={{ remnanode_mount_logs_effective }} log_dir={{ remnanode_log_dir_effective }} log_size={{ remnanode_log_max_size_effective }} log_keep={{ remnanode_log_keep_effective }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }}({{ remnanode_zapret_mode_norm }}) xray={{ remnanode_xray_summary }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"
+        msg: "applied host={{ inventory_hostname }} dir={{ remnanode_dir_effective }} shm={{ remnanode_mount_shm_effective }} logs={{ remnanode_mount_logs_effective }} log_dir={{ remnanode_log_dir_effective }} log_size={{ remnanode_log_max_size_effective }} log_keep={{ remnanode_log_keep_effective }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }}({{ remnanode_zapret_mode_norm }}) xray={{ remnanode_xray_summary }} port={{ remnanode_port_final }} image={{ remnanode_node_image_effective }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }}"

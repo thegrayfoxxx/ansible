@@ -5,12 +5,12 @@
 # only pulls the image.
 {% set geo_files = remnanode_geo_files_effective | default([]) %}
 {% set mount_zapret = remnanode_mount_zapret_effective | default(false) | bool %}
-{% set geo_dir = remnanode_geo_dir | default((remnanode_dir | default('/opt/remnanode')) ~ '/xray/share') %}
+{% set geo_dir = remnanode_geo_dir | default((remnanode_dir_effective | default('/opt/remnanode')) ~ '/xray/share') %}
 services:
   remnanode:
-    container_name: {{ remnanode_agent_container }}
+    container_name: {{ remnanode_agent_container_effective }}
     hostname: remnanode
-    image: {{ remnanode_node_image }}
+    image: {{ remnanode_node_image_effective }}
     network_mode: host
     restart: unless-stopped
 {% if (remnanode_mount_shm_effective | default(true) | bool) or (remnanode_mount_logs_effective | default(true) | bool) or (remnanode_mount_xray | default(false) | bool) or (geo_files | length > 0) or mount_zapret %}

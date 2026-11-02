@@ -6,8 +6,30 @@ services:
     image: nginx:alpine
     container_name: fallback-web
     network_mode: host
+    # Фоновые задачи рядом с nginx:
+    # - права 0666 на сокет заглушки: nginx пересоздаёт его при каждом старте
+    #   (update, reboot), а Xray (другой uid) должен в него писать;
+    # - nginx -t && reload раз в NGINX_RELOAD_INTERVAL: подхватить серт, который
+    #   acme.sh продлил в ./letsencrypt (из acme-контейнера до nginx не достучаться).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        (
+          while :; do
+            [ -S "$$NGINX_SOCKET" ] && chmod 0666 "$$NGINX_SOCKET"
+            sleep 5
+          done
+        ) &
+        (
+          while sleep "$${NGINX_RELOAD_INTERVAL:-43200}"; do
+            nginx -t -q && nginx -s reload
+          done
+        ) &
+        exec /docker-entrypoint.sh nginx -g 'daemon off;'
     environment:
       - DOMAIN=${DOMAIN}
+      - NGINX_SOCKET={{ nginx_socket | default('/dev/shm/nginx.sock') }}
+      - NGINX_RELOAD_INTERVAL={{ nginx_reload_interval | default(43200) }}
     volumes:
       - ./nginx/fallback.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./html/index.html:/usr/share/nginx/html/index.html:ro

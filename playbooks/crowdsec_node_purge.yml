@@ -1,14 +1,19 @@
 ---
-- name: CrowdSec node purge — backup container + dir
+- name: CrowdSec node purge — backup containers + dirs
   hosts: "{{ target | default('localhost', true) }}"
   gather_facts: false
-  become: false
+  # docker и find по /root без root молча возвращают пусто → "nothing to purge".
+  become: true
   serial: 1
   vars:
     crowdsec_purge_action: inspect
     crowdsec_purge_confirm: false
     crowdsec_purge_confirmed: false
     crowdsec_dir: /opt/crowdsec
+    crowdsec_agent_container: crowdsec-agent
+    crowdsec_bouncer_container: crowdsec-bouncer
+    # Явно: имена контейнеров / пути каталогов через запятую или по строке.
+    # Пусто — все бэкапы CrowdSec на хосте (inspect покажет список).
     crowdsec_purge_container: ""
     crowdsec_purge_dir: ""
   tasks:
@@ -32,92 +37,15 @@
         - crowdsec_purge_action == 'purge'
         - not (crowdsec_purge_confirm | bool)
 
-    - name: Auto-discover backup containers
-      ansible.builtin.shell: >-
-        docker ps -a --format "{{ '{{.Names}}' }}" | grep -- '-bak-' || true
-      register: crowdsec_purge_discovered_containers
-      changed_when: false
-      failed_when: false
-      no_log: true
-
-    - name: Auto-discover backup directories
-      ansible.builtin.shell: >-
-        find /opt /home /root /srv /var -maxdepth 3 -type d -name "*-bak-*" 2>/dev/null | sort -u || true
-      register: crowdsec_purge_discovered_dirs
-      changed_when: false
-      failed_when: false
-
-    - name: Show purge inspection
-      when: crowdsec_purge_action == 'inspect'
-      ansible.builtin.debug:
-        msg: >-
-          action={{ crowdsec_purge_action }} host={{ inventory_hostname }}
-          discovered_containers={{ crowdsec_purge_discovered_containers.stdout_lines | default([]) | join(', ') or '(none)' }}
-          discovered_dirs={{ crowdsec_purge_discovered_dirs.stdout_lines | default([]) | join(', ') or '(none)' }}
-          explicit_container={{ crowdsec_purge_container | default('', true) }}
-          explicit_dir={{ crowdsec_purge_dir | default('', true) }}
-
-    - name: Stop after inspect (this host only)
-      when: crowdsec_purge_action == 'inspect'
-      ansible.builtin.meta: end_host
-
-    - name: Resolve purge container (explicit or auto-discovered)
-      when: crowdsec_purge_action == 'purge'
-      ansible.builtin.set_fact:
-        crowdsec_purge_container_resolved: >-
-          {{ crowdsec_purge_container | default('', true) | trim
-             if (crowdsec_purge_container | default('', true) | trim | length) > 0
-             else (crowdsec_purge_discovered_containers.stdout_lines | default([]) | first | default('', true)) }}
-
-    - name: Resolve purge dir (explicit or auto-discovered)
-      when: crowdsec_purge_action == 'purge'
-      ansible.builtin.set_fact:
-        crowdsec_purge_dir_resolved: >-
-          {{ crowdsec_purge_dir | default('', true) | trim
-             if (crowdsec_purge_dir | default('', true) | trim | length) > 0
-             else (crowdsec_purge_discovered_dirs.stdout_lines | default([]) | first | default('', true)) }}
-
-    - name: Nothing to purge
-      ansible.builtin.debug:
-        msg: "nothing to purge on {{ inventory_hostname }} — no backup containers or directories found"
-      when:
-        - crowdsec_purge_action == 'purge'
-        - (crowdsec_purge_container_resolved | default('', true) | trim | length) == 0
-        - (crowdsec_purge_dir_resolved | default('', true) | trim | length) == 0
-
-    - name: Skip host with nothing to purge
-      ansible.builtin.meta: end_host
-      when:
-        - crowdsec_purge_action == 'purge'
-        - (crowdsec_purge_container_resolved | default('', true) | trim | length) == 0
-        - (crowdsec_purge_dir_resolved | default('', true) | trim | length) == 0
-
-    - name: Purge backup artifacts
-      when: crowdsec_purge_action == 'purge'
-      block:
-        - name: Validate purge dir
-          ansible.builtin.fail:
-            msg: "Refusing to purge unsafe path '{{ crowdsec_purge_dir_resolved }}'. Set crowdsec_purge_dir to the backup dir"
-          when: >-
-            (crowdsec_purge_dir_resolved | length == 0)
-            or (not (crowdsec_purge_dir_resolved is match('^/.+')))
-            or ('..' in crowdsec_purge_dir_resolved)
-            or ((crowdsec_purge_dir_resolved | regex_replace('/+$', '') | split('/') | length) < 3)
-
-        - name: Remove purge container
-          ansible.builtin.command:
-            argv: ["docker", "rm", "-f", "{{ crowdsec_purge_container_resolved }}"]
-          changed_when: true
-          when: (crowdsec_purge_container_resolved | default('', true) | trim | length) > 0
-
-        - name: Remove purge dir
-          ansible.builtin.file:
-            path: "{{ crowdsec_purge_dir_resolved | regex_replace('/+$', '') }}"
-            state: absent
-          when: (crowdsec_purge_dir_resolved | default('', true) | trim | length) > 0
-          become: true
-
-    - name: Show purge summary
-      when: crowdsec_purge_action == 'purge'
-      ansible.builtin.debug:
-        msg: "purged backup container={{ crowdsec_purge_container_resolved }} dir={{ crowdsec_purge_dir_resolved }} on {{ inventory_hostname }}"
+    - name: Find and purge CrowdSec backups
+      ansible.builtin.include_tasks: tasks/purge_backups.yml
+      vars:
+        crowdsec_names_re: "{{ ['crowdsec-agent', 'crowdsec-bouncer', crowdsec_agent_container | default('', true), crowdsec_bouncer_container | default('', true)] | map('trim') | select | unique | map('regex_escape') | join('|') }}"
+        purge_label: crowdsec
+        purge_action: "{{ crowdsec_purge_action }}"
+        purge_container_regex: "^({{ crowdsec_names_re }})-(adopt|move|moved)-bak-[0-9]+$"
+        purge_dir_regex: '^/.*\.(adopt|move)-bak-[0-9]+$'
+        purge_dir_marker: "crowdsecurity/crowdsec|cs-firewall-bouncer"
+        purge_containers_explicit: "{{ crowdsec_purge_container }}"
+        purge_dirs_explicit: "{{ crowdsec_purge_dir }}"
+        purge_search_roots: [/opt, /srv, /root, /home]

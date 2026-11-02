@@ -3,21 +3,15 @@
   ansible.builtin.set_fact:
     remnawave_token_final: "{{ remnawave_token if (remnawave_token | default('') | length > 0) else lookup('env', 'REMNAWAVE_TOKEN') }}"
     remnawave_panel_base: "{{ ((remnawave_default_panel_url | default('')) | trim).rstrip('/') }}"
-  delegate_to: localhost
-  become: false
   no_log: true
 
 - name: Require panel URL
   ansible.builtin.fail:
     msg: "Panel URL must come from remnawave_default_panel_url in the remnawave_vars environment"
   when: remnawave_panel_base | length == 0
-  delegate_to: localhost
-  become: false
 
+# Без no_log: сообщение не содержит токена, а с no_log причина отказа скрывалась.
 - name: Require API token value
   ansible.builtin.fail:
     msg: "API token is empty. Fill REMNAWAVE_TOKEN secret in remnawave_vars or pass remnawave_token override"
   when: remnawave_token_final | length == 0
-  delegate_to: localhost
-  become: false
-  no_log: true

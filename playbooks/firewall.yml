@@ -5,7 +5,11 @@
   become: true
   vars:
     fw_allow: []
+    # Правила на удаление, формат как у fw_allow (PORT[/proto] [from IP]).
+    fw_delete: []
     fw_enable: false
+    # SSH открыт только с конкретного IP (from ...) — подтвердить, что это адрес контроллера.
+    fw_ssh_restricted_ok: false
     fw_confirmed: false
     fw_default_incoming: deny
     fw_default_outgoing: allow
@@ -22,18 +26,22 @@
       ansible.builtin.set_fact:
         fw_allow_list: "{{ ((fw_allow | default([], true)).replace(',', '\n').splitlines() if (fw_allow | default([], true)) is string else (fw_allow | default([], true))) | map('trim') | map('lower') | select | list }}"
 
-    - name: Validate fw_allow format
+    - name: Normalize fw_delete to rule list
+      ansible.builtin.set_fact:
+        fw_delete_list: "{{ ((fw_delete | default([], true)).replace(',', '\n').splitlines() if (fw_delete | default([], true)) is string else (fw_delete | default([], true))) | map('trim') | map('lower') | select | list }}"
+
+    - name: Validate fw_allow / fw_delete format
       ansible.builtin.fail:
-        msg: "Each fw_allow line must be PORT[/proto] [from IP], e.g. 22/tcp or 2096/tcp from 203.0.113.10. Got: {{ fw_bad | join(', ') }}"
+        msg: "Each fw_allow/fw_delete line must be PORT[/proto] [from IP], e.g. 22/tcp or 2096/tcp from 203.0.113.10. Got: {{ fw_bad | join(', ') }}"
       vars:
-        fw_bad: "{{ fw_allow_list | reject('match', '^[0-9]{1,5}(/(tcp|udp))?(\\s+from\\s+[0-9a-f:.]+(/[0-9]{1,3})?)?$') | list }}"
+        fw_bad: "{{ (fw_allow_list + fw_delete_list) | reject('match', '^[0-9]{1,5}(/(tcp|udp))?(\\s+from\\s+[0-9a-f:.]+(/[0-9]{1,3})?)?$') | list }}"
       when: fw_bad | length > 0
 
     - name: Validate fw_allow port range
       ansible.builtin.fail:
         msg: "fw_allow ports must be 1..65535, got: {{ fw_bad_ports | join(', ') }}"
       vars:
-        fw_bad_ports: "{{ fw_allow_list | map('regex_replace', '^([0-9]{1,5}).*$', '\\1') | map('int') | reject('in', range(1, 65536)) | list }}"
+        fw_bad_ports: "{{ (fw_allow_list + fw_delete_list) | map('regex_replace', '^([0-9]{1,5}).*$', '\\1') | map('int') | reject('in', range(1, 65536)) | list }}"
       when: fw_bad_ports | length > 0
 
     - name: Ensure UFW is installed
@@ -47,12 +55,33 @@
       ansible.builtin.set_fact:
         fw_ssh_port: "{{ ansible_port | default(22) }}"
 
+    # Правило должно открывать порт SSH по TCP: `22/udp` раньше тоже проходило проверку.
+    - name: Collect SSH rules
+      ansible.builtin.set_fact:
+        fw_ssh_rules: "{{ fw_allow_list | select('match', '^' ~ fw_ssh_port ~ '(/tcp)?(\\s|$)') | list }}"
+        fw_ssh_rules_deleted: "{{ fw_delete_list | select('match', '^' ~ fw_ssh_port ~ '(/tcp)?(\\s|$)') | list }}"
+
     - name: Guard against SSH lockout
       ansible.builtin.fail:
         msg: "Refusing to enable UFW without SSH access: add {{ fw_ssh_port }}/tcp to fw_allow (via Extra vars)"
       when:
         - fw_enable | bool
-        - (fw_allow_list | map('regex_replace', '^([0-9]{1,5}).*$', '\\1') | select('equalto', (fw_ssh_port | string)) | list | length) == 0
+        - fw_ssh_rules | length == 0
+
+    - name: Guard against SSH restricted by source IP
+      ansible.builtin.fail:
+        msg: >-
+          SSH ({{ fw_ssh_port }}/tcp) is allowed only from specific IPs: {{ fw_ssh_rules | join(', ') }}.
+          If Semaphore/controller connects from one of them, set fw_ssh_restricted_ok=true
+      when:
+        - fw_enable | bool
+        - fw_ssh_rules | reject('search', '\\sfrom\\s') | list | length == 0
+        - not (fw_ssh_restricted_ok | bool)
+
+    - name: Guard against deleting SSH rule
+      ansible.builtin.fail:
+        msg: "fw_delete contains SSH rule(s) {{ fw_ssh_rules_deleted | join(', ') }} — refusing, it would lock out Ansible"
+      when: fw_ssh_rules_deleted | length > 0
 
     - name: Set default policies
       community.general.ufw:
@@ -70,6 +99,15 @@
         proto: "{{ (item.split()[0].split('/')[1]) if ('/' in item.split()[0]) else 'tcp' }}"
         from_ip: "{{ item.split()[2] if ((item.split() | length == 3) and (item.split()[1] == 'from')) else omit }}"
       loop: "{{ fw_allow_list }}"
+
+    - name: Delete rules
+      community.general.ufw:
+        rule: allow
+        delete: true
+        port: "{{ item.split()[0].split('/')[0] }}"
+        proto: "{{ (item.split()[0].split('/')[1]) if ('/' in item.split()[0]) else 'tcp' }}"
+        from_ip: "{{ item.split()[2] if ((item.split() | length == 3) and (item.split()[1] == 'from')) else omit }}"
+      loop: "{{ fw_delete_list }}"
 
     - name: Enable UFW
       community.general.ufw:

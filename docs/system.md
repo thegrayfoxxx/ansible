@@ -69,7 +69,7 @@ Hostname — это идентификатор (приглашение, journal/
 
 ## `playbooks/ipv6.yml` (sysctl, без ребута для применения запрета)
 
-- `ipv6_state: disabled` / `enabled` (Enum, обязательно) — пишет `/etc/sysctl.d/99-ansible-ipv6.conf` (`all/default/lo.disable_ipv6`)
+- `ipv6_state: disabled` / `enabled` (Enum, обязательно) — пишет `/etc/sysctl.d/99-ansible-ipv6.conf` (`all/default.disable_ipv6`). Loopback не трогается (`lo` остаётся с `::1`, иначе ломаются сервисы на localhost по IPv6); отказ, если `ansible_host` — IPv6 или SSH-сессия реально идёт по IPv6
 - `ipv6_confirmed: false` -> `true` чтобы менять сразу на нескольких хостах (Enum)
 - гард: отказ при подключении по IPv6 (иначе отрубишь себе SSH); уже поднятые интерфейсы держат адреса до ребута — полное снятие/возврат IPv6 может потребовать ребут (шаблон `reboot`)
 
@@ -87,16 +87,18 @@ Hostname — это идентификатор (приглашение, journal/
 - `apt_autoclean: true`
 - `reboot_if_required: false` -> `true` для авторебута
 - `update_confirmed: false` -> `true` чтобы разрешить авторебут сразу на нескольких хостах (нужен только с `reboot_if_required: true`)
+- `apt_lock_timeout: 600` — сколько секунд ждать dpkg lock (на свежей ноде его держит unattended-upgrades)
 - перед upgrade всегда выполняется `dpkg --configure -a` (донастройка оборванного dpkg; если мёртв по-настоящему — упадёт с его текстом)
+- ребут идёт по одному хосту (`throttle: 1`), а не всем флотом одновременно
 
 ## `playbooks/cleanup.yml`
 
 - `journal_max_age: 14d` (String), `journal_max_size: 500M` (String)
-- `docker_prune: false` -> `true` чтобы чистить docker (сносит неиспользуемые образы/сети; скипается если докера нет; Enum)
+- `docker_prune: false` -> `true` чтобы чистить docker: `docker image prune -a`, `network prune`, `builder prune` (неиспользуемые образы, сети и build cache; скипается если докера нет; Enum). Остановленные контейнеры **не** удаляются — раньше `docker system prune` сносил и намеренно остановленные ноды, и бэкап-контейнеры после move/adopt
 - `docker_prune_volumes: false` -> `true` чтобы чистить и volumes (опасно; Enum)
 - `docker_prune_until: ""` (String, например `72h` — prune только старше; пусто — без фильтра)
 - `apt_clean: true` (Enum)
-- `cleanup_confirmed: false` -> `true` чтобы разрешить снос docker volumes (без него чистятся только образы/контейнеры)
+- `cleanup_confirmed: false` -> `true` чтобы разрешить снос docker volumes (без него чистятся только образы, сети и build cache)
 
 ```json
 {
@@ -114,7 +116,7 @@ Hostname — это идентификатор (приглашение, journal/
 }
 ```
 
-## `playbooks/reboot.yml` (без подтверждения — аккуратнее с `target=all`)
+## `playbooks/reboot.yml` (на несколько хостов — только с `reboot_confirmed=true`)
 
 - `reboot_msg: "Reboot via Semaphore"`
 - `reboot_timeout: 600` (секунд ждать возвращения хоста)

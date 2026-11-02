@@ -18,6 +18,13 @@
         msg: "log_source must be journal or file, got {{ log_source }}"
       when: log_source not in ['journal', 'file']
 
+    - name: Validate log_file path
+      ansible.builtin.fail:
+        msg: "log_file must be a file under /var/log/ without '..', got {{ log_file }}"
+      when:
+        - log_source == 'file'
+        - (not (log_file is match('^/var/log/[A-Za-z0-9._/@-]+$'))) or ('..' in log_file)
+
     - name: Validate log_lines range
       ansible.builtin.fail:
         msg: "log_lines must be within 1..2000, got {{ log_lines }}"

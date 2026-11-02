@@ -63,6 +63,9 @@
     dest: "{{ remnanode_zapret_file }}"
     mode: "0644"
     force: true
+    # Upstream не публикует checksum; можно задать свой (sha256:...), чтобы
+    # не подтянуть подменённый файл.
+    checksum: "{{ remnanode_zapret_checksum | default(omit, true) }}"
   when:
     - remnanode_zapret_mode_norm in ['present', 'latest']
     - >-

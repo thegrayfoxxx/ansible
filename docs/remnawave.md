@@ -1,15 +1,16 @@
 # Вкладка Remnawave: панель отдельно, ноды — по шагам add → deploy → config/update → move → remove
 
-Шесть шаблонов с одной ответственностью:
+Семь шаблонов с одной ответственностью:
 
 | Шаблон | Где выполняется | Что делает |
 | --- | --- | --- |
 | `remnawave_node_add` | раннер → API панели | регистрирует ноду в панели, SSH не трогает |
 | `remnawave_node_deploy` | нода | создаёт/пересобирает стек агента в Docker |
 | `remnawave_node_config` | нода | `show`/`apply` монтирований, логов и xray у существующего стека |
-| `remnawave_node_update` | нода | только обновляет образ (`pull + down + up -d`) |
+| `remnawave_node_update` | нода | только обновляет образ (`pull` + пересоздание, только если образ изменился; по одной ноде) |
 | `remnawave_node_move` | нода(ы) | переезд 1:1: другая папка (`local`) или другой хост (`remote`) |
 | `remnawave_node_remove` | панель и/или нода | удаляет запись в панели и/или стек на хосте |
+| `remnawave_node_purge` | нода | удаляет бэкапы, оставленные `move` (контейнеры `*-move-bak-*`/`*-moved-bak-*`, каталоги `*.move-bak-*`) |
 
 Ручного создания шаблонов не нужно — приезжают через `update_templates`.
 
@@ -161,7 +162,7 @@
 
 `remnanode_geo_files` в `config`: `keep`/пусто — оставить текущие, `none`/`-` — убрать все, явный список — заменить. В `deploy` пусто/`keep` также сохраняет текущие при `force`, а на новой ноде просто ничего не монтирует.
 
-`none`/`-` убирает только mount'ы: сами файлы в `<remnanode_dir>/xray/share/` остаются на диске. Если нужно удалить и данные — сделай это вручную. Замена содержимого уже смонтированного файла не меняет набор mount'ов, поэтому `config` может ответить `No config changes`; чтобы Xray перечитал geodata, перезапусти стек через `remnawave_node_update` (или `config` с другим изменением, которое пересоздаст контейнер).
+`none`/`-` убирает только mount'ы: сами файлы в `<remnanode_dir>/xray/share/` остаются на диске. Если нужно удалить и данные — сделай это вручную. Замена содержимого уже смонтированного файла не меняет набор mount'ов, поэтому `config` может ответить `No config changes`; чтобы Xray перечитал geodata, перезапусти стек через `remnawave_node_update` с `remnanode_update_recreate=true` (или `config` с другим изменением, которое пересоздаст контейнер).
 
 `XRAY_LOCATION_ASSET` мы **не выставляем**. Xray сначала ищет ассеты в каталоге исполняемого файла (`/usr/local/bin`), затем в `/usr/local/share/xray`. Это позволяет одновременно использовать geodata в `/usr/local/share/xray` и zapret в `/usr/local/bin`.
 
@@ -180,7 +181,7 @@ Zapret:
 - `present` — скачать `zapret.dat`, только если файла нет, он пустой или не является обычным файлом; валидный файл не трогается и сеть не дёргается. Затем смонтировать в `/usr/local/bin/zapret.dat:ro`;
 - `latest` — принудительно скачать свежий релиз и пересоздать контейнер.
 
-Если файл обновлён вручную (не через `latest`), контейнер не пересоздаётся: перезапусти стек через `remnawave_node_update`.
+Если файл обновлён вручную (не через `latest`), контейнер не пересоздаётся: перезапусти стек через `remnawave_node_update` с `remnanode_update_recreate=true`. Своя контрольная сумма файла — `remnanode_zapret_checksum` (`sha256:...`), upstream её не публикует.
 
 Файл: `<remnanode_dir>/xray/share/zapret.dat`, URL по умолчанию — `https://github.com/kutovoys/ru_gov_zapret/releases/latest/download/zapret.dat`. Маршрутизация — `ext:zapret.dat:zapret` / `ext:zapret.dat:zapret-zapad`.
 
@@ -269,7 +270,7 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
 
 ## `remnawave_node_update` — только образ
 
-`pull + down + up -d` на любом числе нод; панель не нужна. Монтирования, `.env`, креды и xray не меняются: кастомный бинарь и его mount переживают обновление. Если стека нет — `fail` с подсказкой `remnawave_node_deploy`.
+`docker compose pull` + `up -d`: контейнер пересоздаётся только если образ изменился (`remnanode_update_recreate=true` — пересоздать всегда). Ноды обновляются по одной (`serial: 1`; упавшая нода останавливает обновление остальных — сломанный образ не раскатится на флот), после обновления проверяется, что контейнер запущен и порт ноды слушает; панель не нужна. Раньше стек всегда делал `down/up` сразу на всём флоте, а `changed` всегда был `false`. Монтирования, `.env`, креды и xray не меняются: кастомный бинарь и его mount переживают обновление. Если стека нет — `fail` с подсказкой `remnawave_node_deploy`.
 
 ```json
 {
@@ -292,13 +293,14 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
 - `target` — исходная нода, строго один хост.
 - `remnanode_move_action: inspect` — отчёт и план; `move` — переезд.
 - `remnanode_move_confirmed: true` — обязательно для `move` (останавливаем рабочую ноду).
-- `remnanode_agent_container`, `remnanode_old_dir` (пусто — автоопределить по compose-меткам; для контейнера, запущенного вручную через `docker run`, укажи явно), `remnanode_dir` (куда переезжаем).
+- `remnanode_agent_container`, `remnanode_old_dir` (пусто — автоопределить по compose-меткам; для контейнера, запущенного вручную через `docker run`, укажи явно), `remnanode_dir` (куда переезжаем). Пустые значения полей означают дефолт (`remnanode`, `/opt/remnanode`).
+- `remnanode_move_purge_backup: true` — после успешного переезда удалить бэкап; `false` — оставить для отката (удалить потом шаблоном `remnawave_node_purge`).
 
 ### `scope=local`
 
 - `remnanode_dir` — новый каталог; должен отсутствовать. Тот же каталог, вложенность source↔target и занятый target — `fail` с подсказкой.
 - Порядок: сохранить кастомный xray → остановить контейнер → переименовать контейнер в `<name>-move-bak-<ts>` → переименовать старый каталог в `<dir>.move-bak-<ts>` → создать target, положить xray, отрендерить, поднять.
-- Провал — rollback: target гасится/удаляется, старый каталог и имя контейнера возвращаются, старый контейнер стартует. После успешного переноса бэкап (контейнер `<name>-move-bak-<ts>` + каталог `<dir>.move-bak-<ts>`) удаляется автоматически (purge); rollback бэкап не трогает.
+- Провал — rollback: target гасится/удаляется, старый каталог и имя контейнера возвращаются, старый контейнер стартует. После успешного переноса бэкап (контейнер `<name>-move-bak-<ts>` + каталог `<dir>.move-bak-<ts>`) удаляется, если `remnanode_move_purge_backup=true` (дефолт); удаление идёт уже после основного блока, поэтому его ошибка не откатывает рабочий перенесённый стек. Rollback бэкап не трогает. Временный бинарь xray в `/tmp` удаляется в любом случае.
 - Тот же каталог — `fail`: это не переезд; используй `config` или `deploy remnanode_force=true`.
 
 ```json
@@ -313,10 +315,11 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
 
 ### `scope=remote`
 
-- `remnanode_move_dest` — целевая нода inventory, строго один хост и не источник.
+- `remnanode_move_dest` — целевая нода inventory, строго один хост и не источник. Имени нет в inventory (опечатка) — `fail` сразу, а не «успех» без действий.
+- `remnawave_open_port: true` (+ `remnawave_allow_from`) — открыть порт ноды в ufw на цели, как в `deploy`.
 - Цель должна быть чистой: нет target-каталога, контейнера с тем же именем и слушателя на порту — иначе `fail` до изменений.
 - Если xray кастомный и архитектуры источника/цели различаются — `fail` до любых изменений. Порядок обхода: на источнике `remnawave_node_config action=apply remnanode_xray_mode=image`, затем `move`, затем на цели `remnawave_node_config remnanode_xray_mode=version`.
-- Порядок: source остаётся работать → на цели создаётся каталог, переносится xray/креды/настройки → стек поднимается и проверяется → только после этого source останавливается и переименовывается в `<name>-moved-bak-<ts>` (каталог источника цел). Провал на цели — source не тронут.
+- Порядок: source остаётся работать → на цели создаётся каталог, переносится xray/креды/настройки → стек поднимается и проверяется → только после этого source останавливается и переименовывается в `<name>-moved-bak-<ts>` (каталог источника цел). Этот контейнер удаляется при `remnanode_move_purge_backup=true`, при `false` остаётся для отката (`docker rename` + `docker start`). Провал на цели — source не тронут. Проверки через панель перед выводом источника нет: панель достучится до цели только после смены DNS/адреса ноды.
 - Файлы логов на цель не копируются: переносятся mount и настройки ротации, старые логи остаются на источнике. Файлы geodata и `zapret.dat` из `<source>/xray/share/` наоборот переносятся на цель; неуправляемые mount'ы под `/usr/local/share/xray` и `/usr/local/bin/zapret.dat` требуют ручного переноса в `xray/share/`, иначе `move` остановится. Панель не трогаем — запись и креды те же; после переезда поправь DNS на новый адрес (TTL). Если в панели адрес ноды задан IP-адресом источника, обнови его на IP цели в UI панели вручную — `move` этого не делает.
 - Панель/токен не нужны.
 
@@ -342,7 +345,23 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
 - `remnawave_node_name` — точное имя в панели (обязательно для `panel`/`both`); `remnawave_token`, `remnawave_validate_certs`.
 - `target` — хост ноды (обязателен для `host`/`both`), строго один; `remnanode_agent_container`, `remnanode_dir`, `remnanode_old_dir`.
 
-Порядок для `both`: остановить/удалить контейнер (compose `down`, затем `docker stop`/`docker rm -f` для остатка) и убедиться, что контейнера нет → удалить запись в панели → при `purge=true` удалить каталог проекта (compose-dir, `remnanode_old_dir` или `remnanode_dir`) и logrotate. UFW **не трогается**: если правило было, будет warning с готовой командой `ufw delete`. Файлы xray-логов и бэкапы `move` автоматически не удаляются.
+Порядок для `both`: остановить/удалить контейнер (compose `down`, затем `docker stop`/`docker rm -f` для остатка) и убедиться, что контейнера нет → удалить запись в панели → при `purge=true` удалить каталог проекта (compose-dir, `remnanode_old_dir` или `remnanode_dir`) и logrotate. UFW **не трогается**: если правило было, будет warning с готовой командой `ufw delete`. Файлы xray-логов и бэкапы `move` автоматически не удаляются (для бэкапов — `remnawave_node_purge`). В summary `stack_removed` показывает, был ли на хосте стек.
+
+## `remnawave_node_purge` — бэкапы `move`
+
+- `remnawave_purge_action: inspect` — показать найденные бэкапы; `purge` — удалить.
+- `remnawave_purge_confirm: true` — обязательно для `purge`; `remnawave_purge_confirmed: true` — для нескольких хостов.
+- Ищутся только бэкапы remnanode: контейнеры `<remnanode_agent_container>-(move|moved|adopt)-bak-<ts>` и каталоги `*.move-bak-*`/`*.adopt-bak-*` под `/opt`, `/srv`, `/root`, `/home`, в compose-файле которых есть `remnawave/node` или `container_name: <remnanode_agent_container>`. Бэкапы nginx/CrowdSec не трогаются.
+- Удаляются все найденные. `remnanode_purge_container` / `remnanode_purge_dir` (через запятую или по строке) — удалить только указанные; чужие имена и небезопасные пути отклоняются. Можно удалить только контейнер, без каталога.
+- Переменные переименованы: `remnanawave_purge_*` → `remnawave_purge_*`.
+
+```json
+{
+  "target": "de5",
+  "remnawave_purge_action": "purge",
+  "remnawave_purge_confirm": true
+}
+```
 
 ```json
 {
@@ -388,5 +407,5 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
 - `add` — не касается;
 - `deploy` — ставит/сохраняет xray при первой установке или `force` (при `keep` кастом сохраняется);
 - `config` — единственный day-2 владелец: `keep`/`image`/`version`;
-- `update` — никогда не трогает (mount и бинарь переживают `down/up`);
+- `update` — никогда не трогает (mount и бинарь переживают пересоздание контейнера);
 - `move` — всегда переносит текущее состояние 1:1; при cross-arch кастоме сначала переведи источник на `image`.

@@ -35,6 +35,13 @@
       changed_when: false
       failed_when: false
 
+    # `systemctl is-active` для несуществующего юнита пишет "inactive" без текста ошибки.
+    - name: Check fail2ban unit exists
+      ansible.builtin.command: systemctl show -p LoadState --value fail2ban
+      register: health_f2b_load
+      changed_when: false
+      failed_when: false
+
     - name: Check crowdsec agent answers LAPI
       ansible.builtin.command: docker exec crowdsec-agent cscli lapi status
       register: health_cs
@@ -42,8 +49,9 @@
       failed_when: false
       when: health_docker.rc == 0
 
+    # Только статус: полный inspect содержит env с SECRET_KEY.
     - name: Inspect remnawave agent container
-      ansible.builtin.command: docker inspect remnanode
+      ansible.builtin.command: "docker inspect -f '{{ '{{' }}.State.Status{{ '}}' }}' remnanode"
       register: health_remna
       changed_when: false
       failed_when: false
@@ -62,9 +70,9 @@
         health_disk_raw: "{{ ((health_df.stdout_lines | last).split()[4]) if (health_df.stdout_lines | default([]) | length > 1) else '' }}"
         health_disk: "{{ (health_disk_raw + '(!)' if (health_disk_raw | regex_replace('%', '') | int > 80) else health_disk_raw) if ((health_disk_raw | length > 0) and (health_disk_raw | regex_replace('%', '') is match('^[0-9]+$'))) else 'n/a' }}"
         health_n: "{{ health_ps.stdout_lines | default([]) | length if (health_docker.rc == 0) else 'n/a' }}"
-        health_f2b_state: "{{ 'active' if (health_f2b.stdout | default('') | trim == 'active') else ('missing' if 'could not be found' in (health_f2b.stderr | default('')) else 'inactive') }}"
+        health_f2b_state: "{{ 'active' if (health_f2b.stdout | default('') | trim == 'active') else ('missing' if (health_f2b_load.stdout | default('') | trim) == 'not-found' else 'inactive') }}"
         health_cs_state: "{{ 'n/a' if (health_docker.rc != 0) else ('ok' if (health_cs.rc | default(1) | int == 0) else ('na' if 'No such container' in ((health_cs.stdout | default('')) + (health_cs.stderr | default(''))) else 'fail')) }}"
-        health_remna_state: "{{ 'n/a' if (health_docker.rc != 0) else ('na' if (health_remna.rc | default(1) | int != 0) else ('up' if '\"Status\": \"running\"' in (health_remna.stdout | default('')) else 'stopped')) }}"
+        health_remna_state: "{{ 'n/a' if (health_docker.rc != 0) else ('na' if (health_remna.rc | default(1) | int != 0) else ('up' if (health_remna.stdout | default('') | trim) == 'running' else 'stopped')) }}"
 
     - name: Summarize docker containers
       ansible.builtin.set_fact:

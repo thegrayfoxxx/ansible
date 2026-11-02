@@ -49,13 +49,13 @@ server {
 
     # robots/sitemap — живые, 200: выглядим как настоящий сервис
     location = /robots.txt {
-        add_header Content-Type text/plain;
+        default_type text/plain;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
         return 200 "User-agent: *\nAllow: /\nSitemap: https://${DOMAIN}/sitemap.xml\n";
     }
 
     location = /sitemap.xml {
-        add_header Content-Type application/xml;
+        default_type application/xml;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
         return 200 '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://${DOMAIN}/</loc></url></urlset>';
     }

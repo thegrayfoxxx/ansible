@@ -26,7 +26,7 @@
       ansible.builtin.fail:
         msg: "script_src must be a repo-root path under scripts/, e.g. scripts/hello.sh, got {{ script_src }}"
       when:
-        - not (script_src is regex('^scripts/.+')) or ('..' in script_src)
+        - not (script_src is regex('^scripts/[A-Za-z0-9._/-]+$')) or ('..' in script_src)
 
     - name: Validate script_env is a JSON object
       ansible.builtin.fail:
@@ -40,8 +40,10 @@
       ansible.builtin.set_fact:
         script_env_dict: "{{ (script_env | from_json) if (script_env is string and script_env | length > 0) else (script_env if script_env is mapping else {}) }}"
 
+    # script_args делится по пробелам, каждый аргумент экранируется: `; curl ... | sh`
+    # уходит в скрипт строкой, а не выполняется. Аргументы с пробелами не поддерживаются.
     - name: Run script
-      ansible.builtin.script: "{{ playbook_dir }}/../{{ script_src }} {{ script_args }}"
+      ansible.builtin.script: "{{ playbook_dir }}/../{{ script_src }} {{ (script_args | default('') | string).split() | map('quote') | join(' ') }}"
       environment: "{{ script_env_dict }}"
       become: "{{ script_become }}"
       register: script_out

@@ -36,6 +36,13 @@
         - remnanode_move_scope == 'remote'
         - remnanode_move_dest | default('', true) | trim | length == 0
 
+    - name: Require destination host in inventory
+      ansible.builtin.fail:
+        msg: "Destination '{{ remnanode_move_dest | trim }}' is not in inventory (typo?). Known hosts: {{ groups['all'] | join(', ') }}"
+      when:
+        - remnanode_move_scope == 'remote'
+        - (remnanode_move_dest | trim) not in groups['all']
+
     - name: Require destination different from source
       ansible.builtin.fail:
         msg: "Destination '{{ remnanode_move_dest | trim }}' is the source host itself. Remote move needs two different nodes"
@@ -72,7 +79,7 @@
 
     - name: Require source container
       ansible.builtin.fail:
-        msg: "Container '{{ remnanode_agent_container }}' not found on {{ inventory_hostname }}. Set remnanode_agent_container or remnanode_old_dir explicitly"
+        msg: "Container '{{ remnanode_agent_container_effective }}' not found on {{ inventory_hostname }}. Set remnanode_agent_container_effective or remnanode_old_dir explicitly"
       when: not (remnanode_container_exists | bool)
 
     - name: Warn about unmanaged geodata mounts
@@ -133,13 +140,13 @@
           arch: "{{ remnanode_host_arch }}"
           arch_asset: "{{ remnanode_host_arch_asset }}"
           source_host: "{{ inventory_hostname }}"
-          source_container: "{{ remnanode_agent_container }}"
+          source_container: "{{ remnanode_agent_container_effective }}"
           source_dir: "{{ remnanode_old_dir_final }}"
       no_log: true
 
     - name: Require a source image
       ansible.builtin.fail:
-        msg: "Cannot determine the current image of '{{ remnanode_agent_container }}'"
+        msg: "Cannot determine the current image of '{{ remnanode_agent_container_effective }}'"
       when: remnanode_move_payload.image | default('') | trim | length == 0
 
     - name: Stat source geodata files
@@ -186,7 +193,7 @@
 
     - name: Show source discovery
       ansible.builtin.debug:
-        msg: "source={{ inventory_hostname }} container={{ remnanode_agent_container }} dir={{ remnanode_old_dir_final }} image={{ remnanode_move_payload.image }} port={{ remnanode_move_payload.port }} creds_from={{ remnanode_creds_source }} shm={{ remnanode_move_payload.mount_shm }} logs={{ remnanode_move_payload.mount_logs }} log_dir={{ remnanode_move_payload.log_dir }} log_size={{ remnanode_move_payload.log_max_size }} log_keep={{ remnanode_move_payload.log_keep }} geo={{ remnanode_move_payload.geo_files | join(',') or '(none)' }} zapret={{ remnanode_move_payload.zapret }} xray={{ 'custom ' + remnanode_move_payload.xray_version if (remnanode_move_payload.xray_custom | bool) else 'image' }} arch={{ remnanode_move_payload.arch }} scope={{ remnanode_move_scope }}"
+        msg: "source={{ inventory_hostname }} container={{ remnanode_agent_container_effective }} dir={{ remnanode_old_dir_final }} image={{ remnanode_move_payload.image }} port={{ remnanode_move_payload.port }} creds_from={{ remnanode_creds_source }} shm={{ remnanode_move_payload.mount_shm }} logs={{ remnanode_move_payload.mount_logs }} log_dir={{ remnanode_move_payload.log_dir }} log_size={{ remnanode_move_payload.log_max_size }} log_keep={{ remnanode_move_payload.log_keep }} geo={{ remnanode_move_payload.geo_files | join(',') or '(none)' }} zapret={{ remnanode_move_payload.zapret }} xray={{ 'custom ' + remnanode_move_payload.xray_version if (remnanode_move_payload.xray_custom | bool) else 'image' }} arch={{ remnanode_move_payload.arch }} scope={{ remnanode_move_scope }}"
 
     - name: Stop at inspect
       ansible.builtin.meta: end_play
@@ -198,11 +205,11 @@
         - name: Resolve normalized source and target dirs
           ansible.builtin.set_fact:
             remnanode_move_source_dir_norm: "{{ remnanode_old_dir_final | regex_replace('/+$', '') }}"
-            remnanode_move_target_dir_norm: "{{ remnanode_dir | regex_replace('/+$', '') }}"
+            remnanode_move_target_dir_norm: "{{ remnanode_dir_effective | regex_replace('/+$', '') }}"
 
         - name: Refuse same-dir move
           ansible.builtin.fail:
-            msg: "Stack already lives in {{ remnanode_dir }} — this is not a move. Use remnawave_node_config for host config or remnawave_node_deploy remnanode_force=true to re-render in place"
+            msg: "Stack already lives in {{ remnanode_dir_effective }} — this is not a move. Use remnawave_node_config for host config or remnawave_node_deploy remnanode_force=true to re-render in place"
           when: remnanode_move_source_dir_norm == remnanode_move_target_dir_norm
 
         - name: Refuse overlapping source and target dirs
@@ -214,7 +221,7 @@
 
         - name: Refuse an existing target dir
           ansible.builtin.fail:
-            msg: "Target dir {{ remnanode_dir }} already exists. Local move needs a clean target; remove it, choose another remnanode_dir, or use remnawave_node_deploy remnanode_force=true if the stack is meant to stay there"
+            msg: "Target dir {{ remnanode_dir_effective }} already exists. Local move needs a clean target; remove it, choose another remnanode_dir, or use remnawave_node_deploy remnanode_force=true if the stack is meant to stay there"
           when: remnanode_target_dir_exists | bool
 
         - name: Timestamp for backup
@@ -225,7 +232,7 @@
         - name: Resolve local backup names
           ansible.builtin.set_fact:
             remnanode_move_backup_dir: "{{ remnanode_move_source_dir_norm }}.move-bak-{{ remnanode_move_ts.stdout | trim }}"
-            remnanode_move_backup_container: "{{ remnanode_agent_container }}-move-bak-{{ remnanode_move_ts.stdout | trim }}"
+            remnanode_move_backup_container: "{{ remnanode_agent_container_effective }}-move-bak-{{ remnanode_move_ts.stdout | trim }}"
             remnanode_move_xray_tmp: "/tmp/remnanode-xray-move-{{ remnanode_move_ts.stdout | trim }}"
 
         - name: Check source dir exists
@@ -250,18 +257,18 @@
           block:
             - name: Extract custom xray from source container
               ansible.builtin.command:
-                argv: ["docker", "cp", "{{ remnanode_agent_container }}:/usr/local/bin/xray", "{{ remnanode_move_xray_tmp }}"]
+                argv: ["docker", "cp", "{{ remnanode_agent_container_effective }}:/usr/local/bin/xray", "{{ remnanode_move_xray_tmp }}"]
               changed_when: false
               when: remnanode_move_payload.xray_custom | bool
 
             - name: Stop old container
               ansible.builtin.command:
-                argv: ["docker", "stop", "{{ remnanode_agent_container }}"]
+                argv: ["docker", "stop", "{{ remnanode_agent_container_effective }}"]
               changed_when: true
 
             - name: Rename old container aside
               ansible.builtin.command:
-                argv: ["docker", "rename", "{{ remnanode_agent_container }}", "{{ remnanode_move_backup_container }}"]
+                argv: ["docker", "rename", "{{ remnanode_agent_container_effective }}", "{{ remnanode_move_backup_container }}"]
               changed_when: true
 
             - name: Move old project dir aside
@@ -272,7 +279,7 @@
 
             - name: Create target project dir
               ansible.builtin.file:
-                path: "{{ remnanode_dir }}"
+                path: "{{ remnanode_dir_effective }}"
                 state: directory
                 mode: "0755"
 
@@ -283,7 +290,7 @@
 
             - name: Create target geodata directory
               ansible.builtin.file:
-                path: "{{ remnanode_dir }}/xray/share"
+                path: "{{ remnanode_dir_effective }}/xray/share"
                 state: directory
                 mode: "0755"
               when: remnanode_move_geo_dir_stat.stat.exists | bool
@@ -291,7 +298,7 @@
             - name: Preserve geodata files
               ansible.builtin.copy:
                 src: "{{ remnanode_move_backup_dir }}/xray/share/"
-                dest: "{{ remnanode_dir }}/xray/share/"
+                dest: "{{ remnanode_dir_effective }}/xray/share/"
                 remote_src: true
                 mode: preserve
               when: remnanode_move_geo_dir_stat.stat.exists | bool
@@ -299,7 +306,7 @@
             - name: Install preserved xray binary
               ansible.builtin.copy:
                 src: "{{ remnanode_move_xray_tmp }}"
-                dest: "{{ remnanode_dir }}/xray-core"
+                dest: "{{ remnanode_dir_effective }}/xray-core"
                 remote_src: true
                 mode: "0755"
               when: remnanode_move_payload.xray_custom | bool
@@ -307,7 +314,7 @@
             - name: Record preserved xray version
               ansible.builtin.copy:
                 content: "{{ remnanode_move_payload.xray_version }}\n"
-                dest: "{{ remnanode_dir }}/.xray-core.version"
+                dest: "{{ remnanode_dir_effective }}/.xray-core.version"
                 mode: "0644"
               when:
                 - remnanode_move_payload.xray_custom | bool
@@ -315,7 +322,7 @@
 
             - name: Resolve moved stack facts
               ansible.builtin.set_fact:
-                remnanode_node_image: "{{ remnanode_move_payload.image }}"
+                remnanode_node_image_effective: "{{ remnanode_move_payload.image }}"
                 remnanode_mount_shm: "{{ remnanode_move_payload.mount_shm | bool }}"
                 remnanode_mount_logs: "{{ remnanode_move_payload.mount_logs | bool }}"
                 remnanode_log_dir: "{{ remnanode_move_payload.log_dir }}"
@@ -368,23 +375,8 @@
 
             - name: Show local move summary
               ansible.builtin.debug:
-                msg: "moved {{ remnanode_move_source_dir_norm }} -> {{ remnanode_dir }} container={{ remnanode_agent_container }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }} xray={{ remnanode_xray_summary }} backup_container={{ remnanode_move_backup_container }}{{ (' backup_dir=' + remnanode_move_backup_dir) if remnanode_move_source_stat.stat.exists else '' }}{{ ' (backup auto-purged after verify)' if (remnanode_move_purge_backup | bool and remnanode_move_source_stat.stat.exists | bool) else ' (backup kept, purge manually when stable)' }}"
+                msg: "moved {{ remnanode_move_source_dir_norm }} -> {{ remnanode_dir_effective }} container={{ remnanode_agent_container_effective }} port={{ remnanode_port_final }} image={{ remnanode_node_image_effective }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }} xray={{ remnanode_xray_summary }} backup_container={{ remnanode_move_backup_container }}{{ (' backup_dir=' + remnanode_move_backup_dir) if remnanode_move_source_stat.stat.exists else '' }}{{ ' (backup auto-purged after verify)' if (remnanode_move_purge_backup | bool) else ' (backup kept, purge manually when stable: remnawave_node_purge)' }}"
 
-            - name: Purge moved stack backup container after successful move
-              ansible.builtin.command:
-                argv: ["docker", "rm", "-f", "{{ remnanode_move_backup_container }}"]
-              changed_when: true
-              when:
-                - remnanode_move_source_stat.stat.exists | bool
-                - remnanode_move_purge_backup | bool
-
-            - name: Purge moved stack backup dir after successful move
-              ansible.builtin.file:
-                path: "{{ remnanode_move_backup_dir }}"
-                state: absent
-              when:
-                - remnanode_move_source_stat.stat.exists | bool
-                - remnanode_move_purge_backup | bool
           rescue:
             - name: Remove preserved xray temp
               ansible.builtin.file:
@@ -394,13 +386,13 @@
 
             - name: Take down partial moved stack
               community.docker.docker_compose_v2:
-                project_src: "{{ remnanode_dir | default('/opt/remnanode') }}"
+                project_src: "{{ remnanode_dir_effective | default('/opt/remnanode') }}"
                 state: absent
               failed_when: false
 
             - name: Remove partial target dir
               ansible.builtin.file:
-                path: "{{ remnanode_dir | default('/opt/remnanode') }}"
+                path: "{{ remnanode_dir_effective | default('/opt/remnanode') }}"
                 state: absent
               failed_when: false
 
@@ -415,20 +407,41 @@
 
             - name: Restore old container name
               ansible.builtin.command:
-                argv: ["docker", "rename", "{{ remnanode_move_backup_container | default('nonexistent-remnanode-move-backup') }}", "{{ remnanode_agent_container | default('remnanode') }}"]
+                argv: ["docker", "rename", "{{ remnanode_move_backup_container | default('nonexistent-remnanode-move-backup') }}", "{{ remnanode_agent_container_effective | default('remnanode') }}"]
               changed_when: true
               failed_when: false
               when: remnanode_move_backup_container is defined
 
             - name: Start old container
               ansible.builtin.command:
-                argv: ["docker", "start", "{{ remnanode_agent_container | default('remnanode') }}"]
+                argv: ["docker", "start", "{{ remnanode_agent_container_effective | default('remnanode') }}"]
               changed_when: true
               failed_when: false
 
             - name: Fail with local rollback note
               ansible.builtin.fail:
-                msg: "Local move failed ({{ ansible_failed_result.msg | default('see above') }}); rollback attempted — verify source container '{{ remnanode_agent_container }}' and dir {{ remnanode_old_dir_final }} manually"
+                msg: "Local move failed ({{ ansible_failed_result.msg | default('see above') }}); rollback attempted — verify source container '{{ remnanode_agent_container_effective }}' and dir {{ remnanode_old_dir_final }} manually"
+          always:
+            - name: Remove preserved xray temp after local move
+              ansible.builtin.file:
+                path: "{{ remnanode_move_xray_tmp }}"
+                state: absent
+
+        # Вне block/rescue: ошибка удаления бэкапа не должна запускать откат
+        # уже работающего перенесённого стека.
+        - name: Purge moved stack backup container after successful move
+          ansible.builtin.command:
+            argv: ["docker", "rm", "-f", "{{ remnanode_move_backup_container }}"]
+          changed_when: true
+          when: remnanode_move_purge_backup | bool
+
+        - name: Purge moved stack backup dir after successful move
+          ansible.builtin.file:
+            path: "{{ remnanode_move_backup_dir }}"
+            state: absent
+          when:
+            - remnanode_move_source_stat.stat.exists | bool
+            - remnanode_move_purge_backup | bool
 
         - name: Stop after local move
           ansible.builtin.meta: end_play
@@ -459,6 +472,8 @@
     remnanode_dir: /opt/remnanode
     remnanode_old_dir: ""
     remnanode_agent_container: remnanode
+    remnawave_open_port: false
+    remnawave_allow_from: ""
   tasks:
     - name: Stop when this is not a remote move
       ansible.builtin.meta: end_play
@@ -506,12 +521,12 @@
 
     - name: Refuse an existing destination dir
       ansible.builtin.fail:
-        msg: "Target dir {{ remnanode_dir }} already exists on {{ inventory_hostname }}. Remote move needs a clean target; remove it or choose another remnanode_dir"
+        msg: "Target dir {{ remnanode_dir_effective }} already exists on {{ inventory_hostname }}. Remote move needs a clean target; remove it or choose another remnanode_dir"
       when: remnanode_target_dir_exists | bool
 
     - name: Refuse an occupied destination container name
       ansible.builtin.fail:
-        msg: "Destination already has a container named '{{ remnanode_agent_container }}'. Move needs a clean destination"
+        msg: "Destination already has a container named '{{ remnanode_agent_container_effective }}'. Move needs a clean destination"
       when: remnanode_container_exists | bool
 
     - name: Check destination port is free
@@ -544,7 +559,7 @@
       block:
         - name: Ensure destination project dir
           ansible.builtin.file:
-            path: "{{ remnanode_dir }}"
+            path: "{{ remnanode_dir_effective }}"
             state: directory
             mode: "0755"
 
@@ -606,7 +621,7 @@
             - name: Install custom xray binary on destination
               ansible.builtin.copy:
                 src: "/tmp/remnanode-xray-move-{{ inventory_hostname }}.bin"
-                dest: "{{ remnanode_dir }}/xray-core"
+                dest: "{{ remnanode_dir_effective }}/xray-core"
                 mode: "0755"
           always:
             - name: Remove fetched xray binary
@@ -627,7 +642,7 @@
         - name: Record preserved xray version on destination
           ansible.builtin.copy:
             content: "{{ remnanode_move_payload.xray_version }}\n"
-            dest: "{{ remnanode_dir }}/.xray-core.version"
+            dest: "{{ remnanode_dir_effective }}/.xray-core.version"
             mode: "0644"
           when:
             - remnanode_move_payload.xray_custom | bool
@@ -635,7 +650,7 @@
 
         - name: Resolve moved stack facts
           ansible.builtin.set_fact:
-            remnanode_node_image: "{{ remnanode_move_payload.image }}"
+            remnanode_node_image_effective: "{{ remnanode_move_payload.image }}"
             remnanode_mount_shm: "{{ remnanode_move_payload.mount_shm | bool }}"
             remnanode_mount_logs: "{{ remnanode_move_payload.mount_logs | bool }}"
             remnanode_log_dir: "{{ remnanode_move_payload.log_dir }}"
@@ -686,6 +701,12 @@
             name: remnanode
             tasks_from: up
 
+        - name: Open node port in ufw on destination
+          ansible.builtin.include_role:
+            name: remnanode
+            tasks_from: ufw_open
+          when: remnawave_open_port | bool
+
         - name: Mark remote move verified
           ansible.builtin.set_fact:
             remnawave_move_ok: true
@@ -694,17 +715,17 @@
 
         - name: Show remote move summary
           ansible.builtin.debug:
-            msg: "moved {{ remnanode_move_payload.source_host }} -> {{ inventory_hostname }}:{{ remnanode_dir }} port={{ remnanode_port_final }} image={{ remnanode_node_image }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }} xray={{ remnanode_xray_summary }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} (repoint DNS manually; source is decommissioned only after this verification)"
+            msg: "moved {{ remnanode_move_payload.source_host }} -> {{ inventory_hostname }}:{{ remnanode_dir_effective }} port={{ remnanode_port_final }} image={{ remnanode_node_image_effective }} geo={{ remnanode_geo_files_effective | join(',') or '(none)' }} zapret={{ remnanode_mount_zapret_effective }} xray={{ remnanode_xray_summary }} ufw={{ remnanode_ufw_state }} port_fw={{ remnanode_port_fw }} (repoint DNS manually; source is decommissioned only after this verification)"
       rescue:
         - name: Take down partial moved stack
           community.docker.docker_compose_v2:
-            project_src: "{{ remnanode_dir }}"
+            project_src: "{{ remnanode_dir_effective }}"
             state: absent
           failed_when: false
 
         - name: Remove partial target dir
           ansible.builtin.file:
-            path: "{{ remnanode_dir }}"
+            path: "{{ remnanode_dir_effective }}"
             state: absent
           failed_when: false
 
@@ -720,6 +741,7 @@
     remnanode_move_action: inspect
     remnanode_move_scope: local
     remnanode_agent_container: remnanode
+    remnanode_move_purge_backup: true
   tasks:
     - name: Stop when this is not a verified remote move
       ansible.builtin.meta: end_play
@@ -735,34 +757,29 @@
 
     - name: Stop old container
       ansible.builtin.command:
-        argv: ["docker", "stop", "{{ remnanode_agent_container }}"]
+        argv: ["docker", "stop", "{{ remnanode_agent_container_effective }}"]
       register: remnanode_old_stop
       changed_when: true
       failed_when: false
 
     - name: Require stopped old container
       ansible.builtin.fail:
-        msg: "Could not stop old container '{{ remnanode_agent_container }}' on source (rc={{ remnanode_old_stop.rc }}). New node is UP with the same identity — stop the old one MANUALLY NOW to avoid flapping: docker stop {{ remnanode_agent_container }}"
+        msg: "Could not stop old container '{{ remnanode_agent_container_effective }}' on source (rc={{ remnanode_old_stop.rc }}). New node is UP with the same identity — stop the old one MANUALLY NOW to avoid flapping: docker stop {{ remnanode_agent_container_effective }}"
       when: remnanode_old_stop.rc != 0
 
     - name: Rename old container aside
       ansible.builtin.command:
-        argv: ["docker", "rename", "{{ remnanode_agent_container }}", "{{ remnanode_agent_container }}-moved-bak-{{ remnanode_move_ts.stdout | trim }}"]
+        argv: ["docker", "rename", "{{ remnanode_agent_container_effective }}", "{{ remnanode_agent_container_effective }}-moved-bak-{{ remnanode_move_ts.stdout | trim }}"]
       changed_when: true
 
-    - name: Purge moved source backup after successful move
-      when: remnanode_move_action == 'move'
-      block:
-        - name: Remove moved source backup container
-          ansible.builtin.command:
-            argv: ["docker", "rm", "-f", "{{ remnanode_agent_container }}-moved-bak-{{ remnanode_move_ts.stdout | trim }}"]
-          changed_when: true
-
-        - name: Remove moved source backup dir
-          ansible.builtin.file:
-            path: "{{ remnanode_old_dir_final }}.move-bak-{{ remnanode_move_ts.stdout | trim }}"
-            state: absent
+    # Раньше флаг remnanode_move_purge_backup игнорировался и бэкап-контейнер
+    # источника удалялся всегда; каталог *.move-bak-* при remote move не создаётся.
+    - name: Remove moved source backup container
+      ansible.builtin.command:
+        argv: ["docker", "rm", "-f", "{{ remnanode_agent_container_effective }}-moved-bak-{{ remnanode_move_ts.stdout | trim }}"]
+      changed_when: true
+      when: remnanode_move_purge_backup | bool
 
     - name: Show decommission summary
       ansible.builtin.debug:
-        msg: "source {{ inventory_hostname }} decommissioned: moved-source backup container {{ remnanode_agent_container }}-moved-bak-{{ remnanode_move_ts.stdout | trim }} renamed aside then purged after successful move, project files left intact (remove manually when stable). Repoint DNS to the new node (mind TTL)"
+        msg: "source {{ inventory_hostname }} decommissioned: old container stopped and renamed to {{ remnanode_agent_container_effective }}-moved-bak-{{ remnanode_move_ts.stdout | trim }}{{ ' and removed' if (remnanode_move_purge_backup | bool) else ' (kept for rollback: docker rename + docker start; purge later with remnawave_node_purge)' }}; project files left intact (remove manually when stable). Repoint DNS to the new node (mind TTL)"

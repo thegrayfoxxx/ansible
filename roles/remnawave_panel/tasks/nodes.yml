@@ -9,9 +9,16 @@
     timeout: 30
     validate_certs: "{{ remnawave_validate_certs | bool }}"
   register: remnawave_nodes_resp
+  failed_when: false
   delegate_to: localhost
   become: false
   no_log: true
+
+- name: Check nodes response
+  ansible.builtin.include_tasks: api_check.yml
+  vars:
+    remnawave_api_resp: "{{ remnawave_nodes_resp }}"
+    remnawave_api_what: GET /api/nodes
 
 - name: Resolve panel node list
   ansible.builtin.set_fact:
@@ -19,19 +26,13 @@
       {{ ((remnawave_nodes_resp.json.response | default({})).get('nodes', [])
           if ((remnawave_nodes_resp.json.response | default({})) is mapping)
           else (remnawave_nodes_resp.json.response | default([]))) }}
-  delegate_to: localhost
-  become: false
 
 - name: Resolve node by name
   ansible.builtin.set_fact:
     remnawave_existing: "{{ (remnawave_nodes | selectattr('name', 'equalto', remnawave_node_name) | list | first) | default({}) }}"
     remnawave_node_matches: "{{ remnawave_nodes | selectattr('name', 'equalto', remnawave_node_name) | list }}"
-  delegate_to: localhost
-  become: false
   when: remnawave_node_name | default('') | trim | length > 0
 
 - name: Resolve node UUID
   ansible.builtin.set_fact:
     remnawave_node_uuid: "{{ remnawave_existing.uuid | default('') }}"
-  delegate_to: localhost
-  become: false

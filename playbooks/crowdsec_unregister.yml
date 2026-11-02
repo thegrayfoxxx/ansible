@@ -139,6 +139,7 @@
         crowdsec_group: "{{ (semaphore_envs.json | selectattr('name', 'equalto', crowdsec_group_name) | list | first) | default({}) }}"
       delegate_to: localhost
       become: false
+      no_log: true
 
     - name: Warn when group is missing
       ansible.builtin.debug:
@@ -147,11 +148,12 @@
 
     - name: Collect stale credential keys
       ansible.builtin.set_fact:
-        crowdsec_stale_keys: "{{ (crowdsec_stale_keys | default([])) + ['crowdsec_node_' + node_key + '_agent_password', 'crowdsec_node_' + node_key + '_api_key'] }}"
+        crowdsec_stale_keys: "{{ (crowdsec_stale_keys | default([])) + ['crowdsec_node_' + node_key + '_agent_password', 'crowdsec_node_' + node_key + '_api_key', 'crowdsec_node_' + node_key + '_agent_username'] }}"
       vars:
         node_key: "{{ item | lower | regex_replace('-', '_') }}"
       loop: "{{ crowdsec_names_list }}"
       when: crowdsec_group | length > 0
+      no_log: true
 
     - name: Remove node credentials from group JSON
       ansible.builtin.uri:

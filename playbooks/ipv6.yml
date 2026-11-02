@@ -17,6 +17,24 @@
         msg: "ansible_host {{ ansible_host }} looks like IPv6 — changing IPv6 here would cut your own SSH session. Connect over IPv4 first"
       when: ansible_host is regex('.*:.*')
 
+    # ansible_host может быть именем, которое резолвится в IPv6: смотрим реальный
+    # адрес SSH-сервера в сессии (SSH_CONNECTION: client_ip client_port server_ip server_port).
+    - name: Read SSH session server address
+      ansible.builtin.shell: "echo ${SSH_CONNECTION:-}"
+      register: ipv6_ssh_conn
+      changed_when: false
+      check_mode: false
+      become: false  # sudo сбрасывает SSH_CONNECTION
+
+    - name: Refuse to touch IPv6 when SSH session runs over IPv6
+      ansible.builtin.fail:
+        msg: "SSH session to {{ inventory_hostname }} goes over IPv6 ({{ ipv6_ssh_conn.stdout | trim }}) — changing IPv6 would cut it. Connect over IPv4 first"
+      when:
+        - ipv6_state == 'disabled'
+        - (ipv6_ssh_conn.stdout | trim).split() | length == 4
+        - ((ipv6_ssh_conn.stdout | trim).split()[2]) is search(':')
+        - not (((ipv6_ssh_conn.stdout | trim).split()[2]) is match('^::ffff:'))
+
     - name: Require confirmation for fleet IPv6 change
       ansible.builtin.fail:
         msg: "Changing IPv6 on {{ ansible_play_hosts_all | length }} hosts at once needs ipv6_confirmed=true. Set it in survey (or narrow target/Limit to one host)"
@@ -39,7 +57,15 @@
       loop:
         - net.ipv6.conf.all.disable_ipv6
         - net.ipv6.conf.default.disable_ipv6
-        - net.ipv6.conf.lo.disable_ipv6
+
+    # lo не трогаем: без ::1 ломаются сервисы, слушающие localhost по IPv6.
+    # Раньше плейбук отключал IPv6 и на lo — возвращаем его.
+    - name: Keep IPv6 on loopback
+      ansible.posix.sysctl:
+        name: net.ipv6.conf.lo.disable_ipv6
+        value: "0"
+        sysctl_file: /etc/sysctl.d/99-ansible-ipv6.conf
+        reload: true
 
     - name: Show resulting IPv6 state
       ansible.builtin.debug:

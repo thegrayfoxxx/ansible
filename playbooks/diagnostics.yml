@@ -9,7 +9,8 @@
     diag_panel_url: ""
     diag_full: false
     diag_confirmed: false
-    diag_tmp: /tmp/ansible-diagnostics
+    # Таймаут собственного скрипта диагностики, секунд.
+    diag_core_timeout: 900
     # Pinned upstream: branch URL + sha256. Upstream moves -> checksum fails
     # loudly (fail-closed); repin procedure in docs/diagnostics.md.
     diag_pin_censorcheck_url: https://github.com/vernette/censorcheck/raw/master/censorcheck.sh
@@ -66,26 +67,35 @@
         cache_valid_time: 3600
       when: diag_want_netru | bool or (diag_iperf_server | length > 0)
 
+    # Значения survey экранируются: иначе `--panel-url "x; rm -rf /"` выполнится на ноде.
     - name: Run own diagnostics script
       ansible.builtin.script: >-
         {{ playbook_dir }}/../scripts/diagnostics.sh
-        {{ ('--iperf-server ' + diag_iperf_server) if (diag_iperf_server | length > 0) else '' }}
-        {{ ('--panel-url ' + diag_panel_url) if (diag_panel_url | length > 0) else '' }}
+        {{ ('--iperf-server ' + (diag_iperf_server | quote)) if (diag_iperf_server | length > 0) else '' }}
+        {{ ('--panel-url ' + (diag_panel_url | quote)) if (diag_panel_url | length > 0) else '' }}
         {{ '--full' if (diag_full | bool) else '' }}
       args:
         executable: /bin/bash
       register: diag_core_out
       changed_when: false
+      timeout: "{{ diag_core_timeout | int }}"
 
     - name: Show own diagnostics output
       ansible.builtin.debug:
         var: diag_core_out.stdout_lines
 
+    # Случайный каталог вместо предсказуемого /tmp/ansible-diagnostics
+    # (симлинк-атака от другого пользователя ноды).
     - name: Prepare upstream download dir
-      ansible.builtin.file:
-        path: "{{ diag_tmp }}"
+      ansible.builtin.tempfile:
         state: directory
-        mode: "0755"
+        prefix: ansible-diagnostics-
+      register: diag_tmpdir
+      when: diag_suite != 'core'
+
+    - name: Resolve upstream download dir
+      ansible.builtin.set_fact:
+        diag_tmp: "{{ diag_tmpdir.path }}"
       when: diag_suite != 'core'
 
     - name: Download censorcheck (pinned)
@@ -261,3 +271,9 @@
     - name: Summarize diagnostics run
       ansible.builtin.debug:
         msg: "suite={{ diag_suite }} core_rc={{ diag_core_out.rc }} target={{ inventory_hostname }} (full output above)"
+
+    - name: Remove upstream download dir
+      ansible.builtin.file:
+        path: "{{ diag_tmp }}"
+        state: absent
+      when: diag_suite != 'core'

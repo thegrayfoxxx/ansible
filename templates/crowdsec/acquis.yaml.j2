@@ -1,10 +1,18 @@
 # {{ ansible_managed }}
+# Каждый дополнительный лог — отдельный документ со своим type
+# (crowdsec_extra_logs: path или path:type, например /var/log/nginx/access.log:nginx).
 filenames:
   - /var/log/auth.log
   - /var/log/syslog
   - /var/log/kern.log
-{% for log_path in crowdsec_extra_logs_list %}
-  - {{ log_path }}
-{% endfor %}
 labels:
   type: syslog
+{% for entry in crowdsec_extra_logs_list %}
+{%   set log_path = (entry.path if entry is mapping else entry.split(':', 1)[0]) | trim %}
+{%   set log_type = ((entry.type | default('syslog')) if entry is mapping else (entry.split(':', 1)[1] if ':' in entry else 'syslog')) | trim %}
+---
+filenames:
+  - {{ log_path }}
+labels:
+  type: {{ log_type }}
+{% endfor %}

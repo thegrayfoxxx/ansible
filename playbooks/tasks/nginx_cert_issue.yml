@@ -1,0 +1,59 @@
+---
+# Общий выпуск/установка LE-сертификата для nginx_fallback / nginx_proxy (после compose up).
+# Вход: nginx_acme_container, nginx_web_container, nginx_domain, nginx_email,
+#       nginx_staging + факты из nginx_cert_prepare.yml.
+
+# rc 2 у acme.sh — "Skip, Next renewal time is ...": серт уже актуален, не ошибка.
+- name: Issue LE certificate
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'exec', nginx_acme_container, 'acme.sh', '--issue', '-d', (nginx_domain | trim),
+          '--webroot', '/var/www/webroot', '--accountemail', (nginx_email | trim)]
+         + (['--server', 'letsencrypt_test'] if (nginx_staging | bool) else ['--server', 'letsencrypt'])
+         + (['--force'] if (nginx_issue_force | bool) else []) }}
+  register: nginx_issue
+  changed_when: nginx_issue.rc == 0
+  failed_when: nginx_issue.rc not in [0, 2]
+  when: nginx_issue_wanted | bool
+
+# Перевыпущенный acme.sh серт копируется сюда при каждом renew (install-cert
+# запоминает пути). Перечитывает его nginx сам: в compose у web-контейнера
+# фоновый цикл `nginx -t && nginx -s reload` (NGINX_RELOAD_INTERVAL, 12ч).
+- name: Install LE certificate for nginx
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ nginx_acme_container }}"
+      - acme.sh
+      - --install-cert
+      - -d
+      - "{{ nginx_domain | trim }}"
+      - --key-file
+      - "/etc/letsencrypt/live/{{ nginx_domain | trim }}/privkey.pem"
+      - --fullchain-file
+      - "/etc/letsencrypt/live/{{ nginx_domain | trim }}/fullchain.pem"
+  register: nginx_install
+  changed_when: true
+  when:
+    - nginx_issue_wanted | bool
+    - nginx_issue.rc | default(1) == 0
+
+- name: Validate nginx config
+  ansible.builtin.command:
+    argv: ["docker", "exec", "{{ nginx_web_container }}", "nginx", "-t"]
+  register: nginx_config_test
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Require valid nginx config
+  ansible.builtin.fail:
+    msg: "nginx config validation failed: {{ nginx_config_test.stderr | default('') }}"
+  when: nginx_config_test.rc != 0
+
+- name: Reload nginx with new certificate
+  ansible.builtin.command:
+    argv: ["docker", "exec", "{{ nginx_web_container }}", "nginx", "-s", "reload"]
+  changed_when: true
+  when: nginx_install is changed
