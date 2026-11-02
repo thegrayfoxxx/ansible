@@ -3,6 +3,8 @@
   ansible.builtin.set_fact:
     remnawave_token_final: "{{ remnawave_token if (remnawave_token | default('') | length > 0) else lookup('env', 'REMNAWAVE_TOKEN') }}"
     remnawave_panel_base: "{{ ((remnawave_default_panel_url | default('')) | trim).rstrip('/') }}"
+  delegate_to: localhost
+  become: false
   no_log: true
 
 - name: Require panel URL
