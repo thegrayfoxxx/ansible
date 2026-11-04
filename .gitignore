@@ -1,6 +1,8 @@
 *.retry
 *.vault-pass
 .vault-pass
+.venv/
+.ansible/
 collections/
 roles/*
 !roles/.gitkeep

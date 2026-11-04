@@ -1,18 +1,19 @@
 # Локальная проверка и контрибьюшн
 
-Требуется установленный `ansible` (например `pip install ansible-core ansible-lint yamllint shellcheck-py`).
+Требуется Python 3.13+ и `uv`. Зависимости проверок объявлены в `pyproject.toml` и закреплены в `uv.lock`.
 `target` обязателен для host-шаблонов (дефолта нет) — для проверок подставляем `-e '{"target":"all"}'`. Исключения: `remnawave_node_add` работает только с панелью, а `remnawave_node_remove` может работать без `target` при `scope=panel`.
 
 ```bash
-ansible-galaxy collection install -r requirements.yml
-scripts/syntax_check.sh          # --syntax-check всех playbooks/*.yml
-yamllint .
-ansible-lint
-shellcheck scripts/*.sh
-python3 -m py_compile scripts/semaphore_bootstrap.py
+uv sync --locked
+uv run --locked ansible-galaxy collection install -r requirements.yml
+git ls-files -z -- '*.yml' '*.yaml' | xargs -0 uv run --locked yamllint
+uv run --locked shellcheck scripts/*.sh
+uv run --locked python -m py_compile scripts/semaphore_bootstrap.py
+uv run --locked scripts/syntax_check.sh  # --syntax-check всех playbooks/*.yml
+uv run --locked ansible-lint
 ```
 
-Это же гоняет CI (`.github/workflows/lint.yml`) на каждый push и PR. `syntax_check.sh` подставляет `target=all` и `*_move_dest=localhost` (их требуют `*_move`), поэтому новый плейбук проверяется без правки списка.
+Это же гоняет CI (`.github/workflows/lint.yml`) на Python 3.13 на каждый push и PR. `uv.lock` обеспечивает одинаковые версии Python-инструментов локально и в CI; версии Ansible-коллекций закреплены отдельно в `requirements.yml`. `syntax_check.sh` подставляет `target=all` и `*_move_dest=localhost` (их требуют `*_move`), поэтому новый плейбук проверяется без правки списка.
 
 Правила для новых шаблонов:
 
