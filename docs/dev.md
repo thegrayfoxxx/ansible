@@ -9,6 +9,7 @@ uv run --locked ansible-galaxy collection install -r requirements.yml
 git ls-files -z -- '*.yml' '*.yaml' | xargs -0 uv run --locked yamllint
 uv run --locked shellcheck scripts/*.sh
 uv run --locked python -m py_compile scripts/semaphore_bootstrap.py
+uv run --locked python -m unittest discover -s tests -v  # init_node: SSH probe + откат конфигурации
 uv run --locked scripts/syntax_check.sh  # --syntax-check всех playbooks/*.yml
 uv run --locked ansible-lint
 ```

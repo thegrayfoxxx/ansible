@@ -11,8 +11,6 @@
     sshd_pubkey_auth: "yes"
     sshd_password_auth: "no"
     sshd_permit_empty: "no"
-    # Разрешить ssh_user, отличный от пользователя подключения, при отключении паролей.
-    init_node_allow_user_mismatch: false
   tasks:
     - name: Require exactly one node host
       ansible.builtin.fail:
@@ -54,23 +52,37 @@
       loop: "{{ ssh_keys_list }}"
       tags: [keys]
 
-    - name: Guard against lockout when disabling password auth
-      ansible.builtin.fail:
-        msg: >-
-          Отключение PasswordAuthentication при подключении по паролю как '{{ ansible_user | default('root') }}',
-          а ключи добавляются для '{{ ssh_user }}'. После перезапуска sshd войти этим пользователем будет нельзя.
-          Укажи ssh_user = пользователю подключения или init_node_allow_user_mismatch=true.
-      when:
-        - not (skip_sshd | bool)
-        - (sshd_password_auth | string | lower) in ['no', 'false']
-        - ansible_password is defined
-        - (ansible_user | default('root')) != ssh_user
-        - not (init_node_allow_user_mismatch | bool)
+    - name: Resolve controller SSH options before delegation
+      ansible.builtin.set_fact:
+        init_node_probe_options:
+          host: "{{ ansible_ssh_host | default(ansible_host | default(inventory_hostname)) }}"
+          executable: "{{ lookup('ansible.builtin.config', 'ssh_executable', plugin_type='connection', plugin_name='ssh') }}"
+          user: "{{ lookup('ansible.builtin.config', 'remote_user', plugin_type='connection', plugin_name='ssh') }}"
+          port: "{{ lookup('ansible.builtin.config', 'port', plugin_type='connection', plugin_name='ssh') }}"
+          private_key_file: "{{ lookup('ansible.builtin.config', 'private_key_file', plugin_type='connection', plugin_name='ssh') }}"
+          ssh_args: "{{ lookup('ansible.builtin.config', 'ssh_args', plugin_type='connection', plugin_name='ssh') }}"
+          ssh_common_args: "{{ lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection', plugin_name='ssh') }}"
+          ssh_extra_args: "{{ lookup('ansible.builtin.config', 'ssh_extra_args', plugin_type='connection', plugin_name='ssh') }}"
+      when: not (skip_sshd | bool)
       tags: [sshd]
 
-    # На Debian 12+/Ubuntu cloud-init кладёт sshd_config.d/50-cloud-init.conf
-    # (PasswordAuthentication yes), а у sshd побеждает первое значение — правка
-    # sshd_config ниже Include не действует. Поэтому пишем drop-in 00-ansible.conf.
+    # Отдельный процесс SSH: без пароля и существующего ControlMaster.
+    # Отказ здесь оставляет исходный sshd_config и парольный вход нетронутыми.
+    - name: Verify public-key login before changing sshd
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "{{ playbook_dir }}/../scripts/init_node_ssh_probe.py"
+        stdin: "{{ init_node_probe_options | to_json }}"
+      delegate_to: localhost
+      become: false
+      register: init_node_key_login
+      changed_when: false
+      when:
+        - not (skip_sshd | bool)
+        - not ansible_check_mode
+      tags: [sshd]
+
     - name: Check sshd_config includes sshd_config.d
       ansible.builtin.command: grep -Eiq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/' /etc/ssh/sshd_config
       register: sshd_include
@@ -80,112 +92,174 @@
       when: not (skip_sshd | bool)
       tags: [sshd]
 
-    - name: Write sshd hardening drop-in
-      ansible.builtin.copy:
-        dest: /etc/ssh/sshd_config.d/00-ansible.conf
-        owner: root
-        group: root
-        mode: "0644"
-        backup: true
-        content: |
-          # Managed by Ansible (init_node.yml). Первый найденный параметр побеждает.
+    - name: Select managed sshd configuration
+      ansible.builtin.set_fact:
+        init_node_config_path: "{{ '/etc/ssh/sshd_config.d/00-ansible.conf' if sshd_include.rc == 0 else '/etc/ssh/sshd_config' }}"
+        init_node_sshd_settings: |
           PermitRootLogin {{ sshd_permit_root_login }}
           PubkeyAuthentication {{ sshd_pubkey_auth }}
           PasswordAuthentication {{ sshd_password_auth }}
           PermitEmptyPasswords {{ sshd_permit_empty }}
-        validate: sshd -t -f %s
-      register: sshd_dropin
-      notify: Restart ssh
-      when:
-        - not (skip_sshd | bool)
-        - sshd_include.rc == 0
-      tags: [sshd]
-
-    - name: Harden sshd_config (no sshd_config.d Include)
-      ansible.builtin.lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: "^#?{{ item.key }}\\b.*"
-        line: "{{ item.key }} {{ item.value }}"
-        backup: true
-        validate: sshd -t -f %s
-      loop:
-        - {key: PermitRootLogin, value: "{{ sshd_permit_root_login }}"}
-        - {key: PubkeyAuthentication, value: "{{ sshd_pubkey_auth }}"}
-        - {key: PasswordAuthentication, value: "{{ sshd_password_auth }}"}
-        - {key: PermitEmptyPasswords, value: "{{ sshd_permit_empty }}"}
-      notify: Restart ssh
-      when:
-        - not (skip_sshd | bool)
-        - sshd_include.rc != 0
-      tags: [sshd]
-
-    - name: Validate full sshd configuration
-      ansible.builtin.command: sshd -t
-      register: sshd_full_test
-      changed_when: false
-      failed_when: false
-      check_mode: false
       when: not (skip_sshd | bool)
       tags: [sshd]
 
-    - name: Roll back drop-in when full config is invalid
-      ansible.builtin.file:
-        path: /etc/ssh/sshd_config.d/00-ansible.conf
-        state: absent
-      when:
-        - not (skip_sshd | bool)
-        - sshd_full_test.rc != 0
-        - sshd_dropin is changed
-      tags: [sshd]
-
-    - name: Fail on invalid sshd configuration
-      ansible.builtin.fail:
-        msg: "sshd -t failed, drop-in rolled back: {{ sshd_full_test.stderr | default('') }}"
-      when:
-        - not (skip_sshd | bool)
-        - sshd_full_test.rc != 0
-      tags: [sshd]
-
-    - name: Apply sshd restart now
-      ansible.builtin.meta: flush_handlers
+    - name: Inspect previous sshd configuration
+      ansible.builtin.stat:
+        path: "{{ init_node_config_path }}"
+      register: init_node_config_before
       when: not (skip_sshd | bool)
       tags: [sshd]
 
-    - name: Read effective sshd settings
-      ansible.builtin.command: sshd -T
-      register: sshd_effective
-      changed_when: false
-      check_mode: false
-      when: not (skip_sshd | bool)
+    - name: Save previous sshd configuration for rollback
+      ansible.builtin.slurp:
+        src: "{{ init_node_config_path }}"
+      register: init_node_config_saved
+      when:
+        - not (skip_sshd | bool)
+        - init_node_config_before.stat.exists
       tags: [sshd]
 
-    - name: Assert effective sshd settings
-      ansible.builtin.assert:
-        that:
-          - ("passwordauthentication " ~ (sshd_password_auth | string | lower)) in sshd_effective.stdout_lines
-          - ("pubkeyauthentication " ~ (sshd_pubkey_auth | string | lower)) in sshd_effective.stdout_lines
-          - ("permitemptypasswords " ~ (sshd_permit_empty | string | lower)) in sshd_effective.stdout_lines
-        fail_msg: "sshd -T показывает другие значения — их перебивает другой файл в sshd_config.d или Match-блок"
+    - name: Apply and verify sshd configuration transaction
+      when: not (skip_sshd | bool)
+      tags: [sshd]
+      block:
+        - name: Write sshd hardening drop-in
+          ansible.builtin.copy:
+            dest: "{{ init_node_config_path }}"
+            owner: root
+            group: root
+            mode: "0644"
+            backup: true
+            content: |
+              # Managed by Ansible (init_node.yml).
+              {{ init_node_sshd_settings }}
+          register: sshd_dropin
+          when: sshd_include.rc == 0
+
+        # Первый глобальный параметр побеждает; BOF также исключает попадание в Match.
+        - name: Harden sshd_config before existing directives and Match blocks
+          ansible.builtin.blockinfile:
+            path: "{{ init_node_config_path }}"
+            insertbefore: BOF
+            marker: "# {mark} ANSIBLE INIT NODE"
+            block: "{{ init_node_sshd_settings }}"
+            backup: true
+          register: sshd_main
+          when: sshd_include.rc != 0
+
+        - name: Validate full sshd configuration before reload
+          ansible.builtin.command: sshd -t
+          changed_when: false
+          when: not ansible_check_mode
+
+        - name: Read global sshd settings before reload
+          ansible.builtin.command: sshd -T
+          register: sshd_global
+          changed_when: false
+          when: not ansible_check_mode
+
+        - name: Resolve source hostname when sshd uses DNS
+          ansible.builtin.command:
+            argv: [getent, hosts, "{{ init_node_key_login.stdout_lines[1].split()[0] }}"]
+          register: init_node_peer_dns
+          changed_when: false
+          failed_when: init_node_peer_dns.rc not in [0, 2]
+          when:
+            - not ansible_check_mode
+            - "'usedns yes' in sshd_global.stdout_lines"
+
+        # Проверяем Match для реального адреса/порта и двух целевых пользователей.
+        - name: Read connection-specific sshd settings before reload
+          ansible.builtin.command:
+            argv:
+              - sshd
+              - -T
+              - -C
+              - >-
+                user={{ item }},addr={{ init_node_peer[0] }},host={{ init_node_peer_host }},laddr={{ init_node_peer[2] }},lport={{ init_node_peer[3] }}
+          vars:
+            init_node_peer: "{{ init_node_key_login.stdout_lines[1].split() }}"
+            init_node_peer_host: >-
+              {{ init_node_peer_dns.stdout.split()[1]
+                 if init_node_peer_dns.stdout | default('') | trim else init_node_peer[0] }}
+          loop: "{{ [] if (ansible_check_mode or (skip_sshd | bool)) else ([init_node_key_login.stdout_lines[0], ssh_user] | unique) }}"
+          register: sshd_effective
+          changed_when: false
+          when: not ansible_check_mode
+
+        - name: Assert effective sshd settings before reload
+          ansible.builtin.assert:
+            that:
+              - ('permitrootlogin ' ~ (sshd_permit_root_login | replace('without-password', 'prohibit-password'))) in effective_lines
+              - ('passwordauthentication ' ~ (sshd_password_auth | string | lower)) in effective_lines
+              - ('pubkeyauthentication ' ~ (sshd_pubkey_auth | string | lower)) in effective_lines
+              - ('permitemptypasswords ' ~ (sshd_permit_empty | string | lower)) in effective_lines
+            fail_msg: "sshd -T показывает другие значения для '{{ item.item | default('global') }}': другой файл или Match перебивает настройки; reload отменён"
+          vars:
+            effective_lines: "{{ item.stdout | replace('without-password', 'prohibit-password') | split('\n') }}"
+          loop: "{{ [] if (ansible_check_mode or (skip_sshd | bool)) else ([sshd_global] + sshd_effective.results) }}"
+          loop_control:
+            label: "{{ item.item | default('global') }}"
+          when: not ansible_check_mode
+
+        - name: Reload verified sshd configuration
+          ansible.builtin.service:
+            name: ssh
+            state: reloaded
+          when: sshd_dropin is changed or sshd_main is changed
+
+        # Не сбрасываем рабочее соединение Ansible, пока независимый вход не проверен:
+        # при ошибке rescue сможет восстановить файл через старое соединение.
+        - name: Verify fresh public-key login after reload
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_playbook_python }}"
+              - "{{ playbook_dir }}/../scripts/init_node_ssh_probe.py"
+            stdin: "{{ init_node_probe_options | to_json }}"
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          when: not ansible_check_mode
+
+      rescue:
+        - name: Restore existing sshd configuration
+          ansible.builtin.copy:
+            dest: "{{ init_node_config_path }}"
+            content: "{{ init_node_config_saved.content | b64decode }}"
+            owner: "{{ init_node_config_before.stat.uid }}"
+            group: "{{ init_node_config_before.stat.gid }}"
+            mode: "{{ init_node_config_before.stat.mode }}"
+          when: init_node_config_before.stat.exists
+
+        - name: Remove newly created sshd drop-in
+          ansible.builtin.file:
+            path: "{{ init_node_config_path }}"
+            state: absent
+          when: not init_node_config_before.stat.exists
+
+        - name: Validate restored sshd configuration
+          ansible.builtin.command: sshd -t
+          changed_when: false
+
+        - name: Reload restored sshd configuration
+          ansible.builtin.service:
+            name: ssh
+            state: reloaded
+
+        - name: Report sshd transaction failure
+          ansible.builtin.fail:
+            msg: >-
+              Настройки sshd восстановлены после ошибки в '{{ ansible_failed_task.name }}':
+              {{ ansible_failed_result.msg | default('') }}
+              {{ ansible_failed_result.stderr | default('') }}
+
+    # reset_connection игнорирует when: условие должно стоять на include_tasks.
+    - name: Verify fresh Ansible connection after successful key probe
+      ansible.builtin.include_tasks:
+        file: tasks/init_node_verify.yml
+        apply:
+          tags: [sshd]
       when:
         - not (skip_sshd | bool)
         - not ansible_check_mode
       tags: [sshd]
-
-    # Иначе проверка идёт через уже открытый ControlMaster-сокет и проходит,
-    # даже если новый логин сломан.
-    - name: Drop persistent SSH connection
-      ansible.builtin.meta: reset_connection
-      when: not (skip_sshd | bool)
-      tags: [sshd]
-
-    - name: Confirm SSH still reachable with a fresh login
-      ansible.builtin.wait_for_connection:
-        timeout: 60
-      when: not (skip_sshd | bool)
-      tags: [sshd]
-
-  handlers:
-    - name: Restart ssh
-      ansible.builtin.service:
-        name: ssh
-        state: reloaded

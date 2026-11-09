@@ -35,7 +35,10 @@ jobs:
         run: uv run --locked shellcheck scripts/*.sh
 
       - name: python compile
-        run: uv run --locked python -m py_compile scripts/semaphore_bootstrap.py
+        run: uv run --locked python -m py_compile scripts/semaphore_bootstrap.py scripts/init_node_ssh_probe.py
+
+      - name: init_node regression checks
+        run: uv run --locked python -m unittest discover -s tests -v
 
       - name: syntax-check all playbooks
         run: uv run --locked scripts/syntax_check.sh

@@ -1,0 +1,7 @@
+---
+- name: Drop persistent SSH connection after successful key probe
+  ansible.builtin.meta: reset_connection
+
+- name: Confirm Ansible still reachable with a fresh login
+  ansible.builtin.wait_for_connection:
+    timeout: 60
