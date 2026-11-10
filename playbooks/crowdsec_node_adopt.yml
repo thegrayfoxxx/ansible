@@ -134,10 +134,16 @@
         msg: "Old project dir must be an absolute path, got '{{ crowdsec_old_dir_final }}'"
       when: not (crowdsec_old_dir_final is match('^/.+'))
 
-    - name: Check old compose file
-      ansible.builtin.stat:
-        path: "{{ crowdsec_old_dir_final }}/compose.yml"
-      register: crowdsec_old_compose
+    - name: Discover source compose file
+      ansible.builtin.include_role:
+        name: compose_project
+      vars:
+        compose_project_dir: "{{ crowdsec_old_dir_final }}"
+        compose_project_container: "{{ crowdsec_agent_container }}"
+
+    - name: Save source compose presence
+      ansible.builtin.set_fact:
+        crowdsec_old_compose_exists: "{{ compose_project_exists }}"
 
     - name: Check old env file
       ansible.builtin.stat:
@@ -251,7 +257,7 @@
 
     - name: Show discovery summary
       ansible.builtin.debug:
-        msg: "node={{ crowdsec_resolved_name }} containers={{ crowdsec_agent_container }},{{ crowdsec_bouncer_container }} old_dir={{ crowdsec_old_dir_final }} compose={{ crowdsec_old_compose.stat.exists }} user={{ crowdsec_agent_username }} api={{ crowdsec_api_url }} mode={{ crowdsec_mode }} tz={{ crowdsec_tz }} cols_extra={{ (crowdsec_collections | difference(crowdsec_base_collections) | list) | length }} logs_extra={{ crowdsec_extra_logs_list | length }} creds_from={{ crowdsec_creds_source }} target_dir={{ crowdsec_dir }}"
+        msg: "node={{ crowdsec_resolved_name }} containers={{ crowdsec_agent_container }},{{ crowdsec_bouncer_container }} old_dir={{ crowdsec_old_dir_final }} compose={{ crowdsec_old_compose_exists }} user={{ crowdsec_agent_username }} api={{ crowdsec_api_url }} mode={{ crowdsec_mode }} tz={{ crowdsec_tz }} cols_extra={{ (crowdsec_collections | difference(crowdsec_base_collections) | list) | length }} logs_extra={{ crowdsec_extra_logs_list | length }} creds_from={{ crowdsec_creds_source }} target_dir={{ crowdsec_dir }}"
 
     - name: Stop at inspect
       ansible.builtin.meta: end_play
@@ -282,13 +288,13 @@
       ansible.builtin.stat:
         path: "{{ crowdsec_backup_dir }}"
       register: crowdsec_backup_check
-      when: crowdsec_old_compose.stat.exists
+      when: crowdsec_old_compose_exists
 
     - name: Refuse occupied backup dir
       ansible.builtin.fail:
         msg: "Backup path {{ crowdsec_backup_dir }} already exists. Inspect it manually and re-run"
       when:
-        - crowdsec_old_compose.stat.exists
+        - crowdsec_old_compose_exists
         - crowdsec_backup_check.stat.exists
 
     - name: Read Semaphore API credentials
@@ -414,7 +420,7 @@
           ansible.builtin.command:
             argv: ["mv", "{{ crowdsec_old_dir_final }}", "{{ crowdsec_backup_dir }}"]
           changed_when: true
-          when: crowdsec_old_compose.stat.exists
+          when: crowdsec_old_compose_exists
 
         - name: Ensure target dirs
           ansible.builtin.file:
@@ -452,6 +458,7 @@
         - name: Deploy adopted stack
           community.docker.docker_compose_v2:
             project_src: "{{ crowdsec_dir }}"
+            files: [compose.yml]
             state: present
             pull: missing
           register: crowdsec_deploy
@@ -477,11 +484,12 @@
 
         - name: Show adopt summary
           ansible.builtin.debug:
-            msg: "adopted {{ crowdsec_old_dir_final }} -> {{ crowdsec_dir }} node={{ crowdsec_resolved_name }} mode={{ crowdsec_mode }} group={{ crowdsec_group_name }} updated backup_agent={{ crowdsec_backup_agent }} backup_bouncer={{ crowdsec_backup_bouncer }}{{ (' backup_dir=' + crowdsec_backup_dir) if crowdsec_old_compose.stat.exists else '' }} {{ ' (backups purged after verify)' if (crowdsec_adopt_purge_backup | bool) else ' (backups kept for rollback; purge later with crowdsec_node_purge)' }}"
+            msg: "adopted {{ crowdsec_old_dir_final }} -> {{ crowdsec_dir }} node={{ crowdsec_resolved_name }} mode={{ crowdsec_mode }} group={{ crowdsec_group_name }} updated backup_agent={{ crowdsec_backup_agent }} backup_bouncer={{ crowdsec_backup_bouncer }}{{ (' backup_dir=' + crowdsec_backup_dir) if crowdsec_old_compose_exists else '' }} {{ ' (backups purged after verify)' if (crowdsec_adopt_purge_backup | bool) else ' (backups kept for rollback; purge later with crowdsec_node_purge)' }}"
       rescue:
         - name: Take down partial new stack
           community.docker.docker_compose_v2:
             project_src: "{{ crowdsec_dir | default('/opt/crowdsec') }}"
+            files: [compose.yml]
             state: absent
           failed_when: false
 

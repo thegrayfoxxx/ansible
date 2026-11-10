@@ -1,5 +1,13 @@
 # Вкладка CrowdSec: агент + баунсер в Docker (LAPI уже стоит)
 
+При обслуживании существующего стека поддерживаются `compose.yml`, `compose.yaml`,
+`docker-compose.yml` и `docker-compose.yaml`; найденное имя сохраняется. Для нового
+стека, adopt и move используется `compose.yml`. Если файлов несколько, выбор
+должен однозначно подтверждаться Compose-меткой контейнера, иначе выполнение
+завершается с ошибкой. Проекты из нескольких Compose-файлов не поддерживаются;
+соседние override-файлы автоматически не подключаются.
+
+
 Семь шаблонов, порядок флоу: сначала `crowdsec_register` (исполняется **на хосте LAPI**), потом `crowdsec_node` (на нодах флота), обновление — `crowdsec_node_update` (`pull` + пересоздание только изменившихся контейнеров, по одной ноде; секреты LAPI не нужны), снос — `crowdsec_unregister` (на хосте LAPI) + `crowdsec_node` с `action=remove` (на ноде), приём ручных нод — `crowdsec_node_adopt`, переезд — `crowdsec_node_move`, уборка бэкапов adopt/move — `crowdsec_node_purge`. Ручного создания шаблонов не нужно — все приезжают через `update_templates`; группу `crowdsec_nodes` сидинг создаст пустой сам.
 
 Предусловия на ноде (не ставятся, только проверяются): `docker` (шаблон `docker` — иначе `fail`), `rsyslog` (шаблон `rsyslog` — иначе только warning). LAPI должен отвечать (`cscli lapi status`).

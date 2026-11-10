@@ -203,10 +203,23 @@
         - config
       when: crowdsec_action in ['deploy', 'restart']
 
+    - name: Discover compose project
+      ansible.builtin.include_role:
+        name: compose_project
+      vars:
+        compose_project_dir: "{{ crowdsec_dir }}"
+        compose_project_container: "{{ crowdsec_agent_container }}"
+      when: crowdsec_action in ['deploy', 'restart', 'remove']
+
+    - name: Select compose filename
+      ansible.builtin.set_fact:
+        crowdsec_compose_file: "{{ compose_project_file | default('', true) or 'compose.yml' }}"
+      when: crowdsec_action in ['deploy', 'restart', 'remove']
+
     - name: Render compose file
       ansible.builtin.template:
         src: "{{ playbook_dir }}/../templates/crowdsec/compose.yml.j2"
-        dest: "{{ crowdsec_dir }}/compose.yml"
+        dest: "{{ crowdsec_dir }}/{{ crowdsec_compose_file }}"
         mode: "0644"
       when: crowdsec_action in ['deploy', 'restart']
 
@@ -237,6 +250,7 @@
     - name: Deploy crowdsec stack
       community.docker.docker_compose_v2:
         project_src: "{{ crowdsec_dir }}"
+        files: ["{{ crowdsec_compose_file }}"]
         state: present
         pull: missing
       register: crowdsec_deploy
@@ -262,6 +276,7 @@
     - name: Restart crowdsec stack
       community.docker.docker_compose_v2:
         project_src: "{{ crowdsec_dir }}"
+        files: ["{{ crowdsec_compose_file }}"]
         state: restarted
       register: crowdsec_deploy
       when: crowdsec_action == 'restart'
@@ -269,6 +284,7 @@
     - name: Remove crowdsec stack (volumes kept)
       community.docker.docker_compose_v2:
         project_src: "{{ crowdsec_dir }}"
+        files: ["{{ crowdsec_compose_file }}"]
         state: absent
       when: crowdsec_action == 'remove'
 

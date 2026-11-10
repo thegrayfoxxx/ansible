@@ -64,7 +64,7 @@
 
     - name: Require a deployed stack
       ansible.builtin.fail:
-        msg: "No compose.yml in {{ remnanode_dir_effective }}. Run remnawave_node_deploy first"
+        msg: "No supported Compose file in {{ remnanode_dir_effective }}. Run remnawave_node_deploy first"
       when: not (remnanode_target_compose_exists | bool)
 
     - name: Require a stack container

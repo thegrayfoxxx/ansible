@@ -31,21 +31,24 @@
         msg: "docker not found. Run the docker template on this host first"
       when: remnawave_docker_bin.rc != 0
 
-    - name: Check compose file exists
-      ansible.builtin.stat:
-        path: "{{ remnanode_dir_effective }}/compose.yml"
-      register: remnawave_compose
+    - name: Discover compose project
+      ansible.builtin.include_role:
+        name: compose_project
+      vars:
+        compose_project_dir: "{{ remnanode_dir_effective }}"
+        compose_project_container: "{{ remnanode_agent_container_effective }}"
 
     - name: Require deployed stack
       ansible.builtin.fail:
-        msg: "No compose.yml in {{ remnanode_dir_effective }}. Run remnawave_node_deploy first"
-      when: not remnawave_compose.stat.exists
+        msg: "No supported Compose file in {{ remnanode_dir_effective }}. Run remnawave_node_deploy first"
+      when: not (compose_project_exists | bool)
 
     # Раньше: `docker compose pull` + проверка 'Downloaded' (в compose v2 такой
     # строки нет, changed всегда false) и безусловные down/up на всём флоте.
     - name: Pull image and recreate only if it changed
       community.docker.docker_compose_v2:
         project_src: "{{ remnanode_dir_effective }}"
+        files: ["{{ compose_project_file }}"]
         state: present
         pull: always
         recreate: "{{ 'always' if (remnanode_update_recreate | bool) else 'auto' }}"

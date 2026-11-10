@@ -14,3 +14,5 @@ __pycache__/
 .mypy_cache/
 .env
 .playwright-mcp/
+!roles/compose_project/
+!roles/compose_project/**

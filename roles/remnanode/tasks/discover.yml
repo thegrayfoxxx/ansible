@@ -139,20 +139,34 @@
     path: "{{ remnanode_dir_effective }}"
   register: remnanode_target_dir_stat
 
-- name: Stat target compose file
-  ansible.builtin.stat:
-    path: "{{ remnanode_dir_effective }}/compose.yml"
-  register: remnanode_target_compose_stat
+- name: Discover target compose file
+  ansible.builtin.include_role:
+    name: compose_project
+  vars:
+    compose_project_dir: "{{ remnanode_dir_effective }}"
+    compose_project_container: "{{ remnanode_agent_container_effective }}"
+
+- name: Save target compose selection
+  ansible.builtin.set_fact:
+    remnanode_target_compose_file: "{{ compose_project_file }}"
+    remnanode_target_compose_exists: "{{ compose_project_exists }}"
 
 - name: Stat target env file
   ansible.builtin.stat:
     path: "{{ remnanode_dir_effective }}/.env"
   register: remnanode_target_env_stat
 
-- name: Stat source compose file
-  ansible.builtin.stat:
-    path: "{{ remnanode_old_dir_final }}/compose.yml"
-  register: remnanode_old_compose
+- name: Discover source compose file
+  ansible.builtin.include_role:
+    name: compose_project
+  vars:
+    compose_project_dir: "{{ remnanode_old_dir_final }}"
+    compose_project_container: "{{ remnanode_agent_container_effective }}"
+
+- name: Save source compose selection
+  ansible.builtin.set_fact:
+    remnanode_old_compose_file: "{{ compose_project_file }}"
+    remnanode_old_compose_exists: "{{ compose_project_exists }}"
 
 - name: Stat source env file
   ansible.builtin.stat:
@@ -205,9 +219,7 @@
 - name: Resolve discovery facts
   ansible.builtin.set_fact:
     remnanode_target_dir_exists: "{{ remnanode_target_dir_stat.stat.exists | default(false) }}"
-    remnanode_target_compose_exists: "{{ remnanode_target_compose_stat.stat.exists | default(false) }}"
     remnanode_target_env_exists: "{{ remnanode_target_env_stat.stat.exists | default(false) }}"
-    remnanode_old_compose_exists: "{{ remnanode_old_compose.stat.exists | default(false) }}"
     remnanode_old_env_exists: "{{ remnanode_old_env.stat.exists | default(false) }}"
     remnanode_old_xray_binary_exists: "{{ remnanode_old_xray_binary.stat.exists | default(false) }}"
     remnanode_old_xray_marker_exists: "{{ remnanode_old_xray_marker_stat.stat.exists | default(false) }}"

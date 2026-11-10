@@ -21,10 +21,14 @@
     (remnanode_geo_files_effective | default([]) | length > 0)
     or (remnanode_mount_zapret_effective | default(false) | bool)
 
+- name: Select compose filename for rendering
+  ansible.builtin.set_fact:
+    remnanode_render_compose_file: "{{ 'compose.yml' if (remnanode_render_canonical | default(false) | bool) else (remnanode_target_compose_file | default('', true) or 'compose.yml') }}"
+
 - name: Render compose file
   ansible.builtin.template:
     src: "{{ role_path }}/../../templates/remnawave/compose.yml.j2"
-    dest: "{{ remnanode_dir_effective }}/compose.yml"
+    dest: "{{ remnanode_dir_effective }}/{{ remnanode_render_compose_file }}"
     mode: "0644"
 
 - name: Render node env file

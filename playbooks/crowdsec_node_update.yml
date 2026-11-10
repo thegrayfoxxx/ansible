@@ -31,21 +31,24 @@
         msg: "docker not found. Run the docker template on this host first"
       when: crowdsec_docker_bin.rc != 0
 
-    - name: Check compose file exists
-      ansible.builtin.stat:
-        path: "{{ crowdsec_dir }}/compose.yml"
-      register: crowdsec_compose
+    - name: Discover compose project
+      ansible.builtin.include_role:
+        name: compose_project
+      vars:
+        compose_project_dir: "{{ crowdsec_dir }}"
+        compose_project_container: "{{ crowdsec_agent_container }}"
 
     - name: Require deployed stack
       ansible.builtin.fail:
-        msg: "No compose.yml in {{ crowdsec_dir }}. Run crowdsec_node with action deploy first"
-      when: not crowdsec_compose.stat.exists
+        msg: "No supported Compose file in {{ crowdsec_dir }}. Run crowdsec_node with action deploy first"
+      when: not (compose_project_exists | bool)
 
     # Раньше: проверка 'Downloaded' (в compose v2 такой строки нет) и безусловный
     # down/up — баунсер снимал правила на каждом прогоне.
     - name: Pull images and recreate only changed containers
       community.docker.docker_compose_v2:
         project_src: "{{ crowdsec_dir }}"
+        files: ["{{ compose_project_file }}"]
         state: present
         pull: always
       register: crowdsec_up

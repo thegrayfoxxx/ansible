@@ -23,3 +23,27 @@ uv run --locked ansible-lint
 - парные `*_adopt`/`*_move` плейбуки: общие блоки (discovery/render/ufw-check/rename-backup) — держать побайтово одинаковыми внутри пары (`remnawave_node_deploy` — референс вывода render);
 - `README.md` не трогаем (только дерево `docs/`, если появился новый файл);
 - JSON-примеры в доках — тот же формат, что survey-поля в UI.
+
+Общая роль `compose_project` выбирает существующий Compose-файл по каталогу
+(`compose_project_dir`) и, если задано, имени контейнера
+(`compose_project_container`). Результат — `compose_project_file` (имя файла или
+пустая строка) и `compose_project_exists`. При повторном вызове результат
+перезаписывается: для source/target его нужно сохранять отдельно.
+
+Поддерживаются `compose.yml`, `compose.yaml`, `docker-compose.yml`,
+`docker-compose.yaml`. При нескольких файлах выбор должен однозначно
+подтверждаться меткой контейнера `com.docker.compose.project.config_files`.
+Метка другого каталога не влияет на выбор. Неоднозначность, отсутствующий файл
+из метки своего каталога и проекты из нескольких Compose-файлов приводят к ошибке
+до изменения стека. `files` передаётся в Compose явно: соседние override-файлы
+автоматически не подключаются.
+
+Создание нового стека, adopt и move записывают `compose.yml`; обслуживание
+существующего стека (включая повторный deploy и config apply) сохраняет найденное
+имя. Это общее поведение Remnawave, CrowdSec и Nginx. Очистка бэкапов по-прежнему
+проверяет все четыре имени.
+
+Локальная проверка выбора файлов без Docker и подключения к нодам:
+`uv run --locked python -m unittest discover -s tests -p test_compose_project.py -v`.
+Тест запускает настоящую роль Ansible на временных файлах с подставным чтением
+Docker-меток, включая обычный режим и `--check`.

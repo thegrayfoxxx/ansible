@@ -96,10 +96,21 @@
         - letsencrypt
         - "letsencrypt/live/{{ nginx_domain | trim }}"
 
+    - name: Discover compose project
+      ansible.builtin.include_role:
+        name: compose_project
+      vars:
+        compose_project_dir: "{{ nginx_dir }}"
+        compose_project_container: "{{ nginx_web_container }}"
+
+    - name: Select compose filename
+      ansible.builtin.set_fact:
+        nginx_compose_file: "{{ compose_project_file | default('', true) or 'compose.yml' }}"
+
     - name: Render compose file
       ansible.builtin.template:
         src: "{{ playbook_dir }}/../templates/nginx/compose.yml.j2"
-        dest: "{{ nginx_dir }}/compose.yml"
+        dest: "{{ nginx_dir }}/{{ nginx_compose_file }}"
         mode: "0644"
       register: nginx_compose_render
 
@@ -131,6 +142,7 @@
     - name: Deploy fallback stack
       community.docker.docker_compose_v2:
         project_src: "{{ nginx_dir }}"
+        files: ["{{ nginx_compose_file }}"]
         state: present
         pull: missing
       register: nginx_deploy

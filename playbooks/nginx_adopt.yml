@@ -116,6 +116,13 @@
         msg: "Old project dir must be an absolute path, got '{{ nginx_old_dir_final }}'"
       when: not (nginx_old_dir_final is match('^/.+'))
 
+    - name: Discover source compose file
+      ansible.builtin.include_role:
+        name: compose_project
+      vars:
+        compose_project_dir: "{{ nginx_old_dir_final }}"
+        compose_project_container: "{{ nginx_web_final }}"
+
     - name: Resolve bind source by destination
       ansible.builtin.set_fact:
         nginx_html_mount: "{{ (nginx_inspect_mounts | selectattr('Destination', 'in', ['/usr/share/nginx/html/index.html', '/usr/share/nginx/html']) | list | first) | default({}) }}"
@@ -394,6 +401,7 @@
         - name: Deploy adopted stack
           community.docker.docker_compose_v2:
             project_src: "{{ nginx_dir }}"
+            files: [compose.yml]
             state: present
           register: nginx_deploy
 
@@ -497,6 +505,7 @@
         - name: Take down partial new stack
           community.docker.docker_compose_v2:
             project_src: "{{ nginx_dir | default('/opt/nginx') }}"
+            files: [compose.yml]
             state: absent
           failed_when: false
 

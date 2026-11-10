@@ -135,6 +135,7 @@
         - name: Stop and remove compose stack
           community.docker.docker_compose_v2:
             project_src: "{{ remnanode_remove_compose_dir }}"
+            files: ["{{ remnanode_old_compose_file if remnanode_remove_compose_dir == remnanode_old_dir_final else remnanode_target_compose_file }}"]
             state: absent
           when: remnanode_remove_compose_dir | default('') | length > 0
 

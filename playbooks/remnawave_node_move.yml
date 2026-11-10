@@ -367,6 +367,8 @@
               ansible.builtin.include_role:
                 name: remnanode
                 tasks_from: render
+              vars:
+                remnanode_render_canonical: true
 
             - name: Start the moved stack
               ansible.builtin.include_role:
@@ -387,6 +389,7 @@
             - name: Take down partial moved stack
               community.docker.docker_compose_v2:
                 project_src: "{{ remnanode_dir_effective | default('/opt/remnanode') }}"
+                files: [compose.yml]
                 state: absent
               failed_when: false
 
@@ -695,6 +698,8 @@
           ansible.builtin.include_role:
             name: remnanode
             tasks_from: render
+          vars:
+            remnanode_render_canonical: true
 
         - name: Start moved stack
           ansible.builtin.include_role:
@@ -720,6 +725,7 @@
         - name: Take down partial moved stack
           community.docker.docker_compose_v2:
             project_src: "{{ remnanode_dir_effective }}"
+            files: [compose.yml]
             state: absent
           failed_when: false
 
