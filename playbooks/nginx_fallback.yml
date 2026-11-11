@@ -183,9 +183,6 @@
         path: "{{ nginx_socket }}"
         mode: "0666"
 
-    - name: Issue and install certificate
-      ansible.builtin.include_tasks: tasks/nginx_cert_issue.yml
-
     - name: Check ufw is available for auto open
       ansible.builtin.shell: command -v ufw
       args:
@@ -213,6 +210,10 @@
       when:
         - nginx_open_ports | bool
         - nginx_ufw_bin.rc | default(1) | int == 0
+
+    # HTTP-01 requires external access to port 80 before certificate issuance.
+    - name: Issue and install certificate
+      ansible.builtin.include_tasks: tasks/nginx_cert_issue.yml
 
     - name: Show deploy summary
       ansible.builtin.debug:
