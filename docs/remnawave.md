@@ -42,19 +42,38 @@
 Сидинг создаёт группу сам (см. `environments_seed` в `templates.json`), причём сразу с дефолтами — руками дописывается только секрет:
 
 1. **Вкладка Secrets** → `New Secret`, тип обязательно **env** (не var — иначе плейбук не найдёт через `lookup('env', ...)`):
-   - имя `REMNAWAVE_TOKEN`, значение — API-токен панели.
+   - имя `REMNAWAVE_TOKEN`, значение — API-токен панели;
+   - имя `REMNAWAVE_COOKIE` (необязательно) — секретный ключ reverse proxy, если панель закрыта им (см. ниже «Панель за reverse proxy с секретным ключом»).
 2. **Вкладка JSON** — уже предзаполнена сидом, проверь/правь под себя:
 
 ```json
 {
   "remnawave_default_panel_url": "https://panel.example.com",
   "remnawave_default_config_profile": "",
-  "remnawave_default_inbounds": ""
+  "remnawave_default_inbounds": "",
+  "remnawave_panel_cookie_mode": "cookie"
 }
 ```
 
    - `remnawave_default_panel_url` — обязателен (без `/` на конце — обрежется сам, но лучше без);
-   - два `remnawave_default_*` — опциональны: пустые строки или убери ключи (плейбук трактует одинаково); заполненные — дефолт на все прогоны, survey перекрывает разово.
+   - два `remnawave_default_*` — опциональны: пустые строки или убери ключи (плейбук трактует одинаково); заполненные — дефолт на все прогоны, survey перекрывает разово;
+   - `remnawave_panel_cookie_mode` — как передавать ключ reverse proxy: `cookie` (дефолт) или `query`. Без ключа ни на что не влияет.
+
+### Панель за reverse proxy с секретным ключом
+
+Установщик [eGamesAPI/remnawave-reverse-proxy](https://github.com/eGamesAPI/remnawave-reverse-proxy) (режим cookie) прячет панель за nginx: запрос проходит, только если есть cookie `<NAME>=<VALUE>` или параметр `?<NAME>=<VALUE>`, иначе — пустая страница/404. Ключ — из ссылки входа `https://panel.example.com/auth/login?<NAME>=<VALUE>` (у установщика `NAME` и `VALUE` — две случайные строки, часто одинаковые).
+
+Все обращения к API (`remnawave_node_add`, `deploy`, `config`, `remove` — список нод, профили, инбаунды, keygen, health, удаление) тогда идут с ключом:
+
+| `remnawave_panel_cookie_mode` | запрос |
+|---|---|
+| `cookie` (дефолт, лучше) | `Authorization: Bearer <token>` + `Cookie: <NAME>=<VALUE>` |
+| `query` | `GET https://panel.example.com/api/nodes?<NAME>=<VALUE>` + `Authorization: Bearer <token>` |
+
+- Где задать: секрет **env** `REMNAWAVE_COOKIE` в `remnawave_vars` (рекомендуется) или переменная `remnawave_panel_cookie` (survey-поле `Panel access key override` — разовый override; в JSON группы тоже работает, но там значение видно открытым текстом).
+- Формат: `NAME=VALUE`, один `KEY` (значит `KEY=KEY`) или целая ссылка входа — из неё берётся первый параметр после `?`. Допустимы буквы, цифры, `_` и `-`; иначе `fail` до запросов.
+- Ключа нет — запросы как раньше, только с токеном. Если панель отвечает `404`, в ошибке будет подсказка проверить ключ.
+- Ключ не выводится в лог: все задачи с ним — `no_log`. В режиме `query` он может попасть в access-лог прокси, поэтому `cookie` предпочтительнее.
 
 Правила сида (важно):
 
@@ -73,7 +92,7 @@
 - `remnawave_country` (`XX`), `remnawave_note` (до 255)
 - `remnawave_config_profile` (UUID/имя/пусто): survey → дефолт группы → авто по `default` (точное совпадение → вхождение `default` → `дефолт`; 0/несколько — `fail` со списками)
 - `remnawave_inbounds` (Text, UUID построчно; пусто — все инбаунды профиля; чужие — `fail` с доступными тегами)
-- `remnawave_token` (Secret, разовый override), `remnawave_validate_certs: true` → `false` для самоподписанного серта панели
+- `remnawave_token` (Secret, разовый override), `remnawave_panel_cookie` (Secret, разовый override ключа reverse proxy), `remnawave_validate_certs: true` → `false` для самоподписанного серта панели
 
 Поведение:
 
@@ -350,7 +369,7 @@ Node plugins (Torrent Blocker, Ingress/Egress Filter, Connection Drop) треб�
   - `both` (дефолт) — сначала хост, потом панель.
 - `remnawave_remove_confirm: true` — обязательно для `remove`.
 - `remnawave_remove_purge: false` — `true` дополнительно удаляет project dir и `/etc/logrotate.d/remnanode` (только для `scope=host/both`, после удаления стека и панели и только если стек вообще был найден).
-- `remnawave_node_name` — точное имя в панели (обязательно для `panel`/`both`); `remnawave_token`, `remnawave_validate_certs`.
+- `remnawave_node_name` — точное имя в панели (обязательно для `panel`/`both`); `remnawave_token`, `remnawave_panel_cookie`, `remnawave_validate_certs`.
 - `target` — хост ноды (обязателен для `host`/`both`), строго один; `remnanode_agent_container`, `remnanode_dir`, `remnanode_old_dir`.
 
 Порядок для `both`: остановить/удалить контейнер (compose `down`, затем `docker stop`/`docker rm -f` для остатка) и убедиться, что контейнера нет → удалить запись в панели → при `purge=true` удалить каталог проекта (compose-dir, `remnanode_old_dir` или `remnanode_dir`) и logrotate. UFW **не трогается**: если правило было, будет warning с готовой командой `ufw delete`. Файлы xray-логов и бэкапы `move` автоматически не удаляются (для бэкапов — `remnawave_node_purge`). В summary `stack_removed` показывает, был ли на хосте стек.

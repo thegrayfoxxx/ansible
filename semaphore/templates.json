@@ -11,7 +11,8 @@
       "json": {
         "remnawave_default_panel_url": "https://panel.example.com",
         "remnawave_default_config_profile": "",
-        "remnawave_default_inbounds": ""
+        "remnawave_default_inbounds": "",
+        "remnawave_panel_cookie_mode": "cookie"
       }
     }
   },
@@ -391,6 +392,7 @@
         {"name": "remnawave_inbounds", "title": "Inbounds", "description": "Text: UUID инбаундов, по одному на строку (пусто — все инбаунды профиля)", "type": "text", "required": false},
         {"name": "remnawave_note", "title": "Note", "description": "Заметка, до 255 символов", "type": "", "required": false},
         {"name": "remnawave_token", "title": "API token override", "description": "Разовый override токена (пусто — секрет REMNAWAVE_TOKEN из группы)", "type": "secret", "required": false},
+        {"name": "remnawave_panel_cookie", "title": "Panel access key override", "description": "Разовый override секретного ключа reverse proxy перед панелью: NAME=VALUE, KEY или ссылка входа ?NAME=VALUE (пусто — секрет REMNAWAVE_COOKIE из группы, нет и его — без ключа)", "type": "secret", "required": false},
         {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]}
       ]
     },
@@ -405,6 +407,7 @@
         {"name": "target", "title": "Target", "description": "Один хост ноды. Строго один хост, не all. ⚠️ Проверь охват перед Run", "type": "", "required": true},
         {"name": "remnawave_node_name", "title": "Node name", "description": "Имя ноды в панели. Нужно только для первой установки без .env; при существующем .env можно пусто", "type": "", "required": false},
         {"name": "remnawave_token", "title": "API token override", "description": "Разовый override токена (пусто — секрет REMNAWAVE_TOKEN из группы)", "type": "secret", "required": false},
+        {"name": "remnawave_panel_cookie", "title": "Panel access key override", "description": "Разовый override секретного ключа reverse proxy перед панелью: NAME=VALUE, KEY или ссылка входа ?NAME=VALUE (пусто — секрет REMNAWAVE_COOKIE из группы, нет и его — без ключа)", "type": "secret", "required": false},
         {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnanode_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnanode)", "default_value": "/opt/remnanode", "type": "", "required": false},
         {"name": "remnanode_old_dir", "title": "Existing project dir", "description": "Где уже лежит стек (пусто — автоопределить по compose-меткам). Deploy не переезжает — для этого move", "type": "", "required": false},
@@ -511,6 +514,7 @@
         {"name": "remnawave_remove_purge", "title": "Purge files", "description": "true — после удаления стека стереть project dir и logrotate (для scope=host/both)", "default_value": "false", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnawave_node_name", "title": "Node name", "description": "Точное имя ноды в панели (обязательно для scope=panel/both)", "type": "", "required": false},
         {"name": "remnawave_token", "title": "API token override", "description": "Разовый override токена (пусто — секрет REMNAWAVE_TOKEN из группы)", "type": "secret", "required": false},
+        {"name": "remnawave_panel_cookie", "title": "Panel access key override", "description": "Разовый override секретного ключа reverse proxy перед панелью: NAME=VALUE, KEY или ссылка входа ?NAME=VALUE (пусто — секрет REMNAWAVE_COOKIE из группы, нет и его — без ключа)", "type": "secret", "required": false},
         {"name": "remnawave_validate_certs", "title": "Validate TLS certs", "description": "false — не проверять серт панели (самоподписанный)", "default_value": "true", "type": "enum", "required": false, "values": [{"name": "true", "value": "true"}, {"name": "false", "value": "false"}]},
         {"name": "remnanode_agent_container", "title": "Remnanode container", "description": "Имя контейнера агента (пусто — remnanode)", "default_value": "remnanode", "type": "", "required": false},
         {"name": "remnanode_dir", "title": "Project dir", "description": "Папка проекта на ноде (пусто — /opt/remnanode)", "default_value": "/opt/remnanode", "type": "", "required": false},

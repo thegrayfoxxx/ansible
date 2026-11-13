@@ -1,8 +1,10 @@
 ---
+# lookup('env', ...) выполняется на контроллере Semaphore, где лежат секреты окружения.
 - name: Resolve API token and panel URL
   ansible.builtin.set_fact:
     remnawave_token_final: "{{ remnawave_token if (remnawave_token | default('') | length > 0) else lookup('env', 'REMNAWAVE_TOKEN') }}"
     remnawave_panel_base: "{{ ((remnawave_default_panel_url | default('')) | trim).rstrip('/') }}"
+    remnawave_cookie_raw: "{{ (remnawave_panel_cookie | default('', true) | string | trim) or (lookup('env', 'REMNAWAVE_COOKIE') | trim) }}"
   delegate_to: localhost
   become: false
   no_log: true
@@ -17,3 +19,38 @@
   ansible.builtin.fail:
     msg: "API token is empty. Fill REMNAWAVE_TOKEN secret in remnawave_vars or pass remnawave_token override"
   when: remnawave_token_final | length == 0
+
+# Панель за reverse proxy с секретным ключом (eGamesAPI/remnawave-reverse-proxy):
+# nginx пускает запрос, только если есть cookie <NAME>=<VALUE> или ?<NAME>=<VALUE>.
+# Принимаем "NAME=VALUE", один "KEY" (= KEY=KEY) или целую ссылку входа
+# https://panel.example.com/auth/login?NAME=VALUE.
+- name: Normalize panel access cookie
+  ansible.builtin.set_fact:
+    remnawave_cookie_pair: "{{ '' if (remnawave_cookie_one | length == 0) else (remnawave_cookie_one if ('=' in remnawave_cookie_one) else (remnawave_cookie_one ~ '=' ~ remnawave_cookie_one)) }}"
+    remnawave_cookie_mode_final: "{{ remnawave_panel_cookie_mode | default('cookie', true) | string | trim | lower }}"
+  vars:
+    remnawave_cookie_src: "{{ remnawave_cookie_raw | default('', true) }}"
+    # Из ссылки входа берём первый параметр после '?'.
+    remnawave_cookie_one: "{{ ((remnawave_cookie_src.split('?', 1)[1] if ('?' in remnawave_cookie_src) else '').split('&')[0]) if ('://' in remnawave_cookie_src) else remnawave_cookie_src }}"
+  no_log: true
+
+- name: Validate panel access cookie
+  ansible.builtin.fail:
+    msg: >-
+      remnawave_panel_cookie / REMNAWAVE_COOKIE must be NAME=VALUE (letters, digits, _ -), a single KEY
+      or the panel login link with ?NAME=VALUE; remnawave_panel_cookie_mode must be cookie or query
+  when: >-
+    (remnawave_cookie_mode_final not in ['cookie', 'query'])
+    or ((remnawave_cookie_pair | length > 0) and not (remnawave_cookie_pair is match('^[A-Za-z0-9_-]+=[A-Za-z0-9_-]+$')))
+    or (('://' in (remnawave_cookie_raw | default('', true))) and (remnawave_cookie_pair | length == 0))
+
+# Все uri-задачи панели берут заголовки и хвост URL отсюда.
+# cookie: заголовок Cookie (лучше: ключ не попадает в access-логи прокси).
+# query:  ?NAME=VALUE в адресе — если прокси не смотрит на cookie.
+- name: Build panel API request parameters
+  ansible.builtin.set_fact:
+    remnawave_api_headers: >-
+      {{ {'Authorization': 'Bearer ' ~ remnawave_token_final, 'Accept': 'application/json'}
+         | combine({'Cookie': remnawave_cookie_pair} if (remnawave_cookie_pair | length > 0 and remnawave_cookie_mode_final == 'cookie') else {}) }}
+    remnawave_api_qs: "{{ ('?' ~ remnawave_cookie_pair) if (remnawave_cookie_pair | length > 0 and remnawave_cookie_mode_final == 'query') else '' }}"
+  no_log: true

@@ -9,4 +9,5 @@
       {{ (remnawave_api_resp.json.message | default(remnawave_api_resp.msg | default(''))) | string | truncate(300) }}.
       {{ 'Check REMNAWAVE_TOKEN (401/403).' if (remnawave_api_resp.status | default(0) | int) in [401, 403] else '' }}
       {{ 'Check the panel URL/TLS (remnawave_validate_certs).' if (remnawave_api_resp.status | default(0) | int) <= 0 else '' }}
+      {{ 'Panel behind a reverse proxy with a secret key? Set REMNAWAVE_COOKIE secret or remnawave_panel_cookie (NAME=VALUE), check remnawave_panel_cookie_mode.' if (remnawave_api_resp.status | default(0) | int) == 404 else '' }}
   when: (remnawave_api_resp.status | default(-1) | int) not in (remnawave_api_ok | default([200]))
