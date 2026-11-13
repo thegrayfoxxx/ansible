@@ -1,10 +1,8 @@
 ---
 - name: Fetch panel nodes
   ansible.builtin.uri:
-    url: "{{ remnawave_panel_base }}/api/nodes"
-    headers:
-      Authorization: "Bearer {{ remnawave_token_final }}"
-      Accept: application/json
+    url: "{{ remnawave_panel_base }}/api/nodes{{ remnawave_api_qs }}"
+    headers: "{{ remnawave_api_headers }}"
     return_content: true
     timeout: 30
     validate_certs: "{{ remnawave_validate_certs | bool }}"

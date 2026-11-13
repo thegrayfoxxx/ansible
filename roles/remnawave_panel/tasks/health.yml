@@ -6,10 +6,8 @@
 
 - name: Check node answers panel
   ansible.builtin.uri:
-    url: "{{ remnawave_panel_base }}/api/nodes/{{ remnawave_node_uuid }}"
-    headers:
-      Authorization: "Bearer {{ remnawave_token_final }}"
-      Accept: application/json
+    url: "{{ remnawave_panel_base }}/api/nodes/{{ remnawave_node_uuid }}{{ remnawave_api_qs }}"
+    headers: "{{ remnawave_api_headers }}"
     return_content: true
     timeout: 30
     validate_certs: "{{ remnawave_validate_certs | bool }}"

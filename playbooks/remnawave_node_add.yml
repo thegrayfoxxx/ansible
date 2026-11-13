@@ -126,10 +126,8 @@
 
     - name: Fetch config profiles for auto resolve
       ansible.builtin.uri:
-        url: "{{ remnawave_panel_base }}/api/config-profiles"
-        headers:
-          Authorization: "Bearer {{ remnawave_token_final }}"
-          Accept: application/json
+        url: "{{ remnawave_panel_base }}/api/config-profiles{{ remnawave_api_qs }}"
+        headers: "{{ remnawave_api_headers }}"
         return_content: true
         timeout: 30
         validate_certs: "{{ remnawave_validate_certs | bool }}"
@@ -164,10 +162,8 @@
 
     - name: Fetch config profiles for explicit name reference
       ansible.builtin.uri:
-        url: "{{ remnawave_panel_base }}/api/config-profiles"
-        headers:
-          Authorization: "Bearer {{ remnawave_token_final }}"
-          Accept: application/json
+        url: "{{ remnawave_panel_base }}/api/config-profiles{{ remnawave_api_qs }}"
+        headers: "{{ remnawave_api_headers }}"
         return_content: true
         timeout: 30
         validate_certs: "{{ remnawave_validate_certs | bool }}"
@@ -208,10 +204,8 @@
 
     - name: Fetch inbounds of resolved profile
       ansible.builtin.uri:
-        url: "{{ remnawave_panel_base }}/api/config-profiles/{{ remnawave_profile_uuid }}/inbounds"
-        headers:
-          Authorization: "Bearer {{ remnawave_token_final }}"
-          Accept: application/json
+        url: "{{ remnawave_panel_base }}/api/config-profiles/{{ remnawave_profile_uuid }}/inbounds{{ remnawave_api_qs }}"
+        headers: "{{ remnawave_api_headers }}"
         return_content: true
         timeout: 30
         validate_certs: "{{ remnawave_validate_certs | bool }}"
@@ -234,11 +228,9 @@
 
     - name: Create panel node
       ansible.builtin.uri:
-        url: "{{ remnawave_panel_base }}/api/nodes"
+        url: "{{ remnawave_panel_base }}/api/nodes{{ remnawave_api_qs }}"
         method: POST
-        headers:
-          Authorization: "Bearer {{ remnawave_token_final }}"
-          Accept: application/json
+        headers: "{{ remnawave_api_headers }}"
         body_format: json
         body:
           name: "{{ remnawave_node_name }}"

@@ -13,3 +13,11 @@ remnawave_node_connected: false
 remnawave_node_deleted: false
 remnawave_health_retries: 12
 remnawave_health_delay: 10
+# Секретный ключ reverse proxy перед панелью (NAME=VALUE, KEY или ссылка входа).
+# Пусто — берётся секрет REMNAWAVE_COOKIE окружения; нет и его — без ключа.
+remnawave_panel_cookie: ""
+# cookie — заголовок Cookie; query — ?NAME=VALUE в адресе.
+remnawave_panel_cookie_mode: cookie
+remnawave_cookie_pair: ""
+remnawave_api_headers: {}
+remnawave_api_qs: ""
