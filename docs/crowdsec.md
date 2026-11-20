@@ -22,6 +22,7 @@
 - не запускай два register параллельно — записи в группу идут read-modify-write, второй затрет первого
 - порядок: сначала проверяется доступ к Semaphore и группа (токен, `project_id`, URL), и только потом старые регистрации удаляются и создаются новые. PUT в группу повторяется 3 раза; если он так и не прошёл, новые креды (в LAPI уже действуют) сохраняются в файл `0600` на контроллере (`crowdsec_register_rescue_dir`, дефолт `/tmp/semaphore` — том `semaphore_tmp`) и прогон падает с путём к файлу. Секреты в лог не выводятся
 - в группу пишутся `crowdsec_node_<имя>_agent_password`, `_api_key` и `_agent_username` (имя машины в LAPI)
+- `cscli machines add` вызывается с `-f /dev/null`: свой `local_api_credentials.yaml` LAPI не трогается. Старые версии плейбука перезаписывали его кредами последней ноды — после её удаления `cscli lapi status` на LAPI падает с `machine not found`, а register останавливается на «Require running LAPI». Лечение: `docker exec crowdsec-lapi cscli machines add localhost --auto --force && docker restart crowdsec-lapi`
 
 ```json
 {
